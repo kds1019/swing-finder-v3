@@ -6,7 +6,7 @@ on:
       limit:
         description: "Limit universe to first N tickers (blank = full universe)"
         required: false
-        default: ""
+        default: "20"
       skip_ml:
         description: "Skip ML/multi-timeframe/relative-strength enrichment (faster)"
         required: false
