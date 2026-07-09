@@ -37,10 +37,10 @@ jobs:
 
       - name: Restore Webull auth token
         env:
-          WEBULL_TOKEN_CONTENT: ${{ secrets.WEBULL_TOKEN_CONTENT }}
+          WEBULL_TOKEN_CONTENT_B64: ${{ secrets.WEBULL_TOKEN_CONTENT }}
         run: |
           mkdir -p webull_token
-          printf '%s' "$WEBULL_TOKEN_CONTENT" > webull_token/token.txt
+          echo "$WEBULL_TOKEN_CONTENT_B64" | base64 -d > webull_token/token.txt
 
       - name: Run pipeline
         env:

@@ -64,13 +64,16 @@ Actions → New repository secret) — same values as your local `.env`:
 - `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`
 - `FMP_API_KEY`
 - `WEBULL_APP_KEY`, `WEBULL_APP_SECRET`
-- `WEBULL_TOKEN_CONTENT` — the full contents of your local
-  `token.txt` (e.g. `C:\Users\ksher\.webull-mcp\conf\token.txt`), pasted as
-  the secret value. The workflow writes it back out to a token file on the
-  runner before each run. This token auto-refreshes on use, but if it ever
-  lapses into `PENDING` (only happens after ~15+ days of total inactivity
-  across every project that shares it), you'll need to re-run the local 2FA
-  auth flow and update this secret with the new token contents.
+- `WEBULL_TOKEN_CONTENT` — **base64-encoded** contents of your local
+  `token.txt` (e.g. `C:\Users\ksher\.webull-mcp\conf\token.txt`). Encode with:
+  `[Convert]::ToBase64String([IO.File]::ReadAllBytes("<path to token.txt>")) | Set-Clipboard`
+  in PowerShell, then paste the clipboard as the secret value (base64 avoids
+  any multi-line paste corruption in GitHub's secret form). The workflow
+  decodes it back to a token file on the runner before each run. This token
+  auto-refreshes on use, but if it ever lapses into `PENDING` (only happens
+  after ~15+ days of total inactivity across every project that shares it),
+  you'll need to re-run the local 2FA auth flow and update this secret with
+  the newly re-encoded token contents.
 - `ANTHROPIC_API_KEY`
 
 `WEBULL_REGION_ID`/`WEBULL_ENVIRONMENT` aren't secret and are hardcoded in
