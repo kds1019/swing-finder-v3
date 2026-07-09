@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 import pandas as pd
@@ -287,13 +288,33 @@ def main() -> None:
     parser.add_argument("--shortlist-size", type=int, default=SHORTLIST_SIZE, help="Max tickers to carry past sector cap")
     args = parser.parse_args()
 
-    result = run_pipeline(
-        limit=args.limit,
-        skip_decision=args.skip_decision,
-        skip_ml=args.skip_ml,
-        dry_run=args.dry_run,
-        shortlist_size=args.shortlist_size,
-    )
+    # webull-openapi-python-sdk writes its auth/token diagnostic logs directly to a file
+    # descriptor bound to the real stdout — confirmed this bypasses Python-level logging
+    # reconfiguration (setLevel/removeHandler on the "webull" logger had no effect, so its
+    # handler must be holding its own reference to the underlying fd rather than going through
+    # the standard logging hierarchy). That silently corrupted
+    # `python pipeline.py | tee results/latest.json` in GitHub Actions: those log lines landed
+    # ahead of the final JSON in the committed results file, breaking anything trying to
+    # json.load() it (including this project's own GitHub-connector-based result reads).
+    # OS-level fd redirection is the only thing that reliably stops it regardless of how any
+    # dependency internally opens/binds its log stream — swap fd 1 to point at fd 2 for the
+    # run, then restore it before printing the actual result.
+    real_stdout_fd = os.dup(1)
+    sys.stdout.flush()
+    os.dup2(2, 1)
+    try:
+        result = run_pipeline(
+            limit=args.limit,
+            skip_decision=args.skip_decision,
+            skip_ml=args.skip_ml,
+            dry_run=args.dry_run,
+            shortlist_size=args.shortlist_size,
+        )
+    finally:
+        sys.stdout.flush()
+        os.dup2(real_stdout_fd, 1)
+        os.close(real_stdout_fd)
+
     print(json.dumps(result, indent=2, default=str))
 
 
