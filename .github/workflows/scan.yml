@@ -64,6 +64,20 @@ jobs:
           python pipeline.py $ARGS | tee results/latest.json
           cp results/latest.json "results/$(date -u +%Y-%m-%d_%H%M)Z.json"
 
+      - name: Prune archived results older than 15 days
+        run: |
+          set -eo pipefail
+          cutoff=$(date -u -d "15 days ago" +%Y-%m-%d)
+          for f in results/*.json; do
+            base=$(basename "$f")
+            [ "$base" = "latest.json" ] && continue
+            filedate="${base:0:10}"
+            if [[ "$filedate" < "$cutoff" ]]; then
+              echo "Removing stale result: $f"
+              rm -f "$f"
+            fi
+          done
+
       - name: Commit results
         run: |
           set -eo pipefail
