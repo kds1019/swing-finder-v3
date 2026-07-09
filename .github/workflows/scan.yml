@@ -39,6 +39,7 @@ jobs:
         env:
           WEBULL_TOKEN_CONTENT_B64: ${{ secrets.WEBULL_TOKEN_CONTENT }}
         run: |
+          set -eo pipefail
           mkdir -p webull_token
           echo "$WEBULL_TOKEN_CONTENT_B64" | base64 -d > webull_token/token.txt
 
@@ -54,6 +55,7 @@ jobs:
           WEBULL_TOKEN_DIR: ${{ github.workspace }}/webull_token
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
+          set -eo pipefail
           mkdir -p results
           ARGS=""
           if [ -n "${{ inputs.limit }}" ]; then ARGS="$ARGS --limit ${{ inputs.limit }}"; fi
@@ -64,6 +66,7 @@ jobs:
 
       - name: Commit results
         run: |
+          set -eo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add results/
