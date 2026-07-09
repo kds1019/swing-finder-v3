@@ -25,12 +25,19 @@ from core.ml_forecast import ensemble_ml_forecast, evaluate_ml_edge_score
 from core.multi_timeframe import get_multi_timeframe_analysis
 from core.relative_strength import calculate_relative_strength_rank
 from core.volume_profile import evaluate_volume_profile_position
+from core.patterns import detect_patterns, evaluate_pattern_score
+from core.ml_tracking import (
+    load_predictions_log, save_predictions_log, score_due_predictions,
+    record_predictions, compute_accuracy_summary,
+)
 from agents.market_data_agent import MarketDataAgent, compute_market_bias
 from agents.research_agent import ResearchAgent
 from agents.portfolio_agent import PortfolioAgent
 from agents.decision_agent import DecisionAgent
 
 SHORTLIST_SIZE = 20  # max tickers carried past sector cap into Decision Agent synthesis
+
+ML_PREDICTIONS_LOG_PATH = "ml_predictions.csv"  # persisted in the repo, like results/
 
 
 DEEP_HISTORY_LOOKBACK_DAYS = 750  # ~3yrs — the universe scan's 60-day bars are too shallow for
@@ -48,18 +55,18 @@ def enrich_with_technical_analysis(
 ) -> pd.DataFrame:
     """
     Optional enrichment (core.ml_forecast / core.multi_timeframe / core.relative_strength /
-    core.volume_profile) on the post-sector-cap shortlist only — never the full universe,
-    since the ML ensemble trains a fresh Random Forest + Gradient Boosting per ticker and
-    needs much deeper history than the universe-scan bars provide. Volume profile itself is
-    cheap, but it's computed here too (on this same deep-history fetch) rather than in the
-    full universe scan, so there's one consistent POC/value-area reading per ticker instead
-    of two different ones from two different data windows.
+    core.volume_profile / core.patterns) on the post-sector-cap shortlist only — never the
+    full universe, since the ML ensemble trains a fresh Random Forest + Gradient Boosting per
+    ticker and needs much deeper history than the universe-scan bars provide. Volume profile
+    and pattern detection are themselves cheap, but are computed here too (on this same
+    deep-history fetch) rather than in the full universe scan, so there's one consistent
+    reading per ticker instead of two different ones from two different data windows.
 
-    Re-scores SmartScore with volume-profile-position and ML-edge adjustments (bonus/penalty,
-    same pattern as core.deep_discount_filter) and re-sorts by the result — this only affects
-    ranking among tickers that already survived sector cap on their pre-enrichment SmartScore;
-    it can't influence sector cap membership, since these adjustments aren't available until
-    after this deep-history fetch.
+    Re-scores SmartScore with volume-profile-position, ML-edge, and chart-pattern adjustments
+    (bonus/penalty, same pattern as core.deep_discount_filter) and re-sorts by the result —
+    this only affects ranking among tickers that already survived sector cap on their
+    pre-enrichment SmartScore; it can't influence sector cap membership, since these
+    adjustments aren't available until after this deep-history fetch.
     """
     if shortlist_df.empty:
         return shortlist_df
@@ -72,7 +79,7 @@ def enrich_with_technical_analysis(
 
     df = shortlist_df.copy()
     ml_forecasts, mtf_analyses, rs_ranks = [], [], []
-    vp_adjustments, ml_adjustments = [], []
+    vp_adjustments, ml_adjustments, pattern_adjustments = [], [], []
 
     for ticker, price in zip(df["Ticker"], df["Price"]):
         bars = deep_bars.get(ticker)
@@ -87,12 +94,15 @@ def enrich_with_technical_analysis(
             )
             vp_adjustments.append(evaluate_volume_profile_position(bars, window=VOLUME_PROFILE_WINDOW_DAYS))
             ml_adjustments.append(evaluate_ml_edge_score(ml_result, float(price)))
+            pattern_adjustments.append(evaluate_pattern_score(detect_patterns(bars)))
         else:
             ml_forecasts.append({"success": False, "error": "no bars"})
             mtf_analyses.append(None)
             rs_ranks.append(None)
             vp_adjustments.append({"triggered": False, "score_adjustment": 0, "flag": None, "poc": None, "price_vs_poc_pct": None})
             ml_adjustments.append({"triggered": False, "score_adjustment": 0, "flag": "ml_edge_unavailable", "edge_pct": None})
+            pattern_adjustments.append({"triggered": False, "score_adjustment": 0, "flag": None,
+                                         "pattern_name": None, "pattern_confidence": None, "pattern_action": None})
 
     df["MLForecast"] = ml_forecasts
     df["MultiTimeframe"] = mtf_analyses
@@ -102,10 +112,14 @@ def enrich_with_technical_analysis(
     df["VolumeProfileFlag"] = [a["flag"] for a in vp_adjustments]
     df["MLEdgePct"] = [a["edge_pct"] for a in ml_adjustments]
     df["MLEdgeFlag"] = [a["flag"] for a in ml_adjustments]
+    df["PatternName"] = [a["pattern_name"] for a in pattern_adjustments]
+    df["PatternConfidence"] = [a["pattern_confidence"] for a in pattern_adjustments]
+    df["PatternAction"] = [a["pattern_action"] for a in pattern_adjustments]
+    df["PatternFlag"] = [a["flag"] for a in pattern_adjustments]
 
     df["SmartScore"] = [
-        max(0, min(100, score + vp["score_adjustment"] + ml["score_adjustment"]))
-        for score, vp, ml in zip(df["SmartScore"], vp_adjustments, ml_adjustments)
+        max(0, min(100, score + vp["score_adjustment"] + ml["score_adjustment"] + pat["score_adjustment"]))
+        for score, vp, ml, pat in zip(df["SmartScore"], vp_adjustments, ml_adjustments, pattern_adjustments)
     ]
     df = df.sort_values("SmartScore", ascending=False).reset_index(drop=True)
 
@@ -179,6 +193,7 @@ def run_pipeline(
     # relative strength vs SPY. Runs on the shortlist only. Skippable for fast iteration
     # since the ML ensemble trains a fresh model per ticker. ---
     vix_df = None
+    ml_track_record = None
     if not skip_ml:
         if settings.fmp_api_key:
             try:
@@ -192,13 +207,36 @@ def run_pipeline(
                 # "no VIX feature" rather than abort the whole enrichment step.
                 print(f"[pipeline] VIX history fetch failed, proceeding without it: {e}", file=sys.stderr)
         shortlist_df = enrich_with_technical_analysis(shortlist_df, market_agent, vix_df=vix_df)
-        print(f"[pipeline] Technical enrichment (ML/MTF/RS) added for {len(shortlist_df)} tickers", file=sys.stderr)
+        print(f"[pipeline] Technical enrichment (ML/MTF/RS/Patterns) added for {len(shortlist_df)} tickers", file=sys.stderr)
+
+        # --- ML forecast accuracy tracking: score any past predictions whose 5-trading-day
+        # window has now elapsed, then log this run's new forecasts for future scoring. ---
+        ml_log = load_predictions_log(ML_PREDICTIONS_LOG_PATH)
+        ml_log = score_due_predictions(ml_log, market_agent)
+        new_predictions = [
+            {
+                "prediction_date": pd.Timestamp.now().strftime("%Y-%m-%d"),
+                "ticker": row["Ticker"],
+                "entry_price": float(row["Price"]),
+                "predicted_return_pct": row["MLEdgePct"],
+                "predicted_price": row["MLForecast"]["ensemble_price"],
+                "confidence": row["MLForecast"]["confidence"],
+                "days_ahead": 5,
+            }
+            for _, row in shortlist_df.iterrows()
+            if isinstance(row["MLForecast"], dict) and row["MLForecast"].get("success")
+        ]
+        ml_log = record_predictions(ml_log, new_predictions)
+        save_predictions_log(ml_log, ML_PREDICTIONS_LOG_PATH)
+        ml_track_record = compute_accuracy_summary(ml_log)
+        print(f"[pipeline] ML track record: {ml_track_record}", file=sys.stderr)
 
     if skip_decision:
         return {
             "shortlist": json.loads(shortlist_df.to_json(orient="records")),
             "sector_excluded": json.loads(sector_excluded_df.to_json(orient="records")),
             "market_bias": market_bias,
+            "ml_track_record": ml_track_record,
             "skipped_decision": True,
         }
 
@@ -228,7 +266,7 @@ def run_pipeline(
 
     # --- Decision Agent: final synthesis ---
     decision_agent = DecisionAgent(settings)
-    result = decision_agent.synthesize(final_df, final_df, portfolio_context, market_gate_open)
+    result = decision_agent.synthesize(final_df, final_df, portfolio_context, market_gate_open, ml_track_record)
 
     return {
         "market_bias": market_bias,
