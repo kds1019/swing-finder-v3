@@ -1,0 +1,1 @@
+temporary file to verify MCP connector write access — safe to delete
