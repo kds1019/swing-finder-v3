@@ -1,0 +1,6 @@
+prediction_date,ticker,rank,smartscore,entry_price,stop_price,target_price,rr_ratio,resolved,outcome,outcome_price,outcome_date,bars_to_resolution,actual_return_pct
+2026-07-09,BB,1,97,11.44,9.39,22.29,5.29,False,,,,,
+2026-07-09,BTDR,2,85,14.34,12.14,31.29,7.7,False,,,,,
+2026-07-09,CORZ,3,76,23.75,19.12,46.16,4.84,False,,,,,
+2026-07-09,CIFR,4,74,23.27,20.64,47.49,9.2,False,,,,,
+2026-07-09,AVTR,5,60,10.52,9.26,14.29,3.0,False,,,,,
