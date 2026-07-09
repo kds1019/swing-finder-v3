@@ -49,6 +49,33 @@ python pipeline.py --skip-ml                     # skip ML forecast/MTF/RS enric
 python pipeline.py                               # full pipeline, all 4 agents
 ```
 
+## Running via GitHub Actions
+
+`.github/workflows/scan.yml` runs the full pipeline on GitHub's cloud runners —
+no local machine needed. Trigger manually from the repo's **Actions** tab
+("SwingFinder Scan" → **Run workflow**, optionally setting `limit`/`skip_ml`/
+`skip_decision`), or via `gh workflow run scan.yml`. Results are written to
+`results/latest.json` (plus a timestamped copy in `results/`) and committed
+back to the repo automatically.
+
+Requires these **Actions secrets** (Settings → Secrets and variables →
+Actions → New repository secret) — same values as your local `.env`:
+
+- `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`
+- `FMP_API_KEY`
+- `WEBULL_APP_KEY`, `WEBULL_APP_SECRET`
+- `WEBULL_TOKEN_CONTENT` — the full contents of your local
+  `token.txt` (e.g. `C:\Users\ksher\.webull-mcp\conf\token.txt`), pasted as
+  the secret value. The workflow writes it back out to a token file on the
+  runner before each run. This token auto-refreshes on use, but if it ever
+  lapses into `PENDING` (only happens after ~15+ days of total inactivity
+  across every project that shares it), you'll need to re-run the local 2FA
+  auth flow and update this secret with the new token contents.
+- `ANTHROPIC_API_KEY`
+
+`WEBULL_REGION_ID`/`WEBULL_ENVIRONMENT` aren't secret and are hardcoded in
+the workflow (`us`/`prod`).
+
 ## Freshly-designed logic — validate before trusting at scale
 
 Three pieces of screening logic referenced by the project's planning doc do not
