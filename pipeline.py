@@ -31,6 +31,10 @@ from core.ml_tracking import (
     load_predictions_log, save_predictions_log, score_due_predictions,
     record_predictions, compute_accuracy_summary,
 )
+from core.pick_tracking import (
+    load_pick_outcomes_log, save_pick_outcomes_log, score_due_picks,
+    record_picks, compute_pick_accuracy_summary,
+)
 from agents.market_data_agent import MarketDataAgent, compute_market_bias
 from agents.research_agent import ResearchAgent
 from agents.portfolio_agent import PortfolioAgent
@@ -39,6 +43,7 @@ from agents.decision_agent import DecisionAgent
 SHORTLIST_SIZE = 20  # max tickers carried past sector cap into Decision Agent synthesis
 
 ML_PREDICTIONS_LOG_PATH = "ml_predictions.csv"  # persisted in the repo, like results/
+PICK_OUTCOMES_LOG_PATH = "pick_outcomes.csv"    # persisted in the repo, like results/
 
 
 DEEP_HISTORY_LOOKBACK_DAYS = 750  # ~3yrs — the universe scan's 60-day bars are too shallow for
@@ -265,9 +270,23 @@ def run_pipeline(
         "sector_exposure": sector_exposure,
     }
 
+    # --- Pick outcome tracking (part 1): score past picks before this run's synthesis, so
+    # the Decision Agent can see its own historical win rate before making new calls. ---
+    pick_log = load_pick_outcomes_log(PICK_OUTCOMES_LOG_PATH)
+    pick_log = score_due_picks(pick_log, market_agent)
+    pick_track_record = compute_pick_accuracy_summary(pick_log)
+    print(f"[pipeline] Pick track record: {pick_track_record}", file=sys.stderr)
+
     # --- Decision Agent: final synthesis ---
     decision_agent = DecisionAgent(settings)
-    result = decision_agent.synthesize(final_df, final_df, portfolio_context, market_gate_open, ml_track_record)
+    result = decision_agent.synthesize(
+        final_df, final_df, portfolio_context, market_gate_open, ml_track_record, pick_track_record
+    )
+
+    # --- Pick outcome tracking (part 2): log this run's new picks for future scoring. ---
+    ranked_picks = result.get("ranked_picks", []) if isinstance(result, dict) else []
+    pick_log = record_picks(pick_log, ranked_picks, pd.Timestamp.now().strftime("%Y-%m-%d"))
+    save_pick_outcomes_log(pick_log, PICK_OUTCOMES_LOG_PATH)
 
     return {
         "market_bias": market_bias,
@@ -276,6 +295,7 @@ def run_pipeline(
         "sector_excluded_count": len(sector_excluded_df),
         "earnings_excluded_count": len(earnings_excluded_df),
         "decision": result,
+        "pick_track_record": pick_track_record,
     }
 
 

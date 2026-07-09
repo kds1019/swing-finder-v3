@@ -46,6 +46,15 @@ forecasts against what happened) — use it to calibrate how much weight the MLE
 THIS run deserves in your rationale (a currently-unreliable model's edge call is worth less
 skepticism-adjustment than a currently-reliable one's). If ml_track_record says the sample
 size is insufficient, don't speculate about accuracy — just treat MLEdgeFlag at face value.
+
+If pick_track_record is present, it's THIS SYSTEM'S OWN historical performance — win rate
+(target hit vs. stop hit) of past ranked_picks output, tracked independently of whether any
+pick was actually traded. This is not about any single ticker, it's about how much to trust
+the process as a whole. If pick_track_record.sufficient_data is true, weave a brief,
+proportionate note into overall_recommendation reflecting it (e.g. a strong recent win rate
+supports normal conviction; a weak one warrants a more conservative overall tone regardless
+of how clean individual setups look this run). If sufficient_data is false, don't mention it.
+
 Your job is ONLY to:
 
 1. Rank the provided tickers by overall attractiveness, using the given SmartScore, trade
@@ -94,6 +103,7 @@ class DecisionAgent:
         portfolio_context: dict,
         market_gate_open: bool,
         ml_track_record: Optional[dict] = None,
+        pick_track_record: Optional[dict] = None,
     ) -> str:
         shortlist_records = json.loads(research_data.to_json(orient="records")) if not research_data.empty else []
         payload = {
@@ -103,6 +113,7 @@ class DecisionAgent:
             "account_balance": portfolio_context.get("balance", {}),
             "existing_sector_exposure": portfolio_context.get("sector_exposure", {}),
             "ml_track_record": ml_track_record,
+            "pick_track_record": pick_track_record,
         }
         return json.dumps(payload, default=str, indent=2)
 
@@ -113,9 +124,11 @@ class DecisionAgent:
         portfolio_context: dict,
         market_gate_open: bool,
         ml_track_record: Optional[dict] = None,
+        pick_track_record: Optional[dict] = None,
     ) -> dict:
         user_prompt = self._build_user_prompt(
-            smartscore_shortlist, research_data, portfolio_context, market_gate_open, ml_track_record
+            smartscore_shortlist, research_data, portfolio_context, market_gate_open,
+            ml_track_record, pick_track_record,
         )
 
         # Scaled to shortlist size. 800/ticker + 1500 overhead was enough before pattern
