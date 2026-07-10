@@ -71,16 +71,32 @@ jobs:
           # Same n_tickers/lookback_days/seed as the walk-forward backtest above (seed is
           # pooled_model_experiment.py's hardcoded default) — same ticker sample, so its
           # rank-IC is directly comparable to the per-ticker walk-forward's.
-          python -m research.pooled_model_experiment \
-            --n-tickers "${{ inputs.n_tickers }}" \
-            --lookback-days "${{ inputs.lookback_days }}" \
-            | tee research/pooled_model_summary.txt
+          # Retried: this step re-fetches bars from Alpaca (independent of the walk-forward
+          # step's already-completed fetch) and a transient connection timeout here
+          # shouldn't sink the whole run after the slow walk-forward step already succeeded.
+          for attempt in 1 2 3; do
+            if python -m research.pooled_model_experiment \
+              --n-tickers "${{ inputs.n_tickers }}" \
+              --lookback-days "${{ inputs.lookback_days }}" \
+              | tee research/pooled_model_summary.txt; then
+              break
+            fi
+            echo "attempt $attempt failed" >&2
+            if [ "$attempt" = 3 ]; then exit 1; fi
+            sleep 30
+          done
 
       - name: Commit results
+        if: always()
         run: |
           set -eo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add research/walk_forward_results.csv research/walk_forward_summary.txt research/pooled_model_summary.txt
+          # if: always() means this runs even if an earlier step failed (and possibly never
+          # wrote one of these files) — only stage whatever actually exists, so a failure in
+          # one step doesn't also throw away another step's completed results.
+          for f in research/walk_forward_results.csv research/walk_forward_summary.txt research/pooled_model_summary.txt; do
+            [ -f "$f" ] && git add "$f"
+          done
           git diff --cached --quiet && echo "No changes to commit" || git commit -m "ML edge confidence backtest: $(date -u +%Y-%m-%d\ %H:%M)Z"
           git push
