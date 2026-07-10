@@ -1,0 +1,21 @@
+[analyze] 2426 scored walk-forward predictions loaded from research/walk_forward_results.csv
+
+=== IC / rank-IC (predicted vs. actual return magnitude) ===
+  n: 2426
+  ic_pearson: -0.0303
+  ic_pearson_pvalue: 0.1357
+  rank_ic_spearman: 0.0246
+  rank_ic_spearman_pvalue: 0.2258
+
+  Interpretation: IC/rank-IC near 0 means predicted return magnitude carries no information about actual return magnitude, even if directional accuracy alone looks OK. Values above ~0.03-0.05 are considered meaningful in equity return prediction (daily-frequency signals are extremely noisy); this is a 5-day-ahead swing signal so there's no established benchmark to compare against — treat the sign and p-value as the first-order read (is there any real correlation at all, statistically), and the magnitude as secondary.
+
+=== Confidence bucket report (quintiles) ===
+       bucket    n  confidence_min  confidence_max  win_rate_pct  mean_actual_return_pct  median_actual_return_pct
+(-0.001, 0.6] 1502             0.0             0.6          51.4                   0.737                     0.285
+   (0.6, 2.0]  443             0.7             2.0          51.2                   6.827                     0.380
+  (2.0, 21.9]  481             2.1            21.9          50.3                   0.567                     0.090
+
+  Interpretation: if win_rate_pct and mean_actual_return_pct both increase monotonically from the lowest to the highest confidence bucket, confidence is doing its job. If they're flat or non-monotonic, the current confidence formula (core/ml_forecast.py's dir_conf * r2_adj) isn't actually separating good calls from bad ones, and the scaled SmartScore adjustment (ML_EDGE_CONFIDENCE_SATURATION) and any future meta-labeling work should be revisited rather than assumed correct.
+
+=== Overall directional accuracy (for comparison to ml_track_record) ===
+  n=2426  directional_accuracy_pct=51.2
