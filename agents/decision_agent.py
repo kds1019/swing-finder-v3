@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from typing import Optional
 
 import pandas as pd
@@ -179,7 +180,14 @@ class DecisionAgent:
             response = self.client.messages.create(
                 model=MODEL,
                 max_tokens=max_tokens,
-                system=SYSTEM_PROMPT,
+                # SYSTEM_PROMPT is static (~1550 tokens, well over the 1024-token minimum for
+                # prompt caching to apply) and identical on every call — cache_control marks it
+                # as reusable so repeated runs within the cache TTL (~5 min, e.g. iterative
+                # testing or manual retriggers) get charged the much cheaper cache-read rate for
+                # this block instead of paying full input-token price every time. The per-run
+                # user_prompt (shortlist/portfolio/tracking data) is never repeated, so it isn't
+                # cached — there'd be nothing to reuse.
+                system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": "user", "content": user_prompt}],
             )
         except Exception as e:
@@ -191,6 +199,19 @@ class DecisionAgent:
                 "error": "Anthropic API call failed",
                 "exception": str(e),
             }
+
+        # Visibility into whether prompt caching is actually landing — cache_read_input_tokens
+        # > 0 means this call reused the cached system prompt at the cheaper rate;
+        # cache_creation_input_tokens > 0 means this call wrote a fresh cache entry (first call
+        # in a while, or the previous one expired). Both 0 on every call would mean caching
+        # isn't taking effect and is worth re-checking.
+        usage = response.usage
+        print(
+            f"[decision_agent] token usage: input={usage.input_tokens} output={usage.output_tokens} "
+            f"cache_read={getattr(usage, 'cache_read_input_tokens', 0)} "
+            f"cache_creation={getattr(usage, 'cache_creation_input_tokens', 0)}",
+            file=sys.stderr,
+        )
 
         text = "".join(block.text for block in response.content if block.type == "text")
         try:
