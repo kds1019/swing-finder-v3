@@ -26,8 +26,10 @@ from core.trade_plan import compute_trade_plan
 
 
 def compute_market_bias(spy_df: pd.DataFrame | None) -> str | None:
-    """SPY EMA20 vs EMA50 — feeds smartscore.apply_market_bias_buffer. Always-on
-    in this pipeline (the reference app gates this behind an opt-in toggle)."""
+    """SPY EMA20 vs EMA50 — informational context only (logged and included in
+    pipeline.py's output). No longer feeds SmartScore classification — see
+    core/smartscore.py's module-level comment for why the buffer that used to
+    use this was removed."""
     if spy_df is None or len(spy_df) < 50:
         return None
     df = compute_indicators(spy_df.copy())
@@ -95,7 +97,7 @@ class MarketDataAgent:
         return self.fetch_universe_bars(["SPY"], lookback_days).get("SPY")
 
     def scan_universe(
-        self, universe_df: pd.DataFrame, settings, market_bias: str | None
+        self, universe_df: pd.DataFrame, settings
     ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
         """
         SmartScore every ticker in the universe. Returns (ranked_df, bars_by_ticker):
@@ -117,7 +119,7 @@ class MarketDataAgent:
                 continue
 
             df = compute_indicators(df.copy())
-            result = compute_smartscore(df, market_bias, settings)
+            result = compute_smartscore(df, settings)
             if result.get("smartscore") is None:
                 continue
 

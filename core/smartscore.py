@@ -34,10 +34,15 @@ SETUP_THRESHOLDS = {
     "pullback_band": 0.45,
 }
 
-# Market-bias buffer magnitudes (SPY EMA20 vs EMA50) — always-on in this pipeline,
-# unlike the reference app where it's gated behind an opt-in "Smart Mode" toggle.
-MARKET_BIAS_RSI_BUFFER = 3
-MARKET_BIAS_BAND_BUFFER = 0.05
+# A market-bias buffer (shifting these thresholds by SPY EMA20-vs-EMA50 trend) used to run
+# here, always-on — a deviation from the reference app, which gates the equivalent behind an
+# opt-in "Smart Mode" toggle, off by default. Removed 2026-07: it was a blanket, universe-wide
+# classification GATE (could exclude a ticker before ML edge/patterns/relative-strength ever
+# got to evaluate it), unlike every other market-context signal in this pipeline, which is a
+# soft per-ticker score adjustment applied only after a ticker already qualifies. A stock
+# holding up against a weak broader market was getting the same tightened bar as a genuinely
+# weak one, with no way to tell the two apart at this stage. If market-context sensitivity is
+# wanted again, it belongs downstream as a scored adjustment, not an upstream gate.
 
 
 def passes_filters(last: pd.Series, settings) -> bool:
@@ -51,30 +56,6 @@ def passes_filters(last: pd.Series, settings) -> bool:
     if vol < settings.min_volume:
         return False
     return True
-
-
-def apply_market_bias_buffer(thresholds: dict, market_bias: str | None) -> dict:
-    """
-    Loosen thresholds in an uptrend (catch more opportunities), tighten in a
-    downtrend (avoid traps). market_bias is "Uptrend" / "Downtrend" / None,
-    from SPY EMA20 vs EMA50 (see pipeline.py's market bias computation).
-    """
-    rsi_buffer = 0.0
-    band_buffer = 0.0
-    if market_bias == "Uptrend":
-        rsi_buffer = -MARKET_BIAS_RSI_BUFFER
-        band_buffer = -MARKET_BIAS_BAND_BUFFER
-    elif market_bias == "Downtrend":
-        rsi_buffer = MARKET_BIAS_RSI_BUFFER
-        band_buffer = MARKET_BIAS_BAND_BUFFER
-
-    return {
-        "breakout_rsi": thresholds["breakout_rsi"] + rsi_buffer,
-        "breakout_band": thresholds["breakout_band"] + band_buffer,
-        "pullback_rsi_min": thresholds["pullback_rsi_min"] + rsi_buffer,
-        "pullback_rsi_max": thresholds["pullback_rsi_max"] + rsi_buffer,
-        "pullback_band": thresholds["pullback_band"] + band_buffer,
-    }
 
 
 def classify_setup(last: pd.Series, thresholds: dict) -> tuple[str | None, bool, str | None]:
@@ -118,7 +99,7 @@ def classify_setup(last: pd.Series, thresholds: dict) -> tuple[str | None, bool,
     return setup, near_miss, near_type
 
 
-def compute_smartscore(df: pd.DataFrame, market_bias: str | None, settings) -> dict:
+def compute_smartscore(df: pd.DataFrame, settings) -> dict:
     """
     Compute the SmartScore for the most recent bar of `df` (must already have
     compute_indicators() applied). Returns a dict with the score, setup
@@ -140,8 +121,7 @@ def compute_smartscore(df: pd.DataFrame, market_bias: str | None, settings) -> d
     rsi = float(last["RSI14"])
     band = float(last["BandPos20"])
 
-    thresholds = apply_market_bias_buffer(SETUP_THRESHOLDS, market_bias)
-    setup, near_miss, near_type = classify_setup(last, thresholds)
+    setup, near_miss, near_type = classify_setup(last, SETUP_THRESHOLDS)
 
     if not setup and not near_miss:
         return {"smartscore": None, "setup": None, "reason": "no_signal"}
@@ -267,5 +247,4 @@ def compute_smartscore(df: pd.DataFrame, market_bias: str | None, settings) -> d
         "at_meaningful_level": at_meaningful_level,
         "level_description": level_description,
         "fib_data": fib_data,
-        "market_bias_thresholds": thresholds,
     }

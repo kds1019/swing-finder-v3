@@ -182,7 +182,7 @@ def run_pipeline(
     market_bias = compute_market_bias(spy_bars)
     print(f"[pipeline] Market bias (SPY EMA20 vs EMA50): {market_bias}", file=sys.stderr)
 
-    ranked_df, bars_by_ticker = market_agent.scan_universe(universe, settings, market_bias)
+    ranked_df, bars_by_ticker = market_agent.scan_universe(universe, settings)
     print(f"[pipeline] SmartScore'd {len(ranked_df)} / {len(universe)} tickers with a signal", file=sys.stderr)
 
     if ranked_df.empty:

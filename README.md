@@ -79,20 +79,27 @@ Actions → New repository secret) — same values as your local `.env`:
 `WEBULL_REGION_ID`/`WEBULL_ENVIRONMENT` aren't secret and are hardcoded in
 the workflow (`us`/`prod`).
 
-## Freshly-designed logic — validate before trusting at scale
+## Freshly-designed logic — still being validated
 
-Three pieces of screening logic referenced by the project's planning doc do not
-exist as code anywhere in `swing-finder-v2` — they were only described in a
-separate Google Sheet ("SwingFinder Screening Parameters (v2 - Tuned)"). They
-were built fresh here as reasonable interpretations of that sheet, **not
-verified ports** — check them against the actual sheet before relying on them
-at full scale:
+Two pieces of screening logic have no prior implementation to verify against
+(no confirmed source doc, unlike most of this port) — reviewed 2026-07-09,
+still worth treating as experimental:
 
-- `core/sector_cap.py` — max N per sector, post-ranking.
+- `core/sector_cap.py` — confirmed correct: runs after full-universe
+  SmartScore scoring, on the already-ranked list, purely for sector
+  diversification in the final shortlist.
 - `core/deep_discount_filter.py` — stabilization checks gating the Fibonacci
-  "Deep Discount" SmartScore bonus.
-- The always-on Market-Bias Buffer in `core/smartscore.py` (in the reference
-  app this is gated behind an opt-in "Smart Mode" toggle, default off).
+  "Deep Discount" SmartScore bonus. Genuinely new/experimental (no prior
+  version anywhere), intent confirmed reasonable (don't reward a "discount"
+  reading unless there's evidence it's actually stabilizing, not still
+  falling) but not yet validated at scale.
+
+A third piece, a Market-Bias Buffer that shifted SmartScore's setup-
+classification thresholds based on SPY's own trend, was removed 2026-07-09
+after review — see core/smartscore.py's module comment for why (it was a
+blanket, universe-wide classification gate that could exclude a ticker
+before any of the more precise per-ticker signals — ML edge, patterns,
+relative strength — ever got to evaluate it).
 
 ## Known gaps vs. the reference app
 
