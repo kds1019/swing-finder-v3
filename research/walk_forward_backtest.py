@@ -89,17 +89,22 @@ def select_sample_universe(universe_df: pd.DataFrame, settings, n: int, seed: in
     return sorted(picked[:n])
 
 
-def backtest_ticker(ticker: str, df: pd.DataFrame, step_days: int, days_ahead: int) -> list[dict]:
+def backtest_ticker(
+    ticker: str, df: pd.DataFrame, spy_df: pd.DataFrame | None, step_days: int, days_ahead: int
+) -> list[dict]:
     """Walk df forward step_days at a time; at each point, train the ensemble on data up
     to that bar only (df.iloc[:idx+1] — indicators were computed causally over the full
     history up front, so slicing is equivalent to recomputing them fresh at each step) and
     score it against the actual close days_ahead bars later, which is already known since
-    this is historical data."""
+    this is historical data. spy_df is truncated to the same as-of date at each step for the
+    same no-lookahead reason."""
     rows = []
     last_idx = len(df) - days_ahead - 1
     for idx in range(WARMUP_BARS, last_idx + 1, step_days):
         df_upto = df.iloc[: idx + 1].reset_index(drop=True)
-        result = ensemble_ml_forecast(df_upto, vix_df=None, days_ahead=days_ahead)
+        as_of_date = df["Date"].iloc[idx]
+        spy_upto = spy_df[spy_df["Date"] <= as_of_date] if spy_df is not None else None
+        result = ensemble_ml_forecast(df_upto, vix_df=None, spy_df=spy_upto, days_ahead=days_ahead)
         if not result.get("success"):
             continue
 
@@ -138,6 +143,9 @@ def run(n_tickers: int, lookback_days: int, step_days: int, days_ahead: int, see
     bars_by_ticker = agent.fetch_universe_bars(tickers, lookback_days=lookback_days)
     print(f"[walk_forward] fetched bars for {len(bars_by_ticker)}/{len(tickers)} tickers", file=sys.stderr)
 
+    spy_df = agent.fetch_spy_bars(lookback_days=lookback_days)
+    print(f"[walk_forward] SPY bars: {'fetched ' + str(len(spy_df)) + ' rows' if spy_df is not None else 'unavailable — RS features will be skipped'}", file=sys.stderr)
+
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wrote_header = output_path.exists()
@@ -150,7 +158,7 @@ def run(n_tickers: int, lookback_days: int, step_days: int, days_ahead: int, see
             continue
 
         df = compute_indicators(df.copy())
-        rows = backtest_ticker(ticker, df, step_days, days_ahead)
+        rows = backtest_ticker(ticker, df, spy_df, step_days, days_ahead)
         print(f"[walk_forward] ({i}/{len(tickers)}) {ticker}: {len(rows)} walk-forward predictions", file=sys.stderr)
         total_rows += len(rows)
 

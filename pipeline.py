@@ -91,7 +91,7 @@ def enrich_with_technical_analysis(
         bars = deep_bars.get(ticker)
 
         if bars is not None:
-            ml_result = ensemble_ml_forecast(compute_indicators(bars.copy()), vix_df=vix_df)
+            ml_result = ensemble_ml_forecast(compute_indicators(bars.copy()), vix_df=vix_df, spy_df=spy_deep_bars)
             ml_forecasts.append(ml_result)
             mtf_analyses.append(get_multi_timeframe_analysis(bars))
             rs_ranks.append(
