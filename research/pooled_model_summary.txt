@@ -1,0 +1,30 @@
+
+=== Pooled Random Forest — held-out test period ===
+  n=7422
+  ic_pearson=0.0117 p=0.3129
+  rank_ic_spearman=-0.0199 p=0.0869
+  directional_accuracy_pct=51.1
+
+=== Pooled Gradient Boosting — held-out test period ===
+  n=7422
+  ic_pearson=0.0158 p=0.1743
+  rank_ic_spearman=-0.0247 p=0.0334
+  directional_accuracy_pct=51.1
+
+=== Pooled ensemble (RF+GB average) — held-out test period ===
+  n=7422
+  ic_pearson=0.0145 p=0.2131
+  rank_ic_spearman=-0.0216 p=0.0627
+  directional_accuracy_pct=51.2
+
+=== Top 10 RF feature importances (pooled model) ===
+  high_low_range: 0.1613
+  rs_60: 0.0767
+  volume_lag_1: 0.0719
+  mom_20: 0.0486
+  mom_5: 0.0472
+  ema50_slope: 0.0465
+  volatility: 0.0450
+  rs_20: 0.0446
+  vwap_position_60: 0.0420
+  high: 0.0407
