@@ -30,6 +30,7 @@ _MIN_BARS = 60
 def prepare_features(
     df: pd.DataFrame,
     vix_df: Optional[pd.DataFrame] = None,
+    spy_df: Optional[pd.DataFrame] = None,
     lookback: int = 1500,
     days_ahead: int = 5,
 ) -> tuple:
@@ -44,6 +45,14 @@ def prepare_features(
     vix_df, if provided, must have `Date` and `vix` columns — merged by date
     with forward-fill; dropped entirely if it covers less than half the rows
     (models train fine without it; better to omit than to inject mostly-NaN).
+
+    spy_df, if provided, must have `Date` and `Close` columns (an OHLCV frame
+    works fine) — used for relative-strength-vs-SPY features. Same
+    core.relative_strength.py / core.multi_timeframe.py / core.volume_profile.py
+    signals the live pipeline already computes for SmartScore/pattern purposes
+    elsewhere, re-derived here in vectorized form (rolling/ewm over every row)
+    rather than by calling those row-at-a-time functions in a loop, which would
+    be prohibitively slow across a 1500-row training set.
 
     Returns (X, y, feature_names, y_stats), or (None, None, None, None) if
     there isn't enough data.
@@ -106,6 +115,38 @@ def prepare_features(
         features["rsi_slope"] = recent["RSI14"].diff(3)
 
     features["price_vol_confirm"] = recent["Close"].pct_change(1) * recent["Volume"].pct_change(1)
+
+    # --- Weekly trend alignment (core.multi_timeframe's daily/weekly EMA20-vs-EMA50 check,
+    # vectorized): resample to weekly closes, compare weekly EMA20/EMA50 per completed week,
+    # then reindex onto the daily index with ffill. ffill only ever pulls a week's label date
+    # forward onto later dates, never backward, so this can't leak an in-progress week's data
+    # into an earlier date — each day only ever sees the most recently *completed* week. ---
+    weekly_close = recent["Close"].resample("W").last().dropna()
+    if len(weekly_close) >= 10:
+        weekly_ema20 = weekly_close.ewm(span=20, adjust=False).mean()
+        weekly_ema50 = weekly_close.ewm(span=50, adjust=False).mean()
+        weekly_uptrend = (weekly_ema20 > weekly_ema50).astype(float)
+        features["weekly_uptrend"] = weekly_uptrend.reindex(features.index, method="ffill")
+
+    # --- Volume-profile-position proxy (core.volume_profile's point-of-control check,
+    # vectorized): rolling dollar-volume-weighted average price stands in for the histogram
+    # POC — same "is price stretched above where volume actually concentrated" idea, without
+    # needing a per-row histogram rebuild across the whole training set. ---
+    _dollar_vol = recent["Close"] * recent["Volume"]
+    _rolling_vwap = (
+        _dollar_vol.rolling(60, min_periods=20).sum() / recent["Volume"].rolling(60, min_periods=20).sum()
+    )
+    features["vwap_position_60"] = recent["Close"] / _rolling_vwap - 1
+
+    # --- Relative strength vs SPY (core.relative_strength, vectorized): percentage-point
+    # difference between the ticker's and SPY's return over the same trailing window. ---
+    if spy_df is not None and not spy_df.empty:
+        spy_series = spy_df.set_index(pd.to_datetime(spy_df["Date"]).dt.normalize())["Close"]
+        spy_aligned = spy_series.reindex(features.index, method="ffill")
+        if spy_aligned.notna().sum() >= len(features) * 0.5:
+            features["rs_20"] = recent["Close"].pct_change(19) * 100 - spy_aligned.pct_change(19) * 100
+            features["rs_60"] = recent["Close"].pct_change(59) * 100 - spy_aligned.pct_change(59) * 100
+        # else: skip RS features silently — models train fine without them, same as VIX below
 
     # --- Merge VIX (already correctly-dated — no re-derivation from a maybe-broken index) ---
     if vix_df is not None and not vix_df.empty:
@@ -170,11 +211,18 @@ def prepare_features(
     return X, y, feature_names, y_stats
 
 
-def random_forest_forecast(df: pd.DataFrame, vix_df: Optional[pd.DataFrame] = None, days_ahead: int = 5) -> Dict[str, Any]:
+def random_forest_forecast(
+    df: pd.DataFrame,
+    vix_df: Optional[pd.DataFrame] = None,
+    spy_df: Optional[pd.DataFrame] = None,
+    days_ahead: int = 5,
+) -> Dict[str, Any]:
     try:
         from sklearn.ensemble import RandomForestRegressor
 
-        X, y, feature_names, y_stats = prepare_features(df, vix_df=vix_df, lookback=1500, days_ahead=days_ahead)
+        X, y, feature_names, y_stats = prepare_features(
+            df, vix_df=vix_df, spy_df=spy_df, lookback=1500, days_ahead=days_ahead
+        )
 
         if X is None or len(X) < 20:
             return {"success": False, "error": "Insufficient data"}
@@ -232,12 +280,19 @@ def random_forest_forecast(df: pd.DataFrame, vix_df: Optional[pd.DataFrame] = No
         return {"success": False, "error": str(e)}
 
 
-def gradient_boosting_forecast(df: pd.DataFrame, vix_df: Optional[pd.DataFrame] = None, days_ahead: int = 5) -> Dict[str, Any]:
+def gradient_boosting_forecast(
+    df: pd.DataFrame,
+    vix_df: Optional[pd.DataFrame] = None,
+    spy_df: Optional[pd.DataFrame] = None,
+    days_ahead: int = 5,
+) -> Dict[str, Any]:
     try:
         from sklearn.ensemble import GradientBoostingRegressor
         from sklearn.preprocessing import StandardScaler
 
-        X, y, feature_names, y_stats = prepare_features(df, vix_df=vix_df, lookback=1500, days_ahead=days_ahead)
+        X, y, feature_names, y_stats = prepare_features(
+            df, vix_df=vix_df, spy_df=spy_df, lookback=1500, days_ahead=days_ahead
+        )
 
         if X is None or len(X) < 20:
             return {"success": False, "error": "Insufficient data"}
@@ -298,10 +353,15 @@ def gradient_boosting_forecast(df: pd.DataFrame, vix_df: Optional[pd.DataFrame] 
         return {"success": False, "error": str(e)}
 
 
-def ensemble_ml_forecast(df: pd.DataFrame, vix_df: Optional[pd.DataFrame] = None, days_ahead: int = 5) -> Dict[str, Any]:
+def ensemble_ml_forecast(
+    df: pd.DataFrame,
+    vix_df: Optional[pd.DataFrame] = None,
+    spy_df: Optional[pd.DataFrame] = None,
+    days_ahead: int = 5,
+) -> Dict[str, Any]:
     """Combine Random Forest and Gradient Boosting via an R²-weighted blend."""
-    rf_result = random_forest_forecast(df, vix_df=vix_df, days_ahead=days_ahead)
-    gb_result = gradient_boosting_forecast(df, vix_df=vix_df, days_ahead=days_ahead)
+    rf_result = random_forest_forecast(df, vix_df=vix_df, spy_df=spy_df, days_ahead=days_ahead)
+    gb_result = gradient_boosting_forecast(df, vix_df=vix_df, spy_df=spy_df, days_ahead=days_ahead)
 
     if not rf_result["success"] or not gb_result["success"]:
         return {
