@@ -345,6 +345,16 @@ def ensemble_ml_forecast(df: pd.DataFrame, vix_df: Optional[pd.DataFrame] = None
 ML_EDGE_POSITIVE_BONUS = 10
 ML_EDGE_NEGATIVE_PENALTY = -15
 
+# Ceiling values above apply at full strength once `confidence` reaches this level;
+# below it, the adjustment scales down proportionally. Provisional — no calibration
+# data yet establishes what confidence level actually corresponds to reliable edge
+# (see docs/ml-edge-confidence-research.md); revisit once a walk-forward backtest
+# quantifies the real relationship between confidence and forward accuracy.
+ML_EDGE_CONFIDENCE_SATURATION = 10.0
+# A near-zero-confidence call still means the ensemble picked a direction, however
+# weakly — floor keeps that from being scaled down to a no-op.
+ML_EDGE_MIN_SCALE = 0.2
+
 
 def evaluate_ml_edge_score(ml_result: dict, current_price: float) -> dict:
     """SmartScore adjustment from the ML ensemble's directional call: rewards
@@ -353,7 +363,12 @@ def evaluate_ml_edge_score(ml_result: dict, current_price: float) -> dict:
     doesn't confirm (e.g. a 100 SmartScore where the ensemble actually
     forecasts a pullback). Only runs on the post-sector-cap shortlist, since
     the ensemble trains a fresh model per ticker and isn't cheap enough for
-    the full universe scan."""
+    the full universe scan.
+
+    The bonus/penalty scales with the ensemble's own `confidence` (see
+    random_forest_forecast/gradient_boosting_forecast) rather than applying at
+    full strength regardless of it — a 0.1-confidence call and a 9-confidence
+    call were previously treated identically."""
     if not ml_result.get("success") or current_price <= 0:
         return {
             "triggered": False, "score_adjustment": 0,
@@ -362,6 +377,11 @@ def evaluate_ml_edge_score(ml_result: dict, current_price: float) -> dict:
         }
 
     edge_pct = round((ml_result["ensemble_price"] - current_price) / current_price * 100, 2)
+    confidence = ml_result.get("confidence") or 0.0
+    scale = ML_EDGE_MIN_SCALE + (1.0 - ML_EDGE_MIN_SCALE) * min(confidence / ML_EDGE_CONFIDENCE_SATURATION, 1.0)
+
     if edge_pct > 0:
-        return {"triggered": True, "score_adjustment": ML_EDGE_POSITIVE_BONUS, "flag": None, "edge_pct": edge_pct}
-    return {"triggered": True, "score_adjustment": ML_EDGE_NEGATIVE_PENALTY, "flag": "negative_ml_edge", "edge_pct": edge_pct}
+        adjustment = round(ML_EDGE_POSITIVE_BONUS * scale)
+        return {"triggered": True, "score_adjustment": adjustment, "flag": None, "edge_pct": edge_pct}
+    adjustment = round(ML_EDGE_NEGATIVE_PENALTY * scale)
+    return {"triggered": True, "score_adjustment": adjustment, "flag": "negative_ml_edge", "edge_pct": edge_pct}
