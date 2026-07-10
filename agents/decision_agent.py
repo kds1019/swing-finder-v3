@@ -164,14 +164,16 @@ class DecisionAgent:
             ml_track_record, pick_track_record, risk_per_trade_pct,
         )
 
-        # Scaled to shortlist size. 800/ticker + 1500 overhead was enough before pattern
-        # detection and the ML track record were added to the prompt — those gave the model
-        # more to discuss per ticker (pattern name/confidence/action, track-record-calibrated
-        # MLEdgeFlag skepticism) and a 5-ticker shortlist truncated at the resulting 5500-token
-        # budget in testing. 1200/ticker + 2000 overhead leaves real headroom; capped at 24000
-        # as a sanity ceiling.
+        # Scaled to shortlist size. This budget has already had to grow twice as more context
+        # got added to the prompt: 800/ticker+1500 (pre-pattern-detection) -> 1200/ticker+2000
+        # (after patterns + ML track record) -> truncated AGAIN at 8000 tokens for a 5-ticker
+        # shortlist once FMP research (analyst/news mentions), position sizing, and open-order
+        # checks were added — each pick's rationale/flags got meaningfully longer. 2000/ticker
+        # + 3000 overhead leaves real margin this time rather than just enough; capped at 32000
+        # as a sanity ceiling. If this truncates again after a future prompt change, raise it
+        # further rather than assuming it's a formatting bug — that's the actual pattern here.
         num_tickers = len(smartscore_shortlist)
-        max_tokens = min(24000, max(6000, 1200 * num_tickers + 2000))
+        max_tokens = min(32000, max(8000, 2000 * num_tickers + 3000))
 
         try:
             response = self.client.messages.create(
