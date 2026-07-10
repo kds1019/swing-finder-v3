@@ -1,0 +1,72 @@
+name: ML Edge Confidence Backtest
+
+# Manual-only (workflow_dispatch) — this is a one-off research run, not a
+# recurring job. Runs research/walk_forward_backtest.py + analyze_confidence.py
+# on GitHub's runners, since that's where ALPACA_API_KEY/ALPACA_SECRET_KEY
+# already live (same secrets scan.yml uses) — no local credentials needed.
+# See docs/ml-edge-confidence-research.md for what this is answering.
+
+on:
+  workflow_dispatch:
+    inputs:
+      n_tickers:
+        description: "Number of tickers to sample (sector-balanced, price/volume-filtered)"
+        required: false
+        default: "60"
+      lookback_days:
+        description: "Trading days of history to fetch per ticker"
+        required: false
+        default: "760"
+      step_days:
+        description: "Walk-forward step size in trading days"
+        required: false
+        default: "10"
+
+permissions:
+  contents: write
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    # A single ensemble_ml_forecast() call takes ~1.2s locally; the default
+    # 60 tickers x ~45 walk-forward windows each is ~2700 calls, so budget
+    # generously (public repo — Actions minutes are free either way).
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run walk-forward backtest
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: |
+          set -eo pipefail
+          # walk_forward_backtest.py appends per-ticker (so a run interrupted partway
+          # through doesn't lose completed tickers) — start each workflow run from a
+          # clean file rather than accumulating duplicate rows across separate runs.
+          rm -f research/walk_forward_results.csv
+          python -m research.walk_forward_backtest \
+            --n-tickers "${{ inputs.n_tickers }}" \
+            --lookback-days "${{ inputs.lookback_days }}" \
+            --step-days "${{ inputs.step_days }}"
+
+      - name: Analyze confidence calibration
+        run: |
+          set -eo pipefail
+          python -m research.analyze_confidence | tee research/walk_forward_summary.txt
+
+      - name: Commit results
+        run: |
+          set -eo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add research/walk_forward_results.csv research/walk_forward_summary.txt
+          git diff --cached --quiet && echo "No changes to commit" || git commit -m "ML edge confidence backtest: $(date -u +%Y-%m-%d\ %H:%M)Z"
+          git push
