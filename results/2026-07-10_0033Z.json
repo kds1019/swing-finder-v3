@@ -1,0 +1,16 @@
+{
+  "market_bias": "Uptrend",
+  "vix": 15.84,
+  "market_gate_open": true,
+  "sector_excluded_count": 1,
+  "earnings_excluded_count": 0,
+  "decision": {
+    "error": "Anthropic API call failed",
+    "exception": "Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CcsSHvsjscPp2BKHtgwdA'}"
+  },
+  "pick_track_record": {
+    "sufficient_data": false,
+    "sample_size": 0,
+    "min_sample_size": 10
+  }
+}
