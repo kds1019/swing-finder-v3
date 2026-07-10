@@ -101,6 +101,22 @@ blanket, universe-wide classification gate that could exclude a ticker
 before any of the more precise per-ticker signals — ML edge, patterns,
 relative strength — ever got to evaluate it).
 
+## ML edge confidence research
+
+`docs/ml-edge-confidence-research.md` evaluates whether the ML ensemble's
+`confidence` output (`core/ml_forecast.py`) is trustworthy and how to improve
+it (meta-labeling, IC/rank-IC, calibration). `research/walk_forward_backtest.py`
+generates historical (prediction, confidence, actual outcome) data offline —
+much faster than waiting on the live `ml_predictions.csv` log to accumulate
+one row per ticker per manual run — and `research/analyze_confidence.py`
+computes IC/rank-IC and confidence-bucket calibration over it. Both require
+`ALPACA_API_KEY`/`ALPACA_SECRET_KEY` like the live pipeline:
+
+```
+python -m research.walk_forward_backtest      # ~60 tickers, 2 years, writes research/walk_forward_results.csv
+python -m research.analyze_confidence          # reads that CSV, prints IC/rank-IC + bucket report
+```
+
 ## Known gaps vs. the reference app
 
 - Stop/target/R:R calculation (`utils/target_calculator.py` in the reference)

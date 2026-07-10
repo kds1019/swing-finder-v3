@@ -337,6 +337,8 @@ def ensemble_ml_forecast(df: pd.DataFrame, vix_df: Optional[pd.DataFrame] = None
         "gb_prediction": gb_result["forecast_price"],
         "rf_confidence": rf_result["confidence"],
         "gb_confidence": gb_result["confidence"],
+        "rf_r2": rf_r2,
+        "gb_r2": gb_r2,
         "agreement": round(abs(rf_result["forecast_price"] - gb_result["forecast_price"]) / ensemble_price * 100, 1),
         "y_stats": rf_result.get("y_stats"),
     }
