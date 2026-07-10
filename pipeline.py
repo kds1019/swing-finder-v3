@@ -257,10 +257,12 @@ def run_pipeline(
     print(f"[pipeline] After earnings buffer: {len(final_df)} tickers "
           f"({len(earnings_excluded_df)} excluded)", file=sys.stderr)
 
-    # --- Portfolio Agent: existing positions/balance context ---
+    # --- Portfolio Agent: existing positions/balance/open-orders context ---
     portfolio_agent = PortfolioAgent(settings)
     positions_df = portfolio_agent.get_positions()
     balance = portfolio_agent.get_account_balance()
+    open_orders_df = portfolio_agent.get_open_orders()
+    open_orders = portfolio_agent.flatten_open_orders(open_orders_df)
     sector_lookup = dict(zip(universe["Ticker"], universe["Sector"]))
     sector_exposure = portfolio_agent.check_sector_exposure(positions_df, sector_lookup)
 
@@ -268,6 +270,7 @@ def run_pipeline(
         "positions": json.loads(positions_df.to_json(orient="records")) if not positions_df.empty else [],
         "balance": balance,
         "sector_exposure": sector_exposure,
+        "open_orders": open_orders,
     }
 
     # --- Pick outcome tracking (part 1): score past picks before this run's synthesis, so
@@ -280,7 +283,8 @@ def run_pipeline(
     # --- Decision Agent: final synthesis ---
     decision_agent = DecisionAgent(settings)
     result = decision_agent.synthesize(
-        final_df, final_df, portfolio_context, market_gate_open, ml_track_record, pick_track_record
+        final_df, final_df, portfolio_context, market_gate_open, ml_track_record, pick_track_record,
+        settings.risk_per_trade_pct,
     )
 
     # --- Pick outcome tracking (part 2): log this run's new picks for future scoring. ---

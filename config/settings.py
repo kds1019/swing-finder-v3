@@ -49,6 +49,10 @@ class Settings:
     earnings_buffer_soft_days: int = 7   # scanner: soft exclude/flag
     earnings_buffer_hard_days: int = 14  # base scanner: hard exclude
     smartscore_baseline: int = 50
+    # Max % of account net liquidation value to risk on a single trade (position size =
+    # this dollar amount / abs(entry - stop)) — standard conservative retail swing-trading
+    # convention. Used by DecisionAgent to size each ranked pick.
+    risk_per_trade_pct: float = 1.0
 
     # --- Data pull parameters ---
     bars_lookback_days: int = 60

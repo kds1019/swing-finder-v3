@@ -55,6 +55,28 @@ proportionate note into overall_recommendation reflecting it (e.g. a strong rece
 supports normal conviction; a weak one warrants a more conservative overall tone regardless
 of how clean individual setups look this run). If sufficient_data is false, don't mention it.
 
+Each shortlist ticker also carries Fundamentals (FMP company profile), AnalystRating (rating +
+buy/hold/sell consensus), and News (up to 5 recent headlines) — qualitative context, not
+scoring inputs. Mention AnalystRating only if it's notably bullish/bearish or conflicts
+sharply with the technical setup — one brief note, not a restatement. Scan News for anything
+resembling a material catalyst (earnings surprise, M&A, regulatory/legal action, executive
+departure, guidance change) that could explain or contradict the current technical picture —
+flag it explicitly if found, since this is exactly the kind of real-world risk the technical
+indicators can't see. Fundamentals is background only (sector/industry/description) — never
+let it override the quantitative signals already computed.
+
+Position sizing: account_balance's total_net_liquidation_value is the account's total equity,
+and risk_per_trade_pct is the configured max % of that to risk on any single trade. For each
+ranked pick, compute: risk_amount = total_net_liquidation_value * risk_per_trade_pct / 100;
+position_shares = floor(risk_amount / abs(entry - stop)); position_value = position_shares *
+entry. Include all three in each pick's output. If total_net_liquidation_value is missing,
+non-numeric, or zero, set these three fields to null rather than guessing.
+
+existing_open_orders lists currently pending orders (symbol/side/status/order_type/quantity/
+prices) not yet filled. If a ranked pick's ticker already has a pending order, flag it
+explicitly — don't silently recommend piling onto or duplicating an order already in flight —
+and briefly note what the existing order is.
+
 Your job is ONLY to:
 
 1. Rank the provided tickers by overall attractiveness, using the given SmartScore, trade
@@ -62,19 +84,21 @@ Your job is ONLY to:
 2. Explain each ranking in 1-2 sentences referencing concrete factors already provided
    (do not invent facts not present in the input, and never recompute Stop/Target/RRRatio,
    PriceVsPOCPct, MLEdgePct, or pattern fields yourself — pass them through as given).
-3. Flag risks: sector concentration relative to EXISTING Webull positions (not just the
-   day's shortlist), earnings-date conflicts, whether the VIX gate is open or closed, and
-   ALWAYS flag if WeakRR is true (R:R fell short of the minimum after support/resistance
-   refinement), StopSanityFlag is true (R:R >= 15:1 more often means an unusually tight
-   stop than an unusually good target — say so explicitly, don't just repeat the number),
-   VolumeProfileFlag is "extended_above_value_area" (price has run past where 70% of recent
-   volume actually traded — thin support underneath), MLEdgeFlag is "negative_ml_edge"
-   (a clean technical setup the model itself doesn't confirm — say so explicitly, this is
-   exactly the kind of case that looks good on SmartScore alone but may not be worth trading),
-   or PatternFlag indicates a bearish pattern (pattern_bear_flag, pattern_double_top,
-   pattern_head_and_shoulders, pattern_descending_triangle) — name the pattern and its
-   PatternAction explicitly, it's an independent technical signal from SmartScore/MLEdge.
-4. If the VIX gate is closed (market_gate_open=false), your top-level recommendation must
+3. Compute position sizing per the formula above for each pick.
+4. Flag risks: sector concentration relative to EXISTING Webull positions (not just the
+   day's shortlist), an existing pending order on the same ticker, earnings-date conflicts,
+   whether the VIX gate is open or closed, and ALWAYS flag if WeakRR is true (R:R fell short
+   of the minimum after support/resistance refinement), StopSanityFlag is true (R:R >= 15:1
+   more often means an unusually tight stop than an unusually good target — say so
+   explicitly, don't just repeat the number), VolumeProfileFlag is "extended_above_value_area"
+   (price has run past where 70% of recent volume actually traded — thin support underneath),
+   MLEdgeFlag is "negative_ml_edge" (a clean technical setup the model itself doesn't confirm
+   — say so explicitly, this is exactly the kind of case that looks good on SmartScore alone
+   but may not be worth trading), or PatternFlag indicates a bearish pattern
+   (pattern_bear_flag, pattern_double_top, pattern_head_and_shoulders,
+   pattern_descending_triangle) — name the pattern and its PatternAction explicitly, it's an
+   independent technical signal from SmartScore/MLEdge.
+5. If the VIX gate is closed (market_gate_open=false), your top-level recommendation must
    bias toward "monitor only, no new entries" regardless of individual SmartScores.
 
 Do NOT recompute or second-guess the SmartScore, sector cap, earnings buffer, or trade
@@ -84,7 +108,8 @@ plan numbers — treat them as given. Respond with ONLY a JSON object matching t
   "overall_recommendation": str,
   "ranked_picks": [
     {"ticker": str, "rank": int, "smartscore": number, "entry": number, "stop": number,
-     "target": number, "rr_ratio": number, "rationale": str, "flags": [str, ...]}
+     "target": number, "rr_ratio": number, "position_shares": number, "risk_amount": number,
+     "position_value": number, "rationale": str, "flags": [str, ...]}
   ]
 }"""
 
@@ -94,7 +119,11 @@ class DecisionAgent:
         if not settings.anthropic_api_key:
             raise RuntimeError("ANTHROPIC_API_KEY is required for DecisionAgent. Add it to your .env.")
         self.settings = settings
-        self.client = Anthropic(api_key=settings.anthropic_api_key)
+        # Explicit max_retries (SDK default is 2, applied to connection errors/timeouts/429/5xx)
+        # — made deliberate rather than relying on the undocumented default, since this is the
+        # last step of the pipeline and a transient failure here would otherwise waste every
+        # prior agent's already-completed work for the run.
+        self.client = Anthropic(api_key=settings.anthropic_api_key, max_retries=3)
 
     def _build_user_prompt(
         self,
@@ -104,6 +133,7 @@ class DecisionAgent:
         market_gate_open: bool,
         ml_track_record: Optional[dict] = None,
         pick_track_record: Optional[dict] = None,
+        risk_per_trade_pct: Optional[float] = None,
     ) -> str:
         shortlist_records = json.loads(research_data.to_json(orient="records")) if not research_data.empty else []
         payload = {
@@ -112,8 +142,10 @@ class DecisionAgent:
             "existing_positions": portfolio_context.get("positions", []),
             "account_balance": portfolio_context.get("balance", {}),
             "existing_sector_exposure": portfolio_context.get("sector_exposure", {}),
+            "existing_open_orders": portfolio_context.get("open_orders", []),
             "ml_track_record": ml_track_record,
             "pick_track_record": pick_track_record,
+            "risk_per_trade_pct": risk_per_trade_pct,
         }
         return json.dumps(payload, default=str, indent=2)
 
@@ -125,10 +157,11 @@ class DecisionAgent:
         market_gate_open: bool,
         ml_track_record: Optional[dict] = None,
         pick_track_record: Optional[dict] = None,
+        risk_per_trade_pct: Optional[float] = None,
     ) -> dict:
         user_prompt = self._build_user_prompt(
             smartscore_shortlist, research_data, portfolio_context, market_gate_open,
-            ml_track_record, pick_track_record,
+            ml_track_record, pick_track_record, risk_per_trade_pct,
         )
 
         # Scaled to shortlist size. 800/ticker + 1500 overhead was enough before pattern
@@ -140,12 +173,22 @@ class DecisionAgent:
         num_tickers = len(smartscore_shortlist)
         max_tokens = min(24000, max(6000, 1200 * num_tickers + 2000))
 
-        response = self.client.messages.create(
-            model=MODEL,
-            max_tokens=max_tokens,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_prompt}],
-        )
+        try:
+            response = self.client.messages.create(
+                model=MODEL,
+                max_tokens=max_tokens,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+        except Exception as e:
+            # The SDK already retries transient errors internally (max_retries=3 above) — this
+            # catches whatever's left after those are exhausted (or a non-retryable error) and
+            # degrades gracefully instead of crashing the whole pipeline run, same spirit as the
+            # VIX-fetch failure handling in pipeline.py.
+            return {
+                "error": "Anthropic API call failed",
+                "exception": str(e),
+            }
 
         text = "".join(block.text for block in response.content if block.type == "text")
         try:

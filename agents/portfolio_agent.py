@@ -117,6 +117,36 @@ class PortfolioAgent:
         orders = data if isinstance(data, list) else (data.get("orders", []) if isinstance(data, dict) else [])
         return pd.DataFrame(orders)
 
+    @staticmethod
+    def flatten_open_orders(open_orders_df: pd.DataFrame) -> list[dict]:
+        """get_open_orders() returns one row per combo order with the actual per-leg
+        details (symbol/side/status/quantity/etc.) nested in an "orders" list column —
+        confirmed live: a single-leg STOP_LOSS order still comes back as
+        combo_row["orders"] == [{"symbol": ..., "side": ..., ...}]. Flattens to one dict
+        per leg with just the fields relevant for "is there already a pending order on
+        this ticker" context, rather than passing the raw nested structure through."""
+        if open_orders_df.empty or "orders" not in open_orders_df.columns:
+            return []
+
+        legs = []
+        for combo_orders in open_orders_df["orders"]:
+            if not isinstance(combo_orders, list):
+                continue
+            for leg in combo_orders:
+                if not isinstance(leg, dict):
+                    continue
+                legs.append({
+                    "symbol": leg.get("symbol"),
+                    "side": leg.get("side"),
+                    "status": leg.get("status"),
+                    "order_type": leg.get("order_type"),
+                    "total_quantity": leg.get("total_quantity"),
+                    "filled_quantity": leg.get("filled_quantity"),
+                    "stop_price": leg.get("stop_price"),
+                    "limit_price": leg.get("limit_price"),
+                })
+        return legs
+
     def check_sector_exposure(self, positions_df: pd.DataFrame, sector_lookup: dict[str, str]) -> dict[str, int]:
         """Current sector counts among held positions — feeds sector-cap-aware
         decisions that account for existing holdings, not just the day's shortlist."""
