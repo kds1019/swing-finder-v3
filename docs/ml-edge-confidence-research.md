@@ -251,3 +251,46 @@ None of this is committed to the pipeline as of this update — it's a
 prioritized punch list, not yet executed. Item 2 is the cheapest to try
 first and would tell us quickly whether it's worth doing item 1's bigger
 rework at all.
+
+## Update 2026-07-10 (later same day): item 2 result — real but modest
+
+Item 2 was implemented: `rs_20`/`rs_60` (relative strength vs. SPY),
+`weekly_uptrend` (weekly EMA20-vs-EMA50, vectorized), and `vwap_position_60`
+(a rolling-VWAP proxy for the point-of-control histogram) were added to
+`prepare_features`, and the walk-forward backtest was re-run on the same 60
+tickers / 2-year window / 2,426-prediction sample as the first run.
+
+Raw result: IC (Pearson) jumped to 0.0715 (p=0.0004) and rank-IC to 0.0453
+(p=0.0255) — both now statistically significant, vs. -0.0067/p=0.74 and
+0.0257/p=0.21 before. But the split-adjustment fix (separate PR) didn't
+eliminate every large real move in the sample — ARQQ, RCAT, CXW, REAL, and
+VRDN each had a genuine >50%-in-5-days swing in this window (verified: no
+more split-discontinuity artifacts, just real small-cap volatility). Removing
+those 8 rows for an apples-to-apples comparison with the first run's cleaned
+number:
+
+| metric | run 1 (baseline) | run 2 (+ RS/weekly/VWAP features) |
+|---|---|---|
+| IC (Pearson), cleaned | -0.0067, p=0.74 | 0.0332, p=0.10 |
+| Rank-IC (Spearman), cleaned | 0.0257, p=0.21 | 0.0436, p=0.032 |
+| Directional accuracy, cleaned | 51.2% | 51.7% |
+| Confidence bucket win rate, low→high | 51.5%→51.0%→50.4% | 52.9%→50.6%→49.5% |
+
+**Honest read: the new features produced a small, real improvement in
+rank-IC (the more outlier-robust of the two metrics) that crosses the
+significance threshold — but the Pearson IC improvement is partly
+outlier-driven and doesn't clear it on its own, directional accuracy barely
+moved, and the confidence buckets are still flat-to-inverted.** This isn't
+"no edge" anymore, but it isn't a strong edge either — rank-IC ~0.04 is at
+the low end of the "meaningful" range cited above, not comfortably inside
+it.
+
+This changes the item-1 recommendation from "not worth it, nothing to
+amplify" to **worth pursuing now that there's something real, if weak, to
+amplify** — pooled cross-sectional training exists specifically to make a
+small effect like this detectable and usable with far more samples than any
+single ticker's history can provide. Expectations should stay modest (aiming
+for rank-IC in the 0.03-0.06 range, not a jump to strong directional
+accuracy), and confidence-bucket calibration remains a separate, still-open
+problem that this result doesn't resolve on its own — worth re-checking
+after item 1, not assumed fixed by it.
