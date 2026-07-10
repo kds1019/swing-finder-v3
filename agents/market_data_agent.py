@@ -16,7 +16,7 @@ import pandas as pd
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
-from alpaca.data.enums import DataFeed
+from alpaca.data.enums import DataFeed, Adjustment
 
 from core.universe import batch_tickers
 from core.indicators import compute_indicators
@@ -61,6 +61,13 @@ class MarketDataAgent:
             # paid) returns "subscription does not permit querying recent SIP data".
             # Confirmed via a live 403 during initial testing; see README's feed note.
             feed=DataFeed.IEX,
+            # Alpaca defaults to raw (unadjusted) bars when this isn't set — a ticker that
+            # splits partway through a fetched window then shows a fake price discontinuity
+            # (e.g. ARQQ's 1:25 reverse split in Nov 2024 looked like a +2471% 5-day return
+            # in unadjusted bars). Split-adjusting keeps historical price levels continuous;
+            # dividend adjustment is deliberately left out — swing entries/stops/targets are
+            # actual tradeable prices, and dividend-adjusting would shift them off of that.
+            adjustment=Adjustment.SPLIT,
         )
         bars = self.client.get_stock_bars(request)
         df = bars.df

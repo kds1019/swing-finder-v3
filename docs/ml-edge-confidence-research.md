@@ -151,3 +151,103 @@ does for real trade candidates and item 2 changes the schema of a log this
 pipeline treats as durable history — both are one-line-ish changes but with
 real consequences, so they're flagged for a decision rather than applied
 silently.
+
+## Update 2026-07-10: walk-forward backtest results
+
+Items 1-3 above were implemented (`ML_EDGE_CONFIDENCE_SATURATION`-scaled
+SmartScore adjustment; `rf_r2`/`gb_r2` now exposed on `ensemble_ml_forecast`'s
+return; `research/walk_forward_backtest.py` + `research/analyze_confidence.py`
+built and run via `.github/workflows/ml_confidence_backtest.yml`). The
+backtest covered 60 sector-balanced, price/volume-filtered tickers over 2
+years (2,426 walk-forward predictions, 10 excluded as stock-split data
+artifacts — see below). Real results, not the synthetic-data smoke test this
+doc originally shipped with:
+
+| metric | value |
+|---|---|
+| IC (Pearson, predicted vs. actual return) | -0.0067, p=0.74 |
+| Rank-IC (Spearman) | 0.0257, p=0.21 |
+| Overall directional accuracy | 51.2% (n=2,416) |
+| Confidence bucket win rate, low→high | 51.5% → 51.0% → 50.4% |
+| Confidence bucket mean return, low→high | 0.62% → 0.56% → 0.40% |
+
+**Conclusion: this ensemble, on this feature set, has no statistically
+significant edge, and confidence does not separate good calls from bad ones
+— if anything the trend is flat-to-inverted.** Neither p-value clears 0.05;
+51.2% direction accuracy on n=2,416 is not distinguishable from a coin flip.
+
+**This changes the recommendation from the original draft above: do not
+build the Phase 3 meta-model.** Meta-labeling amplifies a real primary
+signal — training a secondary classifier on top of a primary model that's
+statistically indistinguishable from guessing would fit noise and produce a
+false sense of calibrated confidence, which is worse than the current
+crude-but-honest formula. The Phase 0 confidence-scaled SmartScore adjustment
+is still reasonable to keep (proportional beats flat-regardless-of-confidence
+as a matter of principle), but shouldn't be described as "confidence-weighted"
+in any predictive sense until the underlying signal actually has edge.
+
+### Bug found along the way: unadjusted price data
+
+10 of 2,426 rows showed implausible returns (e.g. ARQQ: +2471% over 5 days).
+Root cause: `agents/market_data_agent.py`'s `StockBarsRequest` never set
+`adjustment`, so Alpaca returned raw (split-unadjusted) bars by default. ARQQ
+did a 1:25 reverse split around Nov 2024; the pre/post-split prices in the
+same fetched window created a fake discontinuity. This isn't backtest-only —
+it corrupts the **live pipeline** too, silently, whenever a shortlisted
+ticker splits during its 1500-bar training lookback or during the 5-day
+scoring window in `ml_tracking.py`. Fixed by adding
+`adjustment=Adjustment.SPLIT` to the request (dividend adjustment
+deliberately left out — swing entries/stops/targets need actual tradeable
+prices, and dividend-adjusting would shift historical prices off of that).
+
+### What would actually move the edge needle (separate from confidence calibration)
+
+The confidence question and the "does this model have real edge" question
+turned out to be the same question, and the answer to the second is
+currently no. Improving *that* is a bigger lift than anything above — it's
+model/feature/architecture work, not a calibration fix. In rough order of
+expected leverage:
+
+1. **Pool training data cross-sectionally instead of one bespoke model per
+   ticker.** `prepare_features`/`random_forest_forecast` currently train a
+   fresh model per ticker on ~300-1500 rows of that ticker's own history —
+   daily-bar single-stock return series are extremely low signal-to-noise
+   and heavily autocorrelated, so the *effective* independent sample size is
+   much smaller than the row count suggests. Training one model on pooled
+   (ticker, date) samples across the universe (rank/z-score-normalized
+   features so they're comparable across price levels and tickers) turns
+   2,400 samples from 60 tickers into tens of thousands, and lets the model
+   learn genuinely cross-sectional patterns (relative momentum, relative
+   mean-reversion) instead of trying to fit a wiggly per-stock time series to
+   a few hundred rows. This is the actual substance behind Qlib's
+   Alpha158/360 handlers (not their IC utility, which is trivial to
+   hand-roll) — a shared panel model, not a per-instrument one. It's also a
+   real architecture change: the live pipeline currently trains from
+   scratch every run with no persisted model; a pooled model would need to
+   be trained periodically (e.g. via a scheduled job reusing the
+   walk-forward harness's data collection) and loaded, not retrained, on
+   each pipeline run.
+2. **Feed in signals the pipeline already computes but doesn't hand the
+   model**: `core/relative_strength.py` (RS rank vs. SPY),
+   `core/multi_timeframe.py` (weekly/daily alignment), and
+   `core/volume_profile.py` (price vs. point-of-control) are all already
+   computed for SmartScore/pattern purposes elsewhere in the pipeline but
+   never reach `prepare_features`. Cheapest possible test before the bigger
+   architecture change above — wire 2-3 of these in as additional columns
+   and re-run the walk-forward harness to see if IC moves at all.
+3. **Reconsider the prediction target.** Raw 5-day forward return is mostly
+   market-wide beta noise that a technical-only feature set has no way to
+   predict anyway; predicting *excess* return over SPY or sector may isolate
+   the idiosyncratic component the feature set could plausibly explain.
+4. **Set a realistic bar.** Published equity factor research treats IC in
+   the 0.02-0.05 range as meaningful for daily/short-horizon signals — not
+   the 0.3+ that "confidence" implicitly promised. Any of the above should
+   be judged against that bar, and re-validated through
+   `research/walk_forward_backtest.py` before being trusted, given how easily
+   in-sample R² alone (the original approach) produces a misleadingly clean
+   picture.
+
+None of this is committed to the pipeline as of this update — it's a
+prioritized punch list, not yet executed. Item 2 is the cheapest to try
+first and would tell us quickly whether it's worth doing item 1's bigger
+rework at all.
