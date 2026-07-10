@@ -62,11 +62,25 @@ jobs:
           set -eo pipefail
           python -m research.analyze_confidence | tee research/walk_forward_summary.txt
 
+      - name: Run pooled cross-sectional model experiment
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: |
+          set -eo pipefail
+          # Same n_tickers/lookback_days/seed as the walk-forward backtest above (seed is
+          # pooled_model_experiment.py's hardcoded default) — same ticker sample, so its
+          # rank-IC is directly comparable to the per-ticker walk-forward's.
+          python -m research.pooled_model_experiment \
+            --n-tickers "${{ inputs.n_tickers }}" \
+            --lookback-days "${{ inputs.lookback_days }}" \
+            | tee research/pooled_model_summary.txt
+
       - name: Commit results
         run: |
           set -eo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add research/walk_forward_results.csv research/walk_forward_summary.txt
+          git add research/walk_forward_results.csv research/walk_forward_summary.txt research/pooled_model_summary.txt
           git diff --cached --quiet && echo "No changes to commit" || git commit -m "ML edge confidence backtest: $(date -u +%Y-%m-%d\ %H:%M)Z"
           git push

@@ -54,11 +54,13 @@ def prepare_features(
     rather than by calling those row-at-a-time functions in a loop, which would
     be prohibitively slow across a 1500-row training set.
 
-    Returns (X, y, feature_names, y_stats), or (None, None, None, None) if
-    there isn't enough data.
+    Returns (X, y, feature_names, y_stats, dates) — dates is the as-of date for
+    each row in X/y, aligned 1:1 (needed to pool multiple tickers' feature rows
+    into one cross-sectional dataset without misaligning them) — or a 5-tuple
+    of Nones if there isn't enough data.
     """
     if len(df) < _MIN_BARS:
-        return None, None, None, None
+        return None, None, None, None, None
 
     recent = df.tail(lookback).copy()
 
@@ -156,10 +158,12 @@ def prepare_features(
             features["vix"] = vix_aligned.fillna(vix_aligned.median())
         # else: skip VIX silently — models train fine without it
 
-    features = features.dropna().reset_index(drop=True)
+    features = features.dropna()
+    dates_aligned = features.index
+    features = features.reset_index(drop=True)
 
     if len(features) < max(20, days_ahead + 1):
-        return None, None, None, None
+        return None, None, None, None, None
 
     fwd_close = features["close"].shift(-days_ahead)
     fwd_return = fwd_close / features["close"] - 1
@@ -208,7 +212,8 @@ def prepare_features(
 
     feature_names = features.columns.tolist()
     X = features.iloc[:-days_ahead].values
-    return X, y, feature_names, y_stats
+    dates = dates_aligned[:-days_ahead]
+    return X, y, feature_names, y_stats, dates
 
 
 def random_forest_forecast(
@@ -220,7 +225,7 @@ def random_forest_forecast(
     try:
         from sklearn.ensemble import RandomForestRegressor
 
-        X, y, feature_names, y_stats = prepare_features(
+        X, y, feature_names, y_stats, _dates = prepare_features(
             df, vix_df=vix_df, spy_df=spy_df, lookback=1500, days_ahead=days_ahead
         )
 
@@ -290,7 +295,7 @@ def gradient_boosting_forecast(
         from sklearn.ensemble import GradientBoostingRegressor
         from sklearn.preprocessing import StandardScaler
 
-        X, y, feature_names, y_stats = prepare_features(
+        X, y, feature_names, y_stats, _dates = prepare_features(
             df, vix_df=vix_df, spy_df=spy_df, lookback=1500, days_ahead=days_ahead
         )
 
