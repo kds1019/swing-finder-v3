@@ -1,0 +1,19 @@
+[analyze_triple_barrier] 1715 held-out triple-barrier predictions loaded from research/triple_barrier_results.csv
+
+=== AUC and point-biserial correlation (p_target vs. hit-target-first) ===
+  n=1715
+  auc=0.4876  (0.5 = no better than chance, 1.0 = perfect ranking)
+  point_biserial_r=0.0026 p=0.9151
+
+=== p_target bucket report (quintiles) — calibration check ===
+          bucket   n  p_target_min  p_target_max  win_rate_pct  mean_actual_return_pct  median_actual_return_pct
+(-0.001, 0.0002] 403        0.0000        0.0002           8.9                  -1.084                     -2.51
+(0.0002, 0.0012] 292        0.0003        0.0012          13.0                  -0.480                     -2.94
+(0.0012, 0.0064] 335        0.0013        0.0064          12.5                  -1.309                     -2.90
+(0.0064, 0.0506] 342        0.0065        0.0506           7.9                  -2.309                     -3.13
+  (0.0506, 0.95] 343        0.0507        0.9497           9.9                  -1.675                     -2.89
+
+  Interpretation: win_rate_pct here IS P(target hit first) realized in each bucket — if it climbs roughly in step with the bucket's own p_target range (e.g. the ~70-80% p_target bucket actually hits target ~70-80% of the time), the classifier is usably calibrated, the bar docs/ml-edge-confidence-research.md sets before this could inform expected-value ranking or position sizing. If it's flat or non-monotonic, this reframe hasn't found a real edge either, same conclusion as the regression ensemble after the stale-features fix — treat p_target as unproven until this check passes.
+
+=== Overall hit rate (for comparison to pick_outcomes.csv win_rate_pct) ===
+  n=1715  target_hit_first_pct=10.3
