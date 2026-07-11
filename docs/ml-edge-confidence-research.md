@@ -672,6 +672,54 @@ synthetic data came out ~0.35–0.5, as expected for a pure random walk with no 
 target-vs-stop asymmetry to learn — not a finding, just confirmation the pipeline
 doesn't produce nonsense before spending real API credits on it.
 
+## Update 2026-07-11 (same day, real-data run): triple-barrier reframe also shows no edge
+
+Ran `ml_confidence_backtest.yml` against real data (60-ticker sample, 760-day lookback,
+same seed as every prior run) with both the regression backtest and the new
+triple-barrier steps. Both came back null.
+
+**Regression ensemble (unchanged code, fresh sample window)**: rank-IC -0.009,
+p=0.66 — reproduces the post-fix null result from the previous update, not a fluke of
+that one run.
+
+**Triple-barrier classifier (first real-data run)**: 1,715 held-out predictions across
+tickers that had enough labeled history to train on.
+- **AUC 0.4876** — indistinguishable from a coin flip (0.5), if anything a hair below.
+- **Point-biserial correlation 0.0026, p=0.9151** — no statistically detectable
+  relationship between `p_target` and whether target was actually hit first.
+- **Calibration bucket report is flat and non-monotonic**: win rates of 8.9%, 13.0%,
+  12.5%, 7.9%, 9.9% across the five `p_target` quintiles — the top bucket (`p_target`
+  0.05–0.95, i.e. the model's own most-confident calls) did not win more often than the
+  bottom bucket (`p_target` ≈0). A well-calibrated classifier would show these numbers
+  climbing in step with the bucket's own probability range; instead the model's stated
+  confidence carries no information about the real outcome.
+- **Base rate context**: target was hit before stop only 10.3% of the time overall —
+  `compute_trade_plan`'s Fibonacci-extension target (floored at a 3:1 R:R) is a genuinely
+  hard bar to clear within `MAX_HOLD_DAYS`=30, which the classifier's own historical
+  training labels reflect (heavily imbalanced toward stop_hit/expired), likely part of
+  why it couldn't find a learnable signal from this feature set.
+
+**Conclusion**: the triple-barrier reframe was a reasonable next hypothesis — a
+narrower, more concrete question than "predict a return number" — but it doesn't hold
+up against real data either. Combined with the regression ensemble's null result, this
+feature set (technical indicators + RS/weekly-trend/VWAP + optional insider/rating/VIX)
+and these model classes (RF/GBM regression, LGBM classification) show no detectable
+5-day-to-30-day forward edge on this universe, under either framing. Both negative
+results are now independently confirmed, not just one.
+
+**Where this leaves the project**: neither the original regression approach nor its
+proposed replacement has cleared the bar this doc has held every claim to all session.
+Further progress most likely requires a fundamentally different information source —
+this doc's "Update 2026-07-11: further techniques and data-source research" section
+already flagged real, still-untried candidates that are a genuinely different category
+from the 100%-price/volume-derived feature set both null results above share: FMP
+institutional-ownership/13F changes, analyst estimate-revision *momentum* (not the
+point-in-time rating already tested), and Alpaca's historical News API for sentiment —
+rather than another model or label variation on the same technical inputs. Absent that,
+the practical move is to accept this as the ceiling for now and leave
+`evaluate_ml_edge_score`'s live SmartScore adjustment as a soft, unvalidated nudge
+rather than building position sizing or hard filtering on top of either approach.
+
 **Not yet run against real data.** Next step: trigger the `ml_confidence_backtest.yml`
 workflow (now runs the triple-barrier steps alongside the existing regression ones) and
 read `research/triple_barrier_summary.txt` for AUC, point-biserial correlation, and the
