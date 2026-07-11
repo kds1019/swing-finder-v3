@@ -99,6 +99,40 @@ class ResearchAgent:
         data = self._get("news/stock", params={"symbols": ticker, "limit": limit})
         return data if isinstance(data, list) else []
 
+    def get_insider_trades(self, ticker: str, limit: int = 1000) -> pd.DataFrame:
+        """Form 4 insider transactions — filingDate/transactionType/acquisitionOrDisposition/
+        securitiesTransacted/price. Feeds core.ml_forecast.prepare_features' insider_df
+        parameter. filingDate (not transactionDate) is the causally correct date to key
+        off — insiders can file up to a few days after the actual trade, so the market
+        (and this model) only "knows" as of the filing, not the trade itself."""
+        try:
+            data = self._get("search-insider-trades", params={"symbol": ticker, "limit": limit})
+        except requests.HTTPError:
+            data = []
+        rows = data if isinstance(data, list) else []
+        cols = ["filingDate", "transactionType", "acquisitionOrDisposition", "securitiesTransacted", "price"]
+        if not rows:
+            return pd.DataFrame(columns=cols)
+        df = pd.DataFrame(rows)
+        df["filingDate"] = pd.to_datetime(df["filingDate"])
+        return df[cols].sort_values("filingDate").reset_index(drop=True)
+
+    def get_rating_history(self, ticker: str, limit: int = 1000) -> pd.DataFrame:
+        """Daily FMP quant rating score (overallScore, from historical-ratings — a
+        ratio-based daily score, distinct from the monthly analyst buy/hold/sell
+        consensus in get_analyst_ratings). Date/overallScore columns. Feeds
+        core.ml_forecast.prepare_features' rating_df parameter."""
+        try:
+            data = self._get("historical-ratings", params={"symbol": ticker, "limit": limit})
+        except requests.HTTPError:
+            data = []
+        rows = data if isinstance(data, list) else []
+        if not rows:
+            return pd.DataFrame(columns=["Date", "overallScore"])
+        df = pd.DataFrame(rows)[["date", "overallScore"]].rename(columns={"date": "Date"})
+        df["Date"] = pd.to_datetime(df["Date"])
+        return df.sort_values("Date").reset_index(drop=True)
+
     def enrich_shortlist(self, shortlist_df: pd.DataFrame) -> pd.DataFrame:
         """Adds DaysToEarnings, Fundamentals, AnalystRating, News columns to the
         post-SmartScore/post-sector-cap shortlist. Never call this on the full

@@ -31,6 +31,8 @@ def prepare_features(
     df: pd.DataFrame,
     vix_df: Optional[pd.DataFrame] = None,
     spy_df: Optional[pd.DataFrame] = None,
+    insider_df: Optional[pd.DataFrame] = None,
+    rating_df: Optional[pd.DataFrame] = None,
     lookback: int = 1500,
     days_ahead: int = 5,
 ) -> tuple:
@@ -53,6 +55,16 @@ def prepare_features(
     elsewhere, re-derived here in vectorized form (rolling/ewm over every row)
     rather than by calling those row-at-a-time functions in a loop, which would
     be prohibitively slow across a 1500-row training set.
+
+    insider_df / rating_df, if provided, are agents.research_agent.ResearchAgent.
+    get_insider_trades() / get_rating_history() output — a fundamentally different
+    information category from everything else here (all derived from this ticker's
+    own price/volume one way or another). Both are safe to pass in un-truncated
+    (full available history, including dates after this call's as-of date) because
+    every value gets reindexed onto `features.index`, which itself never extends
+    past `df`'s last row — a caller building a walk-forward/backtest dataset by
+    truncating `df` to each as-of date automatically gets a causally correct,
+    lookahead-free result here without needing to separately truncate these too.
 
     Returns (X, y, feature_names, y_stats, dates) — dates is the as-of date for
     each row in X/y, aligned 1:1 (needed to pool multiple tickers' feature rows
@@ -150,6 +162,37 @@ def prepare_features(
             features["rs_60"] = recent["Close"].pct_change(59) * 100 - spy_aligned.pct_change(59) * 100
         # else: skip RS features silently — models train fine without them, same as VIX below
 
+    # --- Insider trading signal (FMP Form 4 filings, filingDate-anchored). Net signed
+    # dollar value of open-market purchases minus sales (excludes option exercises,
+    # tax-withholding, and gifts — those aren't discretionary sentiment signals),
+    # normalized by trailing dollar volume so it's comparable across price levels
+    # rather than dominated by company size. ---
+    if insider_df is not None and not insider_df.empty:
+        informative = insider_df[insider_df["transactionType"].isin(["P-Purchase", "S-Sale"])]
+        if not informative.empty:
+            sign = informative["acquisitionOrDisposition"].map({"A": 1, "D": -1}).fillna(0)
+            signed_value = informative["securitiesTransacted"] * informative["price"] * sign
+            daily_signed = signed_value.groupby(informative["filingDate"].dt.normalize()).sum()
+
+            full_range = pd.date_range(min(daily_signed.index.min(), features.index.min()), features.index.max(), freq="D")
+            rolling_insider_90d = daily_signed.reindex(full_range, fill_value=0.0).rolling(90, min_periods=1).sum()
+
+            daily_dollar_vol = recent["Close"] * recent["Volume"]
+            rolling_dollar_vol_90d = daily_dollar_vol.reindex(full_range).ffill().rolling(90, min_periods=1).sum()
+
+            insider_pct = (rolling_insider_90d / rolling_dollar_vol_90d.replace(0, np.nan)).fillna(0.0)
+            features["insider_net_buy_pct_90d"] = insider_pct.reindex(features.index, method="ffill").fillna(0.0)
+
+    # --- Analyst/quant rating momentum (FMP daily historical-ratings overallScore —
+    # a ratio-based score, not the point-in-time buy/hold/sell consensus). ---
+    if rating_df is not None and not rating_df.empty:
+        rating_series = rating_df.set_index(pd.to_datetime(rating_df["Date"]).dt.normalize())["overallScore"]
+        rating_aligned = rating_series.reindex(features.index, method="ffill")
+        if rating_aligned.notna().sum() >= len(features) * 0.5:
+            features["rating_score"] = rating_aligned.fillna(rating_aligned.median())
+            features["rating_score_change_20d"] = features["rating_score"].diff(20).fillna(0)
+        # else: skip rating features silently — models train fine without them
+
     # --- Merge VIX (already correctly-dated — no re-derivation from a maybe-broken index) ---
     if vix_df is not None and not vix_df.empty:
         vix_series = vix_df.set_index(pd.to_datetime(vix_df["Date"]).dt.normalize())["vix"]
@@ -220,13 +263,16 @@ def random_forest_forecast(
     df: pd.DataFrame,
     vix_df: Optional[pd.DataFrame] = None,
     spy_df: Optional[pd.DataFrame] = None,
+    insider_df: Optional[pd.DataFrame] = None,
+    rating_df: Optional[pd.DataFrame] = None,
     days_ahead: int = 5,
 ) -> Dict[str, Any]:
     try:
         from sklearn.ensemble import RandomForestRegressor
 
         X, y, feature_names, y_stats, _dates = prepare_features(
-            df, vix_df=vix_df, spy_df=spy_df, lookback=1500, days_ahead=days_ahead
+            df, vix_df=vix_df, spy_df=spy_df, insider_df=insider_df, rating_df=rating_df,
+            lookback=1500, days_ahead=days_ahead,
         )
 
         if X is None or len(X) < 20:
@@ -289,6 +335,8 @@ def gradient_boosting_forecast(
     df: pd.DataFrame,
     vix_df: Optional[pd.DataFrame] = None,
     spy_df: Optional[pd.DataFrame] = None,
+    insider_df: Optional[pd.DataFrame] = None,
+    rating_df: Optional[pd.DataFrame] = None,
     days_ahead: int = 5,
 ) -> Dict[str, Any]:
     try:
@@ -296,7 +344,8 @@ def gradient_boosting_forecast(
         from sklearn.preprocessing import StandardScaler
 
         X, y, feature_names, y_stats, _dates = prepare_features(
-            df, vix_df=vix_df, spy_df=spy_df, lookback=1500, days_ahead=days_ahead
+            df, vix_df=vix_df, spy_df=spy_df, insider_df=insider_df, rating_df=rating_df,
+            lookback=1500, days_ahead=days_ahead,
         )
 
         if X is None or len(X) < 20:
@@ -362,11 +411,17 @@ def ensemble_ml_forecast(
     df: pd.DataFrame,
     vix_df: Optional[pd.DataFrame] = None,
     spy_df: Optional[pd.DataFrame] = None,
+    insider_df: Optional[pd.DataFrame] = None,
+    rating_df: Optional[pd.DataFrame] = None,
     days_ahead: int = 5,
 ) -> Dict[str, Any]:
     """Combine Random Forest and Gradient Boosting via an R²-weighted blend."""
-    rf_result = random_forest_forecast(df, vix_df=vix_df, spy_df=spy_df, days_ahead=days_ahead)
-    gb_result = gradient_boosting_forecast(df, vix_df=vix_df, spy_df=spy_df, days_ahead=days_ahead)
+    rf_result = random_forest_forecast(
+        df, vix_df=vix_df, spy_df=spy_df, insider_df=insider_df, rating_df=rating_df, days_ahead=days_ahead
+    )
+    gb_result = gradient_boosting_forecast(
+        df, vix_df=vix_df, spy_df=spy_df, insider_df=insider_df, rating_df=rating_df, days_ahead=days_ahead
+    )
 
     if not rf_result["success"] or not gb_result["success"]:
         return {
