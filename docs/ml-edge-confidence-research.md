@@ -294,3 +294,52 @@ for rank-IC in the 0.03-0.06 range, not a jump to strong directional
 accuracy), and confidence-bucket calibration remains a separate, still-open
 problem that this result doesn't resolve on its own — worth re-checking
 after item 1, not assumed fixed by it.
+
+## Update 2026-07-10 (still later same day): item 1 result — pooling made it worse. Stopping here.
+
+`research/pooled_model_experiment.py` trained one shared RF + GBM on all 60
+tickers' pooled (ticker, date) samples (7,422 rows in the held-out test
+period alone — far more than any single ticker's history), with a strict
+calendar-date train/test split (no ticker's later data could leak into
+another's earlier test window). Result, vs. the per-ticker walk-forward's
+best (and three-times-reproduced) numbers:
+
+| metric | per-ticker walk-forward | pooled ensemble |
+|---|---|---|
+| IC (Pearson) | 0.0715 (raw) / 0.0332 (cleaned) | 0.0145, p=0.21 — not significant |
+| Rank-IC (Spearman) | 0.0453, p=0.026 — significant | -0.0216, p=0.063 — wrong sign |
+| Directional accuracy | 51.8% | 51.2% |
+
+The pooled Gradient Boosting model alone was worse still: rank-IC -0.0247,
+p=0.033 — *statistically significant in the wrong direction*, i.e. its
+predictions were inversely related to what actually happened, not just
+noise.
+
+**Pooling did not amplify the per-ticker approach's weak-but-real signal —
+it looks like it made things worse, or at best didn't help.** One caveat:
+the evaluation isn't perfectly apples-to-apples. The per-ticker walk-forward
+tests across ~45 different rolling time windows spread over 2 years; the
+pooled model was evaluated on a single held-out block (the most recent ~20%
+of the date range) — a noisier estimate that could reflect a specific hard
+regime rather than a flaw in pooling itself. But that caveat is a reason for
+humility about the *pooled* number, not a reason to trust it over the
+per-ticker result, which has now reproduced identically across three
+separate runs.
+
+**Recommendation: stop here.** Don't persist a pooled model or change
+`pipeline.py` to load-and-score instead of train-per-run — that's real
+architectural cost for a technique that underperformed the simpler
+per-ticker approach in this test. A properly rigorous pooled evaluation
+(walk-forward the pooled model too, not just one holdout block) is more
+engineering effort for a technique that already came back negative once;
+not worth it given what's already been validated and shipped.
+
+**What's actually been established and kept, from this whole line of
+work:** the confidence-scaled SmartScore adjustment (the "Update
+2026-07-10" section above, live in `core/ml_forecast.py`), and the
+relative-strength/weekly-trend/volume-profile features feeding the
+per-ticker ensemble (live in `pipeline.py` via `enrich_with_technical_
+analysis`, giving a reproducible, statistically significant rank-IC of
+~0.045). Confidence-bucket calibration is still unresolved — buckets remain
+flat-to-inverted regardless of which of these approaches was tested — and
+would need its own investigation if picked up again later.
