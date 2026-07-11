@@ -343,3 +343,104 @@ analysis`, giving a reproducible, statistically significant rank-IC of
 ~0.045). Confidence-bucket calibration is still unresolved — buckets remain
 flat-to-inverted regardless of which of these approaches was tested — and
 would need its own investigation if picked up again later.
+
+## Update 2026-07-11: further techniques and data-source research
+
+Two questions: are there other techniques/repos worth knowing about, and do
+Alpaca/Webull/FMP already have data that could help beyond what's used
+today? Findings grounded in what's actually wired into this pipeline right
+now (`agents/research_agent.py`, `agents/market_data_agent.py`) rather than
+the platforms' full capabilities in the abstract.
+
+### Data this pipeline has access to but doesn't use as an ML feature
+
+`ResearchAgent` (`agents/research_agent.py`) already calls FMP for VIX,
+earnings calendar, fundamentals, analyst ratings, and news — but only as
+qualitative context handed to the Decision Agent's LLM prompt, never as a
+`prepare_features()` column. Same gap pattern as the RS/weekly-trend/
+volume-profile features before item #2 fixed it — data already reachable,
+never fed to the model. Concretely available via FMP but currently unused
+anywhere:
+
+- **Insider transactions** (`insiderTrades`) and **institutional
+  ownership/13F changes** (`form13F`) — both have real, widely-replicated
+  academic literature behind them as return predictors, and matter because
+  they're a genuinely *different* information category from anything in the
+  current feature set (which is 100% derived from price/volume). This is a
+  stronger candidate than another technical-indicator variant, precisely
+  because it isn't just another transformation of the same OHLCV signal
+  everything else already extracts from.
+- **Analyst estimate revisions** (`analyst`) — FMP exposes more than the
+  single current-rating snapshot `get_analyst_ratings()` already pulls;
+  revision *direction/momentum* over time is the more commonly cited
+  predictive signal in the literature, not the point-in-time rating.
+- **Congressional trading** (`senate`) and **futures positioning**
+  (`commitmentOfTraders`) — lower-confidence, noisier alt-data signals, but
+  free within the existing FMP subscription and worth a cheap test via the
+  walk-forward harness before dismissing.
+
+**Alpaca** (`agents/market_data_agent.py` only fetches bars today) has a
+separate **News API** — 6+ years of historical news (Benzinga-sourced),
+explicitly documented as usable for sentiment-model training — a real,
+currently-untapped data category, not just more price history. Its
+**Corporate Actions** endpoint is now largely redundant with the
+`adjustment=Adjustment.SPLIT` fix already applied, but could still serve as
+an explicit "avoid trading around this" flag similar to the existing
+earnings buffer.
+
+**Webull** (`agents/portfolio_agent.py`, brokerage/execution only today) has
+no meaningfully new data for this purpose — its research endpoints
+(analyst rating/target price, company profile) duplicate what FMP already
+provides. It does expose tick-level order-flow/"footprint" data
+(bid/ask imbalance, tape), which is a genuinely different data type, but a
+poor fit for a 5-day-ahead swing signal — that granularity is built for
+intraday/scalping horizons, not multi-day holds.
+
+### Techniques
+
+- **Swap `GradientBoostingRegressor` → `HistGradientBoostingRegressor`**
+  (still scikit-learn, zero new dependency) — sklearn's own
+  histogram-based implementation, directly inspired by LightGBM, generally
+  faster and more accurate at this row-count scale. Free to try against the
+  existing walk-forward harness before touching anything else.
+- **LightGBM's `LGBMRanker` (`lambdarank` objective)** — trains directly on
+  ranking rather than regression MSE, which matches what's actually being
+  evaluated (rank-IC) better than a regression loss does. Mature, widely
+  used, small new dependency. The more targeted, currently-adoptable version
+  of a very recent idea: [LambdaRankIC](https://arxiv.org/abs/2605.00501)
+  (May 2026) proposes directly optimizing rank-IC itself as a custom
+  XGBoost objective and reports it beating both regression and NDCG-style
+  ranking losses on real market data — no public implementation found, so
+  it's a "watch this space" reference, not adoptable today, but `LGBMRanker`
+  is the practical middle ground available right now.
+- **Isotonic calibration** (`sklearn.calibration`, already in
+  `requirements.txt` via scikit-learn) — the direct, low-effort answer to
+  the still-open "confidence buckets are flat" problem from earlier updates.
+  Isotonic calibration can overfit on small data, so this should wait for
+  more scored predictions to accumulate (same data-volume caveat as the
+  original meta-labeling discussion) rather than being tried on the current
+  thin sample.
+- **[When Alpha Breaks](https://arxiv.org/abs/2603.13252)** (Feb 2026) — a
+  more sophisticated, DEUP-based uncertainty-for-ranking approach,
+  conceptually the advanced version of the same confidence-calibration
+  problem. Appropriate to revisit *after* isotonic calibration has been
+  tried and shown to need more than a simple fix — not a first move given
+  where this project actually is (rank-IC ~0.045, barely above the noise
+  floor).
+- Reference-only repos in the same spirit as ml4t before (study, don't
+  import): [gonzalezcortes/Cross-Sectional-Equity-Returns-Prediction](https://github.com/gonzalezcortes/Cross-Sectional-Equity-Returns-Prediction),
+  [tmro98/machine-learning-in-asset-pricing](https://github.com/tmro98/machine-learning-in-asset-pricing),
+  [jerryxyx/AlphaTrading](https://github.com/jerryxyx/AlphaTrading).
+
+### Recommendation
+
+Given pooling already underperformed the simpler per-ticker approach and the
+current signal is weak (rank-IC ~0.045), the highest-leverage next step is
+a genuinely new information category — **insider transactions and analyst
+revision momentum from FMP** — tested cheaply through the existing
+`research/walk_forward_backtest.py` harness before any architecture
+investment, the same discipline that caught pooling's failure and the
+split-adjustment bug. The `HistGradientBoostingRegressor` swap is a
+free companion test to run alongside it. `LGBMRanker` and calibration work
+are reasonable next steps *if* the new data category moves rank-IC further;
+not worth doing first on a signal this weak.
