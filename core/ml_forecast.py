@@ -66,13 +66,16 @@ def prepare_features(
     truncating `df` to each as-of date automatically gets a causally correct,
     lookahead-free result here without needing to separately truncate these too.
 
-    Returns (X, y, feature_names, y_stats, dates) — dates is the as-of date for
-    each row in X/y, aligned 1:1 (needed to pool multiple tickers' feature rows
-    into one cross-sectional dataset without misaligning them) — or a 5-tuple
-    of Nones if there isn't enough data.
+    Returns (X, y, feature_names, y_stats, dates, current_features) — dates is
+    the as-of date for each row in X/y, aligned 1:1 (needed to pool multiple
+    tickers' feature rows into one cross-sectional dataset without misaligning
+    them); current_features is the true most recent bar's feature vector, for
+    a caller predicting "today's" forecast — see the comment at its
+    construction below for why this must NOT be X[-1]. Returns a 6-tuple of
+    Nones if there isn't enough data.
     """
     if len(df) < _MIN_BARS:
-        return None, None, None, None, None
+        return None, None, None, None, None, None
 
     recent = df.tail(lookback).copy()
 
@@ -206,7 +209,7 @@ def prepare_features(
     features = features.reset_index(drop=True)
 
     if len(features) < max(20, days_ahead + 1):
-        return None, None, None, None, None
+        return None, None, None, None, None, None
 
     fwd_close = features["close"].shift(-days_ahead)
     fwd_return = fwd_close / features["close"] - 1
@@ -256,7 +259,15 @@ def prepare_features(
     feature_names = features.columns.tolist()
     X = features.iloc[:-days_ahead].values
     dates = dates_aligned[:-days_ahead]
-    return X, y, feature_names, y_stats, dates
+    # The true most recent bar's features — NOT included in X, which excludes the trailing
+    # `days_ahead` rows because their forward return isn't known yet (needed for y). That's
+    # correct for training, but a caller predicting "today's" forecast must use this row, not
+    # X[-1] — X[-1] is the row from `days_ahead` bars ago, since it's the last row X *does*
+    # include. Using X[-1] silently asks the model "what was the return from days_ahead days
+    # ago to today" (a quantity already observable from raw prices) rather than "what do you
+    # expect from today forward," and applies that stale answer as if it were a fresh forecast.
+    current_features = features.iloc[-1].values
+    return X, y, feature_names, y_stats, dates, current_features
 
 
 def random_forest_forecast(
@@ -270,7 +281,7 @@ def random_forest_forecast(
     try:
         from sklearn.ensemble import RandomForestRegressor
 
-        X, y, feature_names, y_stats, _dates = prepare_features(
+        X, y, feature_names, y_stats, _dates, current_features = prepare_features(
             df, vix_df=vix_df, spy_df=spy_df, insider_df=insider_df, rating_df=rating_df,
             lookback=1500, days_ahead=days_ahead,
         )
@@ -303,7 +314,9 @@ def random_forest_forecast(
         r2_adj = max(1.0 + rf_raw_r2 * 5.0, 0.3)
         confidence = round(dir_conf * r2_adj, 1)
 
-        last_features = X[-1].reshape(1, -1)
+        # current_features (not X[-1] — see prepare_features) is the true most recent bar,
+        # what "today's forecast" must actually be predicted from.
+        last_features = current_features.reshape(1, -1)
         predicted_return = float(rf_model.predict(last_features)[0])
 
         max_move = 0.04 * days_ahead
@@ -343,7 +356,7 @@ def gradient_boosting_forecast(
         from sklearn.ensemble import GradientBoostingRegressor
         from sklearn.preprocessing import StandardScaler
 
-        X, y, feature_names, y_stats, _dates = prepare_features(
+        X, y, feature_names, y_stats, _dates, current_features = prepare_features(
             df, vix_df=vix_df, spy_df=spy_df, insider_df=insider_df, rating_df=rating_df,
             lookback=1500, days_ahead=days_ahead,
         )
@@ -379,7 +392,8 @@ def gradient_boosting_forecast(
         r2_adj = max(1.0 + gb_raw_r2 * 5.0, 0.3)
         confidence = round(dir_conf * r2_adj, 1)
 
-        last_features = scaler.transform(X[-1].reshape(1, -1))
+        # current_features (not X[-1] — see prepare_features) is the true most recent bar.
+        last_features = scaler.transform(current_features.reshape(1, -1))
         predicted_return = float(gb_model.predict(last_features)[0])
 
         max_move = 0.04 * days_ahead
