@@ -21,6 +21,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from core.trade_plan import resolve_trade_plan_outcome
+
 LOG_COLUMNS = [
     "prediction_date", "ticker", "rank", "smartscore", "entry_price", "stop_price",
     "target_price", "rr_ratio", "resolved", "outcome", "outcome_price", "outcome_date",
@@ -114,23 +116,9 @@ def score_due_picks(log_df: pd.DataFrame, market_agent) -> pd.DataFrame:
         target = float(row["target_price"])
         entry_price = float(row["entry_price"])
 
-        outcome = None
-        outcome_price = None
-        outcome_date = None
-        bars_checked = 0
-
-        for i in range(min(len(after), MAX_HOLD_DAYS)):
-            bar = after.iloc[i]
-            bars_checked = i + 1
-            hit_stop = bar["Low"] <= stop
-            hit_target = bar["High"] >= target
-            if hit_stop:
-                # Checked before target on purpose — see module docstring on same-bar tie-break.
-                outcome, outcome_price, outcome_date = "stop_hit", stop, bar["Date"]
-                break
-            if hit_target:
-                outcome, outcome_price, outcome_date = "target_hit", target, bar["Date"]
-                break
+        outcome, outcome_price, outcome_date, bars_checked = resolve_trade_plan_outcome(
+            after, stop, target, MAX_HOLD_DAYS
+        )
 
         if outcome is not None:
             actual_return_pct = round((outcome_price - entry_price) / entry_price * 100, 2)
@@ -138,15 +126,6 @@ def score_due_picks(log_df: pd.DataFrame, market_agent) -> pd.DataFrame:
                               "bars_to_resolution", "actual_return_pct"]] = [
                 True, outcome, outcome_price, str(pd.Timestamp(outcome_date).date()),
                 bars_checked, actual_return_pct,
-            ]
-        elif len(after) >= MAX_HOLD_DAYS:
-            last_bar = after.iloc[MAX_HOLD_DAYS - 1]
-            last_close = float(last_bar["Close"])
-            actual_return_pct = round((last_close - entry_price) / entry_price * 100, 2)
-            log_df.loc[idx, ["resolved", "outcome", "outcome_price", "outcome_date",
-                              "bars_to_resolution", "actual_return_pct"]] = [
-                True, "expired_unresolved", last_close, str(last_bar["Date"].date()),
-                MAX_HOLD_DAYS, actual_return_pct,
             ]
         # else: still open, not enough bars have elapsed yet — leave unresolved for next run
 
