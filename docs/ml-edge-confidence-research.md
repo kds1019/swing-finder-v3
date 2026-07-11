@@ -708,7 +708,8 @@ and these model classes (RF/GBM regression, LGBM classification) show no detecta
 results are now independently confirmed, not just one.
 
 **Where this leaves the project**: neither the original regression approach nor its
-proposed replacement has cleared the bar this doc has held every claim to all session.
+proposed replacement has cleared the bar this doc has applied to every claim throughout
+this session.
 Further progress most likely requires a fundamentally different information source —
 this doc's "Update 2026-07-11: further techniques and data-source research" section
 already flagged real, still-untried candidates that are a genuinely different category
@@ -720,10 +721,9 @@ the practical move is to accept this as the ceiling for now and leave
 `evaluate_ml_edge_score`'s live SmartScore adjustment as a soft, unvalidated nudge
 rather than building position sizing or hard filtering on top of either approach.
 
-**Not yet run against real data.** Next step: trigger the `ml_confidence_backtest.yml`
-workflow (now runs the triple-barrier steps alongside the existing regression ones) and
-read `research/triple_barrier_summary.txt` for AUC, point-biserial correlation, and the
-`p_target` bucket report. Per the plan's own caution: even a promising AUC only justifies
-ranking/filtering use until the bucket report shows real calibration (a 70%-`p_target`
-bucket actually resolving to target-hit-first about 70% of the time) — position sizing
-stays off the table until that check passes.
+**Now run against real data — see the update directly below**, which reports the actual
+AUC, point-biserial correlation, and `p_target` bucket report from that run. Per the
+plan's own caution, even a promising AUC would have only justified ranking/filtering use
+until the bucket report showed real calibration (a 70%-`p_target` bucket actually
+resolving to target-hit-first about 70% of the time) — moot here since the bucket report
+came back flat rather than calibrated.
