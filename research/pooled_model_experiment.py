@@ -57,7 +57,9 @@ def build_pooled_dataset(
             continue
 
         df = compute_indicators(bars.copy())
-        X, y, feature_names, _, dates = prepare_features(df, vix_df=None, spy_df=spy_df, days_ahead=days_ahead)
+        X, y, feature_names, _, dates, _current_features = prepare_features(
+            df, vix_df=None, spy_df=spy_df, days_ahead=days_ahead
+        )
         if X is None:
             continue
 
