@@ -30,8 +30,10 @@ jobs:
     runs-on: ubuntu-latest
     # A single ensemble_ml_forecast() call takes ~1.2s locally; the default
     # 60 tickers x ~45 walk-forward windows each is ~2700 calls, so budget
-    # generously (public repo — Actions minutes are free either way).
-    timeout-minutes: 180
+    # generously (public repo — Actions minutes are free either way). Extra
+    # room beyond the regression backtest's own budget accounts for the
+    # triple-barrier step's per-ticker compute_trade_plan() sweep below.
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
 
@@ -70,6 +72,25 @@ jobs:
       # research/pooled_model_summary.txt from that result stays committed as a record;
       # this workflow just doesn't regenerate it every run anymore.
 
+      - name: Run triple-barrier walk-forward
+        if: always()
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+        run: |
+          set -eo pipefail
+          # Same reasoning as walk_forward_results.csv above — start from a clean file.
+          rm -f research/triple_barrier_results.csv
+          python -m research.triple_barrier_walk_forward \
+            --n-tickers "${{ inputs.n_tickers }}" \
+            --lookback-days "${{ inputs.lookback_days }}"
+
+      - name: Analyze triple-barrier calibration
+        run: |
+          set -eo pipefail
+          python -m research.analyze_triple_barrier | tee research/triple_barrier_summary.txt
+
       - name: Commit results
         if: always()
         run: |
@@ -79,7 +100,7 @@ jobs:
           # if: always() means this runs even if an earlier step failed (and possibly never
           # wrote one of these files) — only stage whatever actually exists, so a failure in
           # one step doesn't also throw away another step's completed results.
-          for f in research/walk_forward_results.csv research/walk_forward_summary.txt research/pooled_model_summary.txt; do
+          for f in research/walk_forward_results.csv research/walk_forward_summary.txt research/pooled_model_summary.txt research/triple_barrier_results.csv research/triple_barrier_summary.txt; do
             [ -f "$f" ] && git add "$f"
           done
           git diff --cached --quiet && echo "No changes to commit" || git commit -m "ML edge confidence backtest: $(date -u +%Y-%m-%d\ %H:%M)Z"

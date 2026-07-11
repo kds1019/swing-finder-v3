@@ -566,3 +566,116 @@ within the historical window, train the `LGBMClassifier` variant, and reuse
 generalized to take an arbitrary probability column) to check calibration
 — same infrastructure, new label and model. Not started; this section is a
 plan to pick up later, not a result.
+
+## Update 2026-07-11 (next day): the validated edge was a bug artifact — it's gone
+
+While scoping the triple-barrier work above and tracing `prepare_features()`'s
+row alignment carefully (needed to reuse its feature engineering correctly),
+found a real, pre-existing bug in `core/ml_forecast.py`, present since before
+this research began: `random_forest_forecast`/`gradient_boosting_forecast`'s
+live prediction step used `X[-1]` as "today's features." But `X` is built by
+dropping the trailing `days_ahead` (5) rows of the feature table — those rows
+don't have a known 5-day-forward return yet, needed only for *training*.
+`X[-1]` is therefore not today's row; it's the row from **5 trading days
+ago**, confirmed empirically with a synthetic 700-bar series where `X[-1]`'s
+date traced back to bar 694, not the true last bar (699).
+
+Mechanically, this meant the model's "prediction" was really re-deriving the
+return from 5 days ago to today — a quantity already directly observable
+from price history — and presenting it as a forecast of the next 5 days.
+Correlating that backward-facing number against genuine forward returns is,
+in effect, testing whether recent short-term momentum predicts the next few
+days (a real but different phenomenon, and not what the RF/GBM ensemble was
+actually being credited for).
+
+**Fixed** (PR #15): `prepare_features()` now also returns `current_features`
+— the true, untruncated last row's feature vector — and both forecast
+functions use that instead of `X[-1]` for the live/current prediction. The
+training data (`X_train`/`y_train`) was never affected by this bug; only the
+single "what does the model predict right now" step was wrong.
+
+**Re-ran the full walk-forward validation with the fix in place** (run #7,
+same 60-ticker sample, same 2-year window): rank-IC dropped from
+0.041–0.045 (significant, reproduced 3 times) to **-0.0086, p=0.67** —
+statistically indistinguishable from zero. IC similarly collapsed to
+-0.02, not significant. Directional accuracy: 51.6%, unchanged, still a
+coin flip. Same outlier-cleaning applied as every prior run; not a data
+artifact.
+
+**This supersedes every "found a real edge" conclusion earlier in this
+document.** The RS/weekly-trend/volume-profile features, the insider/rating
+data test, and the meta-labeling test were all run against the buggy
+prediction step — their relative comparisons to each other (pooling made
+things worse than per-ticker, insider data was a wash, meta-labeling had
+weak AUC) likely still hold as *relative* statements, but the absolute
+conclusion "this ensemble has a small real edge, rank-IC ~0.04" does not.
+Once the model is made to genuinely forecast forward rather than
+re-describe the recent past, this feature set and model class shows no
+detectable edge at all.
+
+**Correctness note, not a reason to revert**: the fix is correct regardless
+of this result — a live trading system silently forecasting from 5-day-old
+data is wrong on its own terms, independent of whether that mistake happened
+to look profitable in backtesting. Leaving it in place because it produced
+better-looking numbers would have been keeping a bug for its side effects.
+
+**Where this actually leaves the project**: back to a genuine "no known
+edge" state for the continuous-return regression approach — worse than the
+"stopping point with one validated improvement" conclusion from the
+previous update, but a more honest one. This raises the priority of the
+triple-barrier reframing plan above: it was already the identified
+"next genuinely different idea" before this fix, and now there's no
+regression-based edge left to lose by pursuing it. Also worth flagging: the
+live pipeline has been running with this bug — historical `ml_predictions.csv`
+entries and any `ml_track_record` statistics computed before this fix
+reflect the same stale-feature prediction step, not a genuine forecast.
+
+## Update 2026-07-11 (same day): triple-barrier reframe built, not yet validated
+
+Built the plan above: `research/triple_barrier_walk_forward.py` + `research/
+analyze_triple_barrier.py`, wired into `.github/workflows/ml_confidence_backtest.yml`
+as new steps alongside (not replacing) the regression backtest. No result yet — this
+records what was built and how, not a finding.
+
+**Refactor first.** `core/ml_forecast.py`'s feature engineering (the RS/weekly-trend/
+VWAP/insider/rating/VIX block, ~150 lines) was extracted out of `prepare_features()` into
+a new `build_feature_table()`, so the triple-barrier script can reuse the identical,
+already-battle-tested feature set instead of duplicating it. `prepare_features()` now
+just calls `build_feature_table()` and adds its own days_ahead-forward-return label on
+top — verified byte-identical output on synthetic data before and after the split
+(same X, same current_features, same dates).
+
+**Label generation** (`build_ticker_dataset()` in the new script): for each historical
+as-of date (sampled every `step_days=3` bars — denser than the regression backtest's
+step_days=10, since this script trains one model per ticker instead of retraining at
+every step, so it can afford more labeled examples per ticker), compute
+`core.trade_plan.compute_trade_plan()` on the df truncated to that date (real entry/
+stop/target, same function the live pipeline uses — not a synthetic label), then walk
+forward through the actual (already-historical) bars that follow via the same
+`resolve_trade_plan_outcome()` `core/pick_tracking.py` uses to resolve live picks.
+`expired_unresolved` rows (neither stop nor target touched within `MAX_HOLD_DAYS`=30)
+are dropped — ambiguous, not a clean binary label.
+
+**Model**: `LGBMClassifier`, one per ticker, trained on `direction_correct`
+(target_hit=1/stop_hit=0) with a single time-based 80/20 train/test split — matching
+"same per-ticker training shape as today's regression forecasters" from the plan, not
+the regression backtest's per-step retrain loop (unnecessary here since each row already
+carries its own historical as-of date via the truncated `compute_trade_plan` call).
+
+**Tested against synthetic random-walk price data first** (same discipline as every
+other script this session) before this went anywhere near real data: dataset
+generation, LGBM training, prediction, AUC/point-biserial correlation, and the
+`p_target` quintile-bucket calibration report (reusing `confidence_bucket_report()`
+from `research/analyze_confidence.py`, column="p_target" — no changes needed there,
+its column-name parameter already generalized it) all run cleanly end-to-end. AUC on
+synthetic data came out ~0.35–0.5, as expected for a pure random walk with no real
+target-vs-stop asymmetry to learn — not a finding, just confirmation the pipeline
+doesn't produce nonsense before spending real API credits on it.
+
+**Not yet run against real data.** Next step: trigger the `ml_confidence_backtest.yml`
+workflow (now runs the triple-barrier steps alongside the existing regression ones) and
+read `research/triple_barrier_summary.txt` for AUC, point-biserial correlation, and the
+`p_target` bucket report. Per the plan's own caution: even a promising AUC only justifies
+ranking/filtering use until the bucket report shows real calibration (a 70%-`p_target`
+bucket actually resolving to target-hit-first about 70% of the time) — position sizing
+stays off the table until that check passes.

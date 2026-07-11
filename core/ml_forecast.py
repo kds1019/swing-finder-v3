@@ -27,18 +27,21 @@ from typing import Dict, Any, Optional
 _MIN_BARS = 60
 
 
-def prepare_features(
+def build_feature_table(
     df: pd.DataFrame,
     vix_df: Optional[pd.DataFrame] = None,
     spy_df: Optional[pd.DataFrame] = None,
     insider_df: Optional[pd.DataFrame] = None,
     rating_df: Optional[pd.DataFrame] = None,
     lookback: int = 1500,
-    days_ahead: int = 5,
 ) -> tuple:
     """
-    Prepare features for ML models using up to `lookback` bars of history
-    (default 1500, ~6 years; uses all available rows if df is shorter).
+    Builds the normalized, causal technical/fundamental feature table shared by every
+    consumer of this module — prepare_features() below (regression training / live
+    forecast) and research/triple_barrier_walk_forward.py (classification training),
+    which need the identical per-bar feature vectors but pair them with different labels.
+    Extracted out of prepare_features so that reuse doesn't mean duplicating ~150 lines of
+    feature engineering.
 
     df must have a `Date` column (not just a positional index) plus
     Close/High/Low/Volume, and ideally RSI14/EMA20/EMA50/MACD from
@@ -66,16 +69,14 @@ def prepare_features(
     truncating `df` to each as-of date automatically gets a causally correct,
     lookahead-free result here without needing to separately truncate these too.
 
-    Returns (X, y, feature_names, y_stats, dates, current_features) — dates is
-    the as-of date for each row in X/y, aligned 1:1 (needed to pool multiple
-    tickers' feature rows into one cross-sectional dataset without misaligning
-    them); current_features is the true most recent bar's feature vector, for
-    a caller predicting "today's" forecast — see the comment at its
-    construction below for why this must NOT be X[-1]. Returns a 6-tuple of
-    Nones if there isn't enough data.
+    Returns (features, dates) — one row per bar that survived the rolling-window
+    warmup dropna, still including the "close" column (prepare_features needs it to
+    compute forward return before dropping it; a caller with a different label doesn't
+    have to use it). dates is features' as-of-date index, 1:1 with its rows. Returns
+    (None, None) if there isn't enough data.
     """
     if len(df) < _MIN_BARS:
-        return None, None, None, None, None, None
+        return None, None
 
     recent = df.tail(lookback).copy()
 
@@ -208,29 +209,6 @@ def prepare_features(
     dates_aligned = features.index
     features = features.reset_index(drop=True)
 
-    if len(features) < max(20, days_ahead + 1):
-        return None, None, None, None, None, None
-
-    fwd_close = features["close"].shift(-days_ahead)
-    fwd_return = fwd_close / features["close"] - 1
-    y = fwd_return.iloc[:-days_ahead].values
-
-    _cap = 0.04 * days_ahead
-    y_stats = {
-        "n_samples": int(len(y)),
-        "n_features": int(features.shape[1] - 1),
-        "mean_pct": round(float(np.mean(y)) * 100, 3),
-        "std_pct": round(float(np.std(y)) * 100, 3),
-        "min_pct": round(float(np.min(y)) * 100, 3),
-        "p25_pct": round(float(np.percentile(y, 25)) * 100, 3),
-        "median_pct": round(float(np.median(y)) * 100, 3),
-        "p75_pct": round(float(np.percentile(y, 75)) * 100, 3),
-        "max_pct": round(float(np.max(y)) * 100, 3),
-        "pct_positive": round(float(np.mean(y > 0)) * 100, 1),
-        "pct_capped": round(float(np.mean(np.abs(y) >= _cap)) * 100, 1),
-        "days_ahead": days_ahead,
-    }
-
     c = features["close"]
 
     for col in ["high", "low", "ma5", "ma10", "ma20"]:
@@ -254,8 +232,61 @@ def prepare_features(
         features["volume_lag_1"] = features["volume_lag_1"] / vol_ref
 
     features = features.replace([np.inf, -np.inf], np.nan).fillna(0)
-    features = features.drop(columns=["close"])
+    return features, dates_aligned
 
+
+def prepare_features(
+    df: pd.DataFrame,
+    vix_df: Optional[pd.DataFrame] = None,
+    spy_df: Optional[pd.DataFrame] = None,
+    insider_df: Optional[pd.DataFrame] = None,
+    rating_df: Optional[pd.DataFrame] = None,
+    lookback: int = 1500,
+    days_ahead: int = 5,
+) -> tuple:
+    """
+    Prepare features for the regression forecasters (random_forest_forecast /
+    gradient_boosting_forecast) using up to `lookback` bars of history (default 1500,
+    ~6 years; uses all available rows if df is shorter). Delegates the actual feature
+    engineering to build_feature_table() (shared with research/triple_barrier_walk_forward.py)
+    and adds this module's specific label: forward return `days_ahead` bars out.
+
+    See build_feature_table() for the df/vix_df/spy_df/insider_df/rating_df argument
+    contract — unchanged here.
+
+    Returns (X, y, feature_names, y_stats, dates, current_features) — dates is
+    the as-of date for each row in X/y, aligned 1:1 (needed to pool multiple
+    tickers' feature rows into one cross-sectional dataset without misaligning
+    them); current_features is the true most recent bar's feature vector, for
+    a caller predicting "today's" forecast — see the comment at its
+    construction below for why this must NOT be X[-1]. Returns a 6-tuple of
+    Nones if there isn't enough data.
+    """
+    features, dates_aligned = build_feature_table(df, vix_df, spy_df, insider_df, rating_df, lookback)
+    if features is None or len(features) < max(20, days_ahead + 1):
+        return None, None, None, None, None, None
+
+    fwd_close = features["close"].shift(-days_ahead)
+    fwd_return = fwd_close / features["close"] - 1
+    y = fwd_return.iloc[:-days_ahead].values
+
+    _cap = 0.04 * days_ahead
+    y_stats = {
+        "n_samples": int(len(y)),
+        "n_features": int(features.shape[1] - 1),
+        "mean_pct": round(float(np.mean(y)) * 100, 3),
+        "std_pct": round(float(np.std(y)) * 100, 3),
+        "min_pct": round(float(np.min(y)) * 100, 3),
+        "p25_pct": round(float(np.percentile(y, 25)) * 100, 3),
+        "median_pct": round(float(np.median(y)) * 100, 3),
+        "p75_pct": round(float(np.percentile(y, 75)) * 100, 3),
+        "max_pct": round(float(np.max(y)) * 100, 3),
+        "pct_positive": round(float(np.mean(y > 0)) * 100, 1),
+        "pct_capped": round(float(np.mean(np.abs(y) >= _cap)) * 100, 1),
+        "days_ahead": days_ahead,
+    }
+
+    features = features.drop(columns=["close"])
     feature_names = features.columns.tolist()
     X = features.iloc[:-days_ahead].values
     dates = dates_aligned[:-days_ahead]
