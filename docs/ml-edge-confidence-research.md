@@ -444,3 +444,57 @@ split-adjustment bug. The `HistGradientBoostingRegressor` swap is a
 free companion test to run alongside it. `LGBMRanker` and calibration work
 are reasonable next steps *if* the new data category moves rank-IC further;
 not worth doing first on a signal this weak.
+
+## Update 2026-07-11: insider/rating data — a wash; meta-labeling doesn't clear the bar
+
+Insider-trading and daily rating features were implemented and backtested
+(`agents/research_agent.py`'s `get_insider_trades`/`get_rating_history`,
+threaded into `prepare_features`). The first live run looked like it
+changed nothing at all — IC/rank-IC identical to four decimal places with
+the pre-insider-data baseline — which turned out to be a real bug: the
+insider-trading endpoint path (`search-insider-trades`, guessed from a doc
+page URL and the FMP MCP tool's internal alias) 404'd on every one of the
+60 tickers, silently caught and returned as an empty frame. Fixed to the
+correct path (`insider-trading/search`, confirmed via a maintained
+third-party FMP client's endpoint registry) and added visible error
+logging so a wrong path can't silently produce a "successful"-looking
+empty result again.
+
+With the fix in place, the numbers did move (confirming real data was now
+flowing) — but only within noise:
+
+| metric | RS/weekly/VWAP baseline | + insider/rating data |
+|---|---|---|
+| Rank-IC (cleaned) | 0.0436, p=0.032 | 0.0407, p=0.045 |
+| IC (cleaned) | 0.0332, p=0.10 | 0.0379, p=0.063 |
+| Directional accuracy | 51.7% | 51.5% |
+
+Same 8 known-real volatile-stock outliers as prior runs (ARQQ, CXW, RCAT,
+REAL, VRDN) — no new data artifacts. **Insider/rating data is a statistical
+wash: not measurably better, not measurably worse.** Left in the codebase
+(harmless, optional, degrades gracefully) but not counted as a validated
+improvement.
+
+`research/meta_labeling_experiment.py` (new — trains a secondary classifier
+on `{rf_confidence, gb_confidence, rf_r2, gb_r2, agreement_pct, confidence}`
+→ `direction_correct`, reusing `walk_forward_backtest.py`'s output and
+`pooled_model_experiment.py`'s time-based split) was run against this same
+data: logistic regression AUC 0.52, random forest AUC 0.54 — both barely
+above the 0.5 no-better-than-guessing line, and neither showed a clean
+monotonic calibration curve on held-out data. **Honest read: with a primary
+signal this weak (rank-IC ~0.04), there isn't enough real information for a
+meta-model to meaningfully out-calibrate the current ad hoc formula.** This
+is not a meta-labeling implementation failure — it's the expected result of
+trying to calibrate confidence on top of a signal that barely clears
+statistical significance in the first place.
+
+**Where this leaves the project**: every technique tried after the
+RS/weekly/VWAP feature set (pooled cross-sectional training, insider/rating
+data, meta-labeling) has come back negative or null. That feature set —
+rank-IC 0.045, reproduced identically across three separate runs — remains
+the one validated, real improvement from this entire line of work. Further
+gains likely require either a fundamentally different data category not yet
+tried, or accepting that rank-IC ~0.04 may be close to this feature set's
+and model class's practical ceiling for 5-day swing prediction. Recommend
+treating this as a stopping point rather than continuing to iterate on
+model/feature variations without a specific new hypothesis to test.
