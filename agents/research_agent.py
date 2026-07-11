@@ -19,6 +19,7 @@ against the real API before writing this, not guessed from older docs.
 
 from __future__ import annotations
 
+import sys
 from typing import Optional
 
 import pandas as pd
@@ -104,10 +105,18 @@ class ResearchAgent:
         securitiesTransacted/price. Feeds core.ml_forecast.prepare_features' insider_df
         parameter. filingDate (not transactionDate) is the causally correct date to key
         off — insiders can file up to a few days after the actual trade, so the market
-        (and this model) only "knows" as of the filing, not the trade itself."""
+        (and this model) only "knows" as of the filing, not the trade itself.
+
+        Path is "insider-trading/search", not "search-insider-trades" — the latter is
+        the display name FMP's own docs page (and the FMP MCP tool's internal endpoint
+        alias) use, not the actual REST path; verified against a maintained third-party
+        Python client's endpoint registry after the display-name guess silently 404'd on
+        every call in production (caught by the except below, returning an empty frame
+        for all 60 backtested tickers with no visible error)."""
         try:
-            data = self._get("search-insider-trades", params={"symbol": ticker, "limit": limit})
-        except requests.HTTPError:
+            data = self._get("insider-trading/search", params={"symbol": ticker, "limit": limit})
+        except requests.HTTPError as e:
+            print(f"[research_agent] get_insider_trades({ticker}) failed: {e}", file=sys.stderr)
             data = []
         rows = data if isinstance(data, list) else []
         cols = ["filingDate", "transactionType", "acquisitionOrDisposition", "securitiesTransacted", "price"]
@@ -124,7 +133,8 @@ class ResearchAgent:
         core.ml_forecast.prepare_features' rating_df parameter."""
         try:
             data = self._get("historical-ratings", params={"symbol": ticker, "limit": limit})
-        except requests.HTTPError:
+        except requests.HTTPError as e:
+            print(f"[research_agent] get_rating_history({ticker}) failed: {e}", file=sys.stderr)
             data = []
         rows = data if isinstance(data, list) else []
         if not rows:

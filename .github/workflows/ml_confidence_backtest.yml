@@ -83,4 +83,16 @@ jobs:
             [ -f "$f" ] && git add "$f"
           done
           git diff --cached --quiet && echo "No changes to commit" || git commit -m "ML edge confidence backtest: $(date -u +%Y-%m-%d\ %H:%M)Z"
-          git push
+          # This step's own results are already committed locally above; a concurrent
+          # push to main during this run's ~30min window (e.g. a separate PR merge) can
+          # make a plain `git push` fail with "fetch first" and silently lose this run's
+          # results (confirmed happened once). Rebase onto the latest main and retry
+          # rather than push once and give up.
+          for attempt in 1 2 3; do
+            if git push; then
+              break
+            fi
+            echo "push attempt $attempt failed, rebasing onto latest main and retrying" >&2
+            git pull --rebase origin main
+            if [ "$attempt" = 3 ]; then exit 1; fi
+          done
