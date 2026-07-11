@@ -41,20 +41,24 @@ def compute_ic(df: pd.DataFrame) -> dict:
     }
 
 
-def confidence_bucket_report(df: pd.DataFrame, n_buckets: int = 5) -> pd.DataFrame:
+def confidence_bucket_report(df: pd.DataFrame, n_buckets: int = 5, column: str = "confidence") -> pd.DataFrame:
     """Deciles by default n_buckets=5 (quintiles) — walk-forward sample sizes rarely
-    support true deciles without individual buckets getting too small to trust."""
+    support true deciles without individual buckets getting too small to trust.
+
+    column defaults to "confidence" (the ensemble's own formula) but accepts any other
+    0-1-or-similar score column — e.g. research/meta_labeling_experiment.py reuses this
+    to check whether a trained meta-model's P(direction correct) is better calibrated
+    than the original ad hoc formula, without duplicating this bucketing logic."""
     labeled = df.copy()
     try:
-        labeled["bucket"] = pd.qcut(labeled["confidence"], n_buckets, duplicates="drop")
+        labeled["bucket"] = pd.qcut(labeled[column], n_buckets, duplicates="drop")
     except ValueError:
-        # Not enough distinct confidence values to form n_buckets groups.
-        labeled["bucket"] = pd.cut(labeled["confidence"], min(n_buckets, labeled["confidence"].nunique()))
+        # Not enough distinct values in `column` to form n_buckets groups.
+        labeled["bucket"] = pd.cut(labeled[column], min(n_buckets, labeled[column].nunique()))
 
     report = labeled.groupby("bucket", observed=True).agg(
-        n=("confidence", "size"),
-        confidence_min=("confidence", "min"),
-        confidence_max=("confidence", "max"),
+        n=(column, "size"),
+        **{f"{column}_min": (column, "min"), f"{column}_max": (column, "max")},
         win_rate_pct=("direction_correct", lambda s: round(float(s.mean()) * 100, 1)),
         mean_actual_return_pct=("actual_return_pct", lambda s: round(float(s.mean()), 3)),
         median_actual_return_pct=("actual_return_pct", lambda s: round(float(s.median()), 3)),
