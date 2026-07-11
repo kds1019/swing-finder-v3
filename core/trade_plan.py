@@ -127,6 +127,35 @@ def calculate_fibonacci_target(
     }
 
 
+def resolve_trade_plan_outcome(
+    after_bars: pd.DataFrame, stop: float, target: float, max_hold_days: int
+) -> tuple[str | None, float | None, "pd.Timestamp | None", int | None]:
+    """Walk forward through `after_bars` (bars strictly after the entry point, already
+    chronologically sorted), checking each bar's High/Low against stop/target, up to
+    max_hold_days bars. Returns (outcome, outcome_price, outcome_date, bars_to_resolution).
+
+    outcome is "target_hit", "stop_hit", "expired_unresolved", or None if after_bars doesn't
+    yet span max_hold_days and neither level has been touched — a still-open pick, not yet
+    resolvable one way or the other (only meaningful for live tracking of open picks;
+    historical backtesting either has enough future bars or excludes the row entirely).
+
+    Same-bar ambiguity (a bar's range touches both stop and target) can't be sequenced from
+    daily OHLC data alone — resolved conservatively toward stop_hit (checked first), since
+    assuming the better outcome would overstate accuracy. Shared by core.pick_tracking (live
+    pick resolution) and research/triple_barrier_walk_forward.py (historical label
+    generation) so both use the identical definition of "did this trade work.\""""
+    for i in range(min(len(after_bars), max_hold_days)):
+        bar = after_bars.iloc[i]
+        if bar["Low"] <= stop:
+            return "stop_hit", stop, bar["Date"], i + 1
+        if bar["High"] >= target:
+            return "target_hit", target, bar["Date"], i + 1
+    if len(after_bars) >= max_hold_days:
+        last_bar = after_bars.iloc[max_hold_days - 1]
+        return "expired_unresolved", float(last_bar["Close"]), last_bar["Date"], max_hold_days
+    return None, None, None, None
+
+
 def compute_trade_plan(df: pd.DataFrame, settings) -> dict:
     """Full stop/target/R:R for the most recent bar of `df` (must already have
     compute_indicators() applied). Returns None if there isn't enough data."""
