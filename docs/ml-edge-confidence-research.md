@@ -629,3 +629,53 @@ regression-based edge left to lose by pursuing it. Also worth flagging: the
 live pipeline has been running with this bug — historical `ml_predictions.csv`
 entries and any `ml_track_record` statistics computed before this fix
 reflect the same stale-feature prediction step, not a genuine forecast.
+
+## Update 2026-07-11 (same day): triple-barrier reframe built, not yet validated
+
+Built the plan above: `research/triple_barrier_walk_forward.py` + `research/
+analyze_triple_barrier.py`, wired into `.github/workflows/ml_confidence_backtest.yml`
+as new steps alongside (not replacing) the regression backtest. No result yet — this
+records what was built and how, not a finding.
+
+**Refactor first.** `core/ml_forecast.py`'s feature engineering (the RS/weekly-trend/
+VWAP/insider/rating/VIX block, ~150 lines) was extracted out of `prepare_features()` into
+a new `build_feature_table()`, so the triple-barrier script can reuse the identical,
+already-battle-tested feature set instead of duplicating it. `prepare_features()` now
+just calls `build_feature_table()` and adds its own days_ahead-forward-return label on
+top — verified byte-identical output on synthetic data before and after the split
+(same X, same current_features, same dates).
+
+**Label generation** (`build_ticker_dataset()` in the new script): for each historical
+as-of date (sampled every `step_days=3` bars — denser than the regression backtest's
+step_days=10, since this script trains one model per ticker instead of retraining at
+every step, so it can afford more labeled examples per ticker), compute
+`core.trade_plan.compute_trade_plan()` on the df truncated to that date (real entry/
+stop/target, same function the live pipeline uses — not a synthetic label), then walk
+forward through the actual (already-historical) bars that follow via the same
+`resolve_trade_plan_outcome()` `core/pick_tracking.py` uses to resolve live picks.
+`expired_unresolved` rows (neither stop nor target touched within `MAX_HOLD_DAYS`=30)
+are dropped — ambiguous, not a clean binary label.
+
+**Model**: `LGBMClassifier`, one per ticker, trained on `direction_correct`
+(target_hit=1/stop_hit=0) with a single time-based 80/20 train/test split — matching
+"same per-ticker training shape as today's regression forecasters" from the plan, not
+the regression backtest's per-step retrain loop (unnecessary here since each row already
+carries its own historical as-of date via the truncated `compute_trade_plan` call).
+
+**Tested against synthetic random-walk price data first** (same discipline as every
+other script this session) before this went anywhere near real data: dataset
+generation, LGBM training, prediction, AUC/point-biserial correlation, and the
+`p_target` quintile-bucket calibration report (reusing `confidence_bucket_report()`
+from `research/analyze_confidence.py`, column="p_target" — no changes needed there,
+its column-name parameter already generalized it) all run cleanly end-to-end. AUC on
+synthetic data came out ~0.35–0.5, as expected for a pure random walk with no real
+target-vs-stop asymmetry to learn — not a finding, just confirmation the pipeline
+doesn't produce nonsense before spending real API credits on it.
+
+**Not yet run against real data.** Next step: trigger the `ml_confidence_backtest.yml`
+workflow (now runs the triple-barrier steps alongside the existing regression ones) and
+read `research/triple_barrier_summary.txt` for AUC, point-biserial correlation, and the
+`p_target` bucket report. Per the plan's own caution: even a promising AUC only justifies
+ranking/filtering use until the bucket report shows real calibration (a 70%-`p_target`
+bucket actually resolving to target-hit-first about 70% of the time) — position sizing
+stays off the table until that check passes.
