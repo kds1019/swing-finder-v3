@@ -46,6 +46,9 @@ jobs:
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          # Optional — enables insider-trading/daily-rating features (core.ml_forecast's
+          # insider_df/rating_df). Degrades gracefully to "features skipped" if unset.
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
         run: |
           set -eo pipefail
           # walk_forward_backtest.py appends per-ticker (so a run interrupted partway
@@ -62,29 +65,10 @@ jobs:
           set -eo pipefail
           python -m research.analyze_confidence | tee research/walk_forward_summary.txt
 
-      - name: Run pooled cross-sectional model experiment
-        env:
-          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
-          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
-        run: |
-          set -eo pipefail
-          # Same n_tickers/lookback_days/seed as the walk-forward backtest above (seed is
-          # pooled_model_experiment.py's hardcoded default) — same ticker sample, so its
-          # rank-IC is directly comparable to the per-ticker walk-forward's.
-          # Retried: this step re-fetches bars from Alpaca (independent of the walk-forward
-          # step's already-completed fetch) and a transient connection timeout here
-          # shouldn't sink the whole run after the slow walk-forward step already succeeded.
-          for attempt in 1 2 3; do
-            if python -m research.pooled_model_experiment \
-              --n-tickers "${{ inputs.n_tickers }}" \
-              --lookback-days "${{ inputs.lookback_days }}" \
-              | tee research/pooled_model_summary.txt; then
-              break
-            fi
-            echo "attempt $attempt failed" >&2
-            if [ "$attempt" = 3 ]; then exit 1; fi
-            sleep 30
-          done
+      # research/pooled_model_experiment.py (punch-list item #1) is no longer run here —
+      # see docs/ml-edge-confidence-research.md's "pooling made it worse" update. The
+      # research/pooled_model_summary.txt from that result stays committed as a record;
+      # this workflow just doesn't regenerate it every run anymore.
 
       - name: Commit results
         if: always()

@@ -58,6 +58,7 @@ def enrich_with_technical_analysis(
     shortlist_df: pd.DataFrame,
     market_agent: MarketDataAgent,
     vix_df: pd.DataFrame | None = None,
+    research_agent: ResearchAgent | None = None,
 ) -> pd.DataFrame:
     """
     Optional enrichment (core.ml_forecast / core.multi_timeframe / core.relative_strength /
@@ -67,6 +68,12 @@ def enrich_with_technical_analysis(
     and pattern detection are themselves cheap, but are computed here too (on this same
     deep-history fetch) rather than in the full universe scan, so there's one consistent
     reading per ticker instead of two different ones from two different data windows.
+
+    research_agent, if provided, adds insider-trading and daily quant-rating features to the
+    ML forecast (core.ml_forecast's insider_df/rating_df) — an FMP call per ticker on top of
+    what this function already does, same cost profile as ResearchAgent.enrich_shortlist's
+    per-ticker fundamentals/news calls elsewhere in the pipeline. Optional — degrades to
+    "no insider/rating features" if not passed, same as vix_df.
 
     Re-scores SmartScore with volume-profile-position, ML-edge, and chart-pattern adjustments
     (bonus/penalty, same pattern as core.deep_discount_filter) and re-sorts by the result —
@@ -91,7 +98,18 @@ def enrich_with_technical_analysis(
         bars = deep_bars.get(ticker)
 
         if bars is not None:
-            ml_result = ensemble_ml_forecast(compute_indicators(bars.copy()), vix_df=vix_df, spy_df=spy_deep_bars)
+            insider_df = rating_df = None
+            if research_agent is not None:
+                try:
+                    insider_df = research_agent.get_insider_trades(ticker)
+                    rating_df = research_agent.get_rating_history(ticker)
+                except Exception as e:
+                    print(f"[pipeline] {ticker}: FMP insider/rating fetch failed, proceeding "
+                          f"without those features: {e}", file=sys.stderr)
+            ml_result = ensemble_ml_forecast(
+                compute_indicators(bars.copy()), vix_df=vix_df, spy_df=spy_deep_bars,
+                insider_df=insider_df, rating_df=rating_df,
+            )
             ml_forecasts.append(ml_result)
             mtf_analyses.append(get_multi_timeframe_analysis(bars))
             rs_ranks.append(
@@ -200,19 +218,22 @@ def run_pipeline(
     # since the ML ensemble trains a fresh model per ticker. ---
     vix_df = None
     ml_track_record = None
+    research_agent_for_ml = None
     if not skip_ml:
         if settings.fmp_api_key:
+            research_agent_for_ml = ResearchAgent(settings)
             try:
-                vix_history_agent = ResearchAgent(settings)
                 end = pd.Timestamp.now()
                 start = end - pd.Timedelta(days=DEEP_HISTORY_LOOKBACK_DAYS + 5)
-                vix_df = vix_history_agent.get_vix_history(start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
+                vix_df = research_agent_for_ml.get_vix_history(start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
             except Exception as e:
                 # VIX is an optional ml_forecast feature (see core/ml_forecast.py) — any
                 # failure here (bad/placeholder key, network issue) should degrade to
                 # "no VIX feature" rather than abort the whole enrichment step.
                 print(f"[pipeline] VIX history fetch failed, proceeding without it: {e}", file=sys.stderr)
-        shortlist_df = enrich_with_technical_analysis(shortlist_df, market_agent, vix_df=vix_df)
+        shortlist_df = enrich_with_technical_analysis(
+            shortlist_df, market_agent, vix_df=vix_df, research_agent=research_agent_for_ml
+        )
         print(f"[pipeline] Technical enrichment (ML/MTF/RS/Patterns) added for {len(shortlist_df)} tickers", file=sys.stderr)
 
         # --- ML forecast accuracy tracking: score any past predictions whose 5-trading-day
