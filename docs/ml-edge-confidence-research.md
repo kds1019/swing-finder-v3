@@ -571,7 +571,7 @@ plan to pick up later, not a result.
 
 While scoping the triple-barrier work above and tracing `prepare_features()`'s
 row alignment carefully (needed to reuse its feature engineering correctly),
-found a real, pre-existing bug in `core/ml_forecast.py`, present since before
+I found a real, pre-existing bug in `core/ml_forecast.py`, present since before
 this research began: `random_forest_forecast`/`gradient_boosting_forecast`'s
 live prediction step used `X[-1]` as "today's features." But `X` is built by
 dropping the trailing `days_ahead` (5) rows of the feature table — those rows
