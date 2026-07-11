@@ -498,3 +498,71 @@ tried, or accepting that rank-IC ~0.04 may be close to this feature set's
 and model class's practical ceiling for 5-day swing prediction. Recommend
 treating this as a stopping point rather than continuing to iterate on
 model/feature variations without a specific new hypothesis to test.
+
+## Plan (not yet built): reframe the prediction target around Entry/Stop/Target
+
+Everything above trains the model to predict a continuous 5-day return —
+an inherently hard, noisy target, and the likely reason the achievable
+rank-IC has topped out around 0.04-0.045 regardless of what features get
+added. The one genuinely different idea not yet tried: stop predicting a
+return number, and predict something tied directly to what actually
+determines a trade's outcome.
+
+**The reframe.** `core/trade_plan.py::compute_trade_plan()` already computes
+a real `entry`/`stop`/`target`/`rr_ratio` for every candidate (swing-low/
+EMA-anchored stop, Fibonacci-extension target refined against real support/
+resistance). Instead of "predict the return," train the model to answer:
+*given this specific entry/stop/target, does price hit target before stop?*
+— a binary classification label, not a regression target. This is the
+"triple-barrier" labeling method (Lopez de Prado) applied as the *primary*
+model's target, not just meta-labeling on top of an existing regression (a
+distinction worth being precise about — this replaces what the primary
+model predicts, it doesn't add a second model on top).
+
+Why this is worth trying before assuming rank-IC ~0.04 is the ceiling:
+- Return magnitude is dominated by market-wide noise a technical feature set
+  has little hope of explaining. "Will price reach *this specific,
+  already-computed* level before *that specific* level" is a narrower,
+  more concrete question — plausibly more learnable from the same features.
+- It sidesteps the outlier sensitivity that repeatedly complicated
+  evaluation this session (ARQQ/RCAT/CXW-style extreme moves distort a
+  continuous-return metric; hitting-a-barrier-or-not is far less sensitive
+  to how far past the barrier price ran).
+- It produces a probability, not a return guess — which is what the "how
+  would this get used in trading" discussion below actually needs.
+
+**Model: LightGBM classifier**, trained on `hit_target_first` (1) vs.
+`hit_stop_first` (0), as a companion change alongside the reframe rather
+than a separate experiment — replaces `RandomForestRegressor`/
+`GradientBoostingRegressor` with `LGBMClassifier`, same per-ticker training
+shape as today, cheap to swap given it's still scikit-learn-API-compatible.
+
+**How this would change trading usage, if validated:**
+1. **Expected value instead of a ranking nudge.** `rr_ratio` is already
+   computed; combined with `P(hit target)` this gives
+   `EV ≈ P(target) × reward − P(stop) × risk` — an actual expected-value
+   number to rank and filter candidates by, not an arbitrary score bump.
+2. **A concrete veto signal.** "68% technically clean setup, but the model
+   gives this exact entry/stop/target only a 35% chance of hitting target
+   first" is a more specific, actionable flag than the current "predicted
+   return leans negative."
+3. **Position sizing — only after calibration is proven.** A well-calibrated
+   `P(target)` could in principle inform position sizing (bet size scales
+   with edge, Kelly-criterion-style). This is explicitly *not* a green
+   light to wire that up on day one — it requires the same walk-forward
+   validation discipline as everything else in this doc: bucket predicted
+   probability into quintiles and confirm a 70%-bucket actually hits target
+   first about 70% of the time, the classification analogue of the
+   confidence-bucket check that kept catching problems all session. If that
+   calibration check fails the way the original confidence formula did,
+   this stays a ranking/filtering input only, same as today — the reframe
+   doesn't get to skip the validation step just because it sounds more
+   principled.
+
+**Validation path**: extend `research/walk_forward_backtest.py`'s harness to
+also record whether each historical trade plan hit target or stop first
+within the historical window, train the `LGBMClassifier` variant, and reuse
+`research/analyze_confidence.py::confidence_bucket_report()` (already
+generalized to take an arbitrary probability column) to check calibration
+— same infrastructure, new label and model. Not started; this section is a
+plan to pick up later, not a result.
