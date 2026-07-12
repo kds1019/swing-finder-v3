@@ -997,7 +997,7 @@ prior update): `news_sentiment_net_30d` ranks **6th of 33 features** in
 53/53 trained tickers — full coverage, unlike insider/grades' partial coverage). A
 tree-based model gives a constant or silently-broken column ~zero importance, since
 there's no split to make on a single value — ranking 6th with a non-trivial value this
-close to several genuine technical features is itself strong evidence the FinBERT scoring
+close to several genuine technical features is itself strong evidence that the FinBERT scoring
 pipeline is producing real, varied sentiment values, not a placeholder. This was
 specifically checked because a broken pipeline could otherwise masquerade as a null
 result.
