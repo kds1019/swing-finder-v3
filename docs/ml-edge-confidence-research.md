@@ -1030,3 +1030,66 @@ non-technical feature added, to see if held-out AUC/rank-IC moves at all when th
 distracting ~30-feature technical noise is removed). Recommend that isolation test as the
 next concrete step if this line of work continues, rather than adding a fifth data
 category on top of an already-large, still-unexplained importance/accuracy mismatch.
+
+## Update 2026-07-13: does the base rules-based system even have an edge? Built, not yet run
+
+New direction, agreed after stepping back to research how other quant/algo traders
+actually validate systems (see conversation — daily-bar technical-indicator ML prediction
+is the single most competed-for slice of the market, and academic literature backs up
+that it routinely performs "no better than random"; position sizing/risk management
+matters far more than entry-signal quality per repeatedly-cited practitioner research,
+e.g. Van Tharp's finding that position sizing explained ~90% of outcome variance across
+otherwise-identical systems). Given that, and five null ML results in a row, decided to
+downgrade ML's role and ask a question this entire session never actually asked:
+**does the base rules-based system — `core.smartscore.compute_smartscore` +
+`core.trade_plan.compute_trade_plan`, no ML anywhere — have a real edge on its own?**
+Every walk-forward test so far tested whether an ML layer improves on this base system;
+none tested the base system itself.
+
+**Built**: `research/rules_based_walk_forward.py` — same walk-forward-through-history
+shape as `research/triple_barrier_walk_forward.py` (reuses `resolve_trade_plan_outcome()`,
+same `MAX_HOLD_DAYS`=30 vertical barrier, same historical-truncation causal-correctness
+discipline), but with no ML model at all: at each historical as-of date, calls
+`compute_smartscore()` and `compute_trade_plan()` on data truncated to that date, records
+the resulting SmartScore/entry/stop/target/rr_ratio, and resolves the real outcome against
+the actual bars that followed. Skips dates where `compute_smartscore` finds no setup or
+near-miss, matching the live pipeline's own behavior (`MarketDataAgent.scan_universe` only
+computes a trade plan after a ticker already has a non-None SmartScore). No FMP or Alpaca
+News dependency at all — this system is 100% price/volume-derived.
+
+**`research/analyze_rules_based.py`** asks two new questions that no prior analysis script
+this session asked:
+1. **Expectancy** — is the realized average R-multiple per trade (+`rr_ratio` on a win,
+   -1 on a loss, exact by construction since `resolve_trade_plan_outcome` resolves to the
+   literal stop/target price, never a partial fill) significantly greater than zero via a
+   one-sample t-test? This is a direct expected-value check on the entry/stop/target logic
+   itself, independent of any ranking.
+2. **Calibration** — does SmartScore's own ranking separate good setups from bad ones?
+   Reuses `research/analyze_confidence.py::confidence_bucket_report()` completely
+   unmodified (`column="smartscore"`) — `rules_based_walk_forward.py`'s output CSV names
+   its win/loss and return columns `direction_correct`/`actual_return_pct` specifically so
+   that function's existing contract works without any changes.
+
+Also breaks results down by setup type (Breakout / Pullback / near-miss-only) as a third,
+simpler cut.
+
+**Scope note** (same simplification already accepted for the ML walk-forward scripts):
+tests `compute_smartscore`/`compute_trade_plan` per ticker in isolation, not the full live
+pipeline's cross-sectional sector-cap/deep-discount adjustments, which need the whole
+universe scanned simultaneously on each historical date.
+
+Wired into `ml_confidence_backtest.yml` as two new steps (no new secrets needed — bars
+only). Tested end-to-end against synthetic random-walk price data first, per this
+session's established discipline: confirmed real Breakout/Pullback/near-miss setups get
+classified, trade plans get computed, outcomes resolve correctly, and both new analysis
+functions (`compute_expectancy`'s t-test, the reused `confidence_bucket_report`) run
+without error. Synthetic-data expectancy was negative, as expected for pure random-walk
+noise with no real pattern to exploit — not a finding, just confirmation the pipeline
+doesn't produce nonsense before spending real API credits on it.
+
+**Not yet run against real data.** Next step: trigger `ml_confidence_backtest.yml` and
+read `research/rules_based_summary.txt` for the actual expectancy t-test and SmartScore
+bucket report. This is arguably the most consequential result this whole research effort
+could produce — if the base system itself has no real edge, that's a far more important
+finding than anything about ML feature engineering; if it does, that's the foundation
+worth building on rather than the ML layer sitting on top of it.
