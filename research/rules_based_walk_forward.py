@@ -106,6 +106,11 @@ def backtest_ticker_rules(
     compute_smartscore finds no setup or near-miss — the live pipeline never computes a
     trade plan for those either (core.market_data_agent.MarketDataAgent.scan_universe only
     calls compute_trade_plan after a ticker already has a non-None smartscore)."""
+    if target_mode not in TARGET_MODES:
+        # argparse's choices=TARGET_MODES already rules this out for CLI use; this guards
+        # programmatic/library-style callers (e.g. a typo'd "Flat") from silently falling
+        # through to fibonacci behavior and invalidating a mode comparison without error.
+        raise ValueError(f"target_mode must be one of {TARGET_MODES}, got {target_mode!r}")
     rows = []
     last_idx = len(df) - 1
     for idx in range(WARMUP_BARS, last_idx + 1, step_days):
