@@ -33,7 +33,14 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          # ubuntu-latest runners have no GPU — installing plain "torch" from PyPI can
+          # pull a much larger CUDA-enabled wheel for no benefit (core.ml_forecast's
+          # sentiment_df feature is optional at runtime, but requirements.txt's torch>=2.0
+          # is still installed every run regardless). Installing the CPU-only build first
+          # from PyTorch's own index satisfies that constraint without the extra weight.
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
 
       - name: Restore Webull auth token
         env:
