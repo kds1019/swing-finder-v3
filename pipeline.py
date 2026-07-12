@@ -69,11 +69,12 @@ def enrich_with_technical_analysis(
     deep-history fetch) rather than in the full universe scan, so there's one consistent
     reading per ticker instead of two different ones from two different data windows.
 
-    research_agent, if provided, adds insider-trading and daily quant-rating features to the
-    ML forecast (core.ml_forecast's insider_df/rating_df) — an FMP call per ticker on top of
-    what this function already does, same cost profile as ResearchAgent.enrich_shortlist's
-    per-ticker fundamentals/news calls elsewhere in the pipeline. Optional — degrades to
-    "no insider/rating features" if not passed, same as vix_df.
+    research_agent, if provided, adds insider-trading, daily quant-rating, and analyst
+    revision (upgrade/downgrade) features to the ML forecast (core.ml_forecast's
+    insider_df/rating_df/grades_df) — an FMP call per ticker on top of what this function
+    already does, same cost profile as ResearchAgent.enrich_shortlist's per-ticker
+    fundamentals/news calls elsewhere in the pipeline. Optional — degrades to "no insider/
+    rating/grades features" if not passed, same as vix_df.
 
     Re-scores SmartScore with volume-profile-position, ML-edge, and chart-pattern adjustments
     (bonus/penalty, same pattern as core.deep_discount_filter) and re-sorts by the result —
@@ -98,17 +99,18 @@ def enrich_with_technical_analysis(
         bars = deep_bars.get(ticker)
 
         if bars is not None:
-            insider_df = rating_df = None
+            insider_df = rating_df = grades_df = None
             if research_agent is not None:
                 try:
                     insider_df = research_agent.get_insider_trades(ticker)
                     rating_df = research_agent.get_rating_history(ticker)
+                    grades_df = research_agent.get_grade_history(ticker)
                 except Exception as e:
-                    print(f"[pipeline] {ticker}: FMP insider/rating fetch failed, proceeding "
+                    print(f"[pipeline] {ticker}: FMP insider/rating/grades fetch failed, proceeding "
                           f"without those features: {e}", file=sys.stderr)
             ml_result = ensemble_ml_forecast(
                 compute_indicators(bars.copy()), vix_df=vix_df, spy_df=spy_deep_bars,
-                insider_df=insider_df, rating_df=rating_df,
+                insider_df=insider_df, rating_df=rating_df, grades_df=grades_df,
             )
             ml_forecasts.append(ml_result)
             mtf_analyses.append(get_multi_timeframe_analysis(bars))

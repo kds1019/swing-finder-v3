@@ -100,6 +100,7 @@ def backtest_ticker(
     spy_df: pd.DataFrame | None,
     insider_df: pd.DataFrame | None,
     rating_df: pd.DataFrame | None,
+    grades_df: pd.DataFrame | None,
     step_days: int,
     days_ahead: int,
 ) -> list[dict]:
@@ -107,9 +108,9 @@ def backtest_ticker(
     to that bar only (df.iloc[:idx+1] — indicators were computed causally over the full
     history up front, so slicing is equivalent to recomputing them fresh at each step) and
     score it against the actual close days_ahead bars later, which is already known since
-    this is historical data. spy_df/insider_df/rating_df are truncated to the same as-of
-    date at each step for the same no-lookahead reason (prepare_features' own reindexing
-    already bounds this, but truncating here too is cheap defense-in-depth)."""
+    this is historical data. spy_df/insider_df/rating_df/grades_df are truncated to the
+    same as-of date at each step for the same no-lookahead reason (prepare_features' own
+    reindexing already bounds this, but truncating here too is cheap defense-in-depth)."""
     rows = []
     last_idx = len(df) - days_ahead - 1
     for idx in range(WARMUP_BARS, last_idx + 1, step_days):
@@ -118,9 +119,10 @@ def backtest_ticker(
         spy_upto = spy_df[spy_df["Date"] <= as_of_date] if spy_df is not None else None
         insider_upto = insider_df[insider_df["filingDate"] <= as_of_date] if insider_df is not None else None
         rating_upto = rating_df[rating_df["Date"] <= as_of_date] if rating_df is not None else None
+        grades_upto = grades_df[grades_df["date"] <= as_of_date] if grades_df is not None else None
         result = ensemble_ml_forecast(
             df_upto, vix_df=None, spy_df=spy_upto, insider_df=insider_upto, rating_df=rating_upto,
-            days_ahead=days_ahead,
+            grades_df=grades_upto, days_ahead=days_ahead,
         )
         if not result.get("success"):
             continue
@@ -165,19 +167,21 @@ def run(n_tickers: int, lookback_days: int, step_days: int, days_ahead: int, see
 
     insider_by_ticker: dict[str, pd.DataFrame] = {}
     rating_by_ticker: dict[str, pd.DataFrame] = {}
+    grades_by_ticker: dict[str, pd.DataFrame] = {}
     if settings.fmp_api_key:
         research_agent = ResearchAgent(settings)
         for ticker in tickers:
             try:
                 insider_by_ticker[ticker] = research_agent.get_insider_trades(ticker)
                 rating_by_ticker[ticker] = research_agent.get_rating_history(ticker)
+                grades_by_ticker[ticker] = research_agent.get_grade_history(ticker)
             except Exception as e:
-                print(f"[walk_forward] {ticker}: FMP insider/rating fetch failed ({e}), "
+                print(f"[walk_forward] {ticker}: FMP insider/rating/grades fetch failed ({e}), "
                       f"skipping those features for this ticker", file=sys.stderr)
-        print(f"[walk_forward] fetched insider/rating data for "
+        print(f"[walk_forward] fetched insider/rating/grades data for "
               f"{sum(1 for t in tickers if t in insider_by_ticker)}/{len(tickers)} tickers", file=sys.stderr)
     else:
-        print("[walk_forward] FMP_API_KEY not set — insider/rating features will be skipped", file=sys.stderr)
+        print("[walk_forward] FMP_API_KEY not set — insider/rating/grades features will be skipped", file=sys.stderr)
 
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -192,7 +196,8 @@ def run(n_tickers: int, lookback_days: int, step_days: int, days_ahead: int, see
 
         df = compute_indicators(df.copy())
         rows = backtest_ticker(
-            ticker, df, spy_df, insider_by_ticker.get(ticker), rating_by_ticker.get(ticker), step_days, days_ahead
+            ticker, df, spy_df, insider_by_ticker.get(ticker), rating_by_ticker.get(ticker),
+            grades_by_ticker.get(ticker), step_days, days_ahead
         )
         print(f"[walk_forward] ({i}/{len(tickers)}) {ticker}: {len(rows)} walk-forward predictions", file=sys.stderr)
         total_rows += len(rows)
