@@ -249,13 +249,19 @@ def run(
     if importance_rows:
         # LGBM's feature_importances_ (default "split" type: how many times a feature was
         # used to split, not gain) isn't directly comparable across tickers with different
-        # tree counts/depths reached, but averaging across every trained ticker's own
-        # ranking is still informative for "does this feature matter anywhere" — the same
-        # spirit as research/pooled_model_experiment.py's single-model importances, just
-        # aggregated over N per-ticker models instead of one pooled one.
+        # tree counts/depths reached — a ticker whose trees happened to split more overall
+        # would dominate a raw average regardless of whether any single feature actually
+        # mattered more for it. Normalize each ticker's importances to sum to 1 first (a
+        # per-ticker relative-importance distribution), then average those normalized
+        # shares across tickers — the same spirit as research/pooled_model_experiment.py's
+        # single-model importances, just aggregated over N per-ticker models instead of one
+        # pooled one, without letting tree-complexity differences skew the ranking.
         imp_df = pd.DataFrame(importance_rows)
+        imp_df["norm_importance"] = (
+            imp_df.groupby("ticker")["importance"].transform(lambda s: s / s.sum() if s.sum() else s)
+        )
         summary = (
-            imp_df.groupby("feature")["importance"]
+            imp_df.groupby("feature")["norm_importance"]
             .agg(mean_importance="mean", n_tickers="count")
             .sort_values("mean_importance", ascending=False)
             .reset_index()
@@ -263,10 +269,10 @@ def run(
         imp_path = Path(importances_output)
         imp_path.parent.mkdir(parents=True, exist_ok=True)
         summary.to_csv(imp_path, index=False)
-        print(f"\n[triple_barrier] mean LGBM feature importances across {imp_df['ticker'].nunique()} "
-              f"trained tickers, written to {imp_path}:", file=sys.stderr)
+        print(f"\n[triple_barrier] mean per-ticker-normalized LGBM feature importances across "
+              f"{imp_df['ticker'].nunique()} trained tickers, written to {imp_path}:", file=sys.stderr)
         for _, row in summary.head(15).iterrows():
-            print(f"  {row['feature']}: {row['mean_importance']:.2f} (n={int(row['n_tickers'])})", file=sys.stderr)
+            print(f"  {row['feature']}: {row['mean_importance']:.4f} (n={int(row['n_tickers'])})", file=sys.stderr)
 
 
 def main() -> None:
