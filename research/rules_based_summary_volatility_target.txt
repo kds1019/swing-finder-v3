@@ -1,0 +1,28 @@
+[analyze_rules_based] 525 scored trade plans loaded from research/rules_based_results_volatility_target.csv
+
+=== Expectancy: is the base system's average trade profitable? ===
+  n: 525
+  win_rate_pct: 25.1
+  mean_rr_ratio: 3.72
+  mean_r_multiple: -0.1072
+  std_r_multiple: 2.2116
+  t_stat: -1.1102
+  p_value: 0.2674
+
+  Interpretation: mean_r_multiple is the average number of risk-units (R) won or lost per trade, independent of position sizing — positive and statistically significant (p_value < 0.05) means the base entry/stop/target logic has a real edge on its own, before any ML overlay. Zero or negative means the system's win rate doesn't clear the bar its own R:R ratios require — the near-33% expectation documented in settings.min_risk_reward's 3:1 floor requires roughly a 25%+ win rate just to break even; compare win_rate_pct against that intuition directly.
+
+=== SmartScore bucket report (quintiles) — does ranking separate good from bad? ===
+        bucket   n  smartscore_min  smartscore_max  win_rate_pct  mean_actual_return_pct  median_actual_return_pct
+(44.999, 76.8] 105              45              76          26.7                  -0.560                     -1.42
+  (76.8, 85.0] 203              77              85          29.1                  -0.501                     -1.48
+  (85.0, 87.4]   7              86              87          28.6                   2.766                     -0.71
+ (87.4, 100.0] 210              88             100          20.5                  -0.112                     -0.99
+
+  Interpretation: if win_rate_pct and mean_actual_return_pct climb roughly monotonically from the lowest to the highest SmartScore bucket, the score is doing its job — a higher-ranked pick is genuinely more likely to work. If flat or non-monotonic, SmartScore isn't actually separating good setups from bad ones, independent of whatever its expectancy looks like in aggregate.
+
+=== By setup type (Breakout vs Pullback vs near-miss-only) ===
+                    n  win_rate_pct  mean_actual_return_pct
+setup_label                                                
+Breakout        280.0          29.3                  -0.396
+Pullback        139.0          18.7                  -0.056
+near_miss_only  106.0          22.6                  -0.433
