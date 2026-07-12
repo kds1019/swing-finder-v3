@@ -1094,8 +1094,7 @@ could produce — if the base system itself has no real edge, that's a far more 
 finding than anything about ML feature engineering; if it does, that's the foundation
 worth building on rather than the ML layer sitting on top of it.
 
-## Update 2026-07-12 (real-data result): the base system loses money — but the mechanism
-## points at target-setting, not entry-timing
+## Update 2026-07-12 (real-data result): the base system loses money, but the mechanism points at target-setting, not entry-timing
 
 Ran `ml_confidence_backtest.yml` against real data (60 tickers, 760-day lookback,
 `step_days=3`). 429 scored trade plans resolved.
