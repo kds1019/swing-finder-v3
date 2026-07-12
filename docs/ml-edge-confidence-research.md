@@ -1093,3 +1093,53 @@ bucket report. This is arguably the most consequential result this whole researc
 could produce — if the base system itself has no real edge, that's a far more important
 finding than anything about ML feature engineering; if it does, that's the foundation
 worth building on rather than the ML layer sitting on top of it.
+
+## Update 2026-07-12 (real-data result): the base system loses money — but the mechanism
+## points at target-setting, not entry-timing
+
+Ran `ml_confidence_backtest.yml` against real data (60 tickers, 760-day lookback,
+`step_days=3`). 429 scored trade plans resolved.
+
+**This is not a null result — it's a statistically significant *negative* one.**
+- Win rate: **5.4%** (target hit before stop, out of 429 trade plans).
+- Mean R-multiple: **-0.68** (t=-9.53, p≈0.0 — nowhere close to noise; the average trade
+  loses roughly two-thirds of a risk-unit).
+- Mean R:R ratio: **10.55** — the average trade's target is set over 10x further away
+  than its stop, in risk-distance terms.
+
+**The mechanism matters more than the headline number here.** A win rate this low
+combined with an R:R ratio this high is the textbook signature of *targets set too far
+away for the available time window*, not necessarily "the entries are bad." `core.
+trade_plan.compute_trade_plan()`'s target comes from a Fibonacci 1.618 extension of the
+most recent 20-bar swing (floored at `settings.min_risk_reward`=3.0 only when the raw
+extension falls short) — a 1.618x extension of a real swing can be a very large price
+move, and `MAX_HOLD_DAYS`=30 may simply not be enough time for price to travel that far
+in most cases, independent of whether the entry timing/direction call itself was any
+good. The math: at true 33% (1-in-3) breakeven odds implied by a 3:1 floor, a 10.55:1
+average R:R implies a breakeven win rate of only ~8.7% (`1/(1+10.55)`) — the realized 5.4%
+still falls short of even that generous bar, but the gap between "needs 8.7%" and "needs
+enough time to travel a 16x-swing-range extension" is a target-distance problem, not
+necessarily an entry-quality problem.
+
+**SmartScore's own ranking shows no differentiation** — win rate is flat across
+quintiles (5.4%, 5.5%, 6.1%, 5.1%, no monotonic trend at all). But this is confounded by
+the near-uniform failure rate: when essentially every bucket loses money for the same
+target-distance reason, there's little room for a ranking signal to show through even if
+SmartScore's entry-timing logic has real merit on its own.
+
+**By setup type**: Breakout 3.7% win rate, Pullback 6.6%, near-miss-only 7.8% — all low,
+though Pullback and near-miss modestly outperform Breakout. Not enough to change the
+overall conclusion, but a thread worth pulling if this gets revisited.
+
+**What this actually tells us.** The system as currently configured — SmartScore's setup
+detection paired with the Fibonacci-extension target and a 30-day hold window — has a
+real, statistically robust negative expectancy. That's a genuinely important finding,
+independent of every ML result in this document: **before any ML overlay is worth
+reconsidering, the base trade-plan's target distance vs. hold-window mismatch needs
+addressing.** The concrete next step, if this continues: rerun this exact same backtest
+with a more conservative target (e.g. a flat R:R floor without the Fibonacci extension,
+or a target distance scaled to the ticker's own realized volatility over 30 days) to
+isolate whether SmartScore's entry-timing/ranking has real value once the target isn't
+set unrealistically far for the hold window it's paired with. That test would cleanly
+separate "the setup detection is bad" from "the target is bad," which this run cannot
+distinguish on its own.
