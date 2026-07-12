@@ -142,16 +142,19 @@ def apply_volatility_target(df_upto: pd.DataFrame, plan: dict, settings, max_hol
     target = round(entry * (1 + VOL_TARGET_K * expected_move_pct), 2)
     if target <= entry:
         return None
-    rr_ratio = round((target - entry) / risk, 2)
+    # Volatility is estimated independently of the stop, so an unusually tight stop
+    # (compute_trade_plan's own swing-low/EMA anchor, not this override's concern) paired
+    # with a volatile ticker can imply an RR far beyond anything realistic — capped at the
+    # same threshold core.trade_plan already uses to flag "unusually tight stop" plans, so
+    # a handful of outlier tickers can't dominate the aggregate mean_r_multiple /
+    # mean_rr_ratio statistics this test is evaluated on.
+    rr_ratio = (target - entry) / risk
     if rr_ratio > STOP_SANITY_RR_THRESHOLD:
-        # Volatility is estimated independently of the stop, so an unusually tight stop
-        # (compute_trade_plan's own swing-low/EMA anchor, not this override's concern)
-        # paired with a volatile ticker can imply an RR far beyond anything realistic —
-        # capped at the same threshold core.trade_plan already uses to flag "unusually
-        # tight stop" plans, so a handful of outlier tickers can't dominate the aggregate
-        # mean_r_multiple / mean_rr_ratio statistics this test is evaluated on.
-        target = round(entry + STOP_SANITY_RR_THRESHOLD * risk, 2)
+        print(f"[rules_based] volatility target implied {rr_ratio:.1f}:1 RR, "
+              f"capping at {STOP_SANITY_RR_THRESHOLD}:1", file=sys.stderr)
         rr_ratio = STOP_SANITY_RR_THRESHOLD
+    target = round(entry + rr_ratio * risk, 2)
+    rr_ratio = round(rr_ratio, 2)
     return {
         "entry": entry, "stop": stop, "target": target,
         "rr_ratio": rr_ratio, "weak_rr": rr_ratio < settings.min_risk_reward,
