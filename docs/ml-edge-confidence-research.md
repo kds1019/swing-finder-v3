@@ -862,3 +862,69 @@ present. **Not yet run against real data** — next step is triggering the workf
 checking where `analyst_revision_net_90d` (and the older `insider_net_buy_pct_90d`/
 `rating_score_change_20d`) actually rank, which will tell us whether the null result above
 is "no signal" or "signal present but diluted among ~30 other features."
+
+## Update 2026-07-12 (later): feature-importance results — analyst revision ranks last
+
+Ran the instrumentation above against real data (60 tickers, 760-day lookback).
+
+**`research/pooled_feature_importances.csv` (single pooled RF, 31 features, n=318 test
+rows): not usable for `analyst_revision_net_90d` or rating attribution.** Only
+`insider_net_buy_pct_90d` appears (rank 28/31); neither `analyst_revision_net_90d` nor
+`rating_score`/`rating_score_change_20d` made it into this file at all. Root cause:
+`build_pooled_dataset()`'s canonical-feature-matching logic sets the "expected" feature
+set from the *first* ticker processed and skips every later ticker whose columns don't
+match exactly — the first ticker in this run apparently had insider data but not enough
+grades/rating coverage, so every ticker that *did* have those columns got silently
+excluded from the pool rather than included. A real limitation of this script surfaced by
+running it for real, not something synthetic data would have caught (the synthetic test
+gave every ticker the same feature set). Not fixing this now — the triple-barrier file
+below doesn't share the limitation and already answers the question.
+
+**`research/triple_barrier_feature_importances.csv` (53 per-ticker LGBM models, 32
+features): answers the question directly.** `mean_importance` is each feature's
+LGBM split-usage share (normalized to sum to 1 per ticker, per the #21 fix — see that
+PR), averaged across every ticker whose model actually included it; `n_tickers` is how
+many of the 53 trained models had that column at all.
+
+- **`analyst_revision_net_90d` ranks dead last — 32nd of 32 features**
+  (mean_importance 0.0093, present in 29/53 tickers' feature sets). This is the strongest
+  version of "no signal" this session has produced for this specific feature: not just a
+  null AUC/rank-IC at the ensemble level, but the trees themselves consistently found it
+  the least useful thing to split on, out of everything available.
+- **`rating_score`/`rating_score_change_20d` never appear at all** — 0 of 53 tickers had
+  enough historical-ratings coverage to clear `build_feature_table()`'s 50%-coverage gate
+  (that function drops `rating_score`/`vix` entirely for a ticker unless real data covers
+  at least half its rows — see `build_feature_table()`'s own comments in
+  `core/ml_forecast.py` — rather than injecting a mostly-empty column).
+  This means the "rating data is a wash" conclusion from earlier in this doc was likely
+  never actually tested against real rating data in the first place — worth flagging as a
+  distinct, previously-unnoticed gap, separate from today's analyst-revision result.
+- **`insider_net_buy_pct_90d` ranks surprisingly high — 2nd of 32**
+  (mean_importance 0.0637, present in 27/53 tickers), well above most technical features.
+  **This does not contradict the earlier "insider trading has no edge" conclusion** (this
+  doc's own regression test, plus the independent public analysis found during repo
+  research) — feature importance measures how often a trained model *used* a feature to
+  split during training, not whether doing so improved out-of-sample accuracy. A model can
+  lean heavily on a feature that's mostly fitting training-set noise. Worth a dedicated,
+  narrower follow-up (does the *held-out* AUC/rank-IC change if `insider_net_buy_pct_90d`
+  is the only non-technical feature included, isolated from the other ~30) before reading
+  anything more into this than "the model finds it interesting," which is a much weaker
+  claim than "it works."
+
+**Conclusion.** The attribution question this instrumentation was built to answer now has
+a real answer for `analyst_revision_net_90d`: it's not a diluted signal, it's genuinely
+the least-used feature in the entire set. Recommend closing out the analyst-revision-momentum
+line of work as tested and null, not just under-explored. The insider-trading
+result is more ambiguous and would need the narrower isolation test above before drawing
+any conclusion from it either way. Per the plan agreed earlier, moving to FinBERT
+sentiment next rather than continuing to iterate on this feature set.
+
+**TL;DR for this update:**
+- **Closed, null:** `analyst_revision_net_90d` — ranks last of 32 features, not diluted.
+- **Reopened as an unknown, not settled:** `rating_score`/`rating_score_change_20d` — never
+  actually had enough coverage to be tested; the earlier "wash" verdict doesn't stand on
+  real evidence.
+- **Open question, not a finding:** `insider_net_buy_pct_90d` — high training-time usage
+  despite a null held-out result; needs the isolation test above, not a conclusion either way.
+- **Next step:** FinBERT sentiment (a genuinely untested data category), not another pass
+  over this feature set.
