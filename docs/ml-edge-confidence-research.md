@@ -1517,3 +1517,68 @@ whether `classify_setup()`'s specific thresholds (not just its overall verdict) 
 tunable to something better, or (c) stepping back from rules-based signal engineering
 entirely toward position-sizing/risk-management improvements, per the practitioner
 research cited earlier in this document.
+
+## Update 2026-07-12 (candidate replacement, built): cross-sectional momentum
+
+User's question after the SmartScore audit result: given the null results across ML,
+target/exit logic, and now entry-signal quality, is there published literature showing
+systems like this actually work for other people, and if `core/smartscore.py`'s
+technical-setup approach is the problem, what else could take its place? Answer
+discussed directly with the user rather than in this doc (see chat): most public
+"this system works" claims are far less rigorously tested than anything in this
+document (eyeballed on a chart, tuned and validated on the same data, no control group,
+no significance testing), and chart-pattern/technical-setup systems specifically are
+one of the most-published-yet-most-consistently-disproven categories in the actual
+academic literature — while the factors that *do* replicate (momentum, value, quality)
+look nothing like SmartScore's design: small, decaying, and only harvested by spreading
+thin across hundreds of positions, not concentrating on a handful of "best" picks.
+
+Agreed to test the one candidate with the strongest academic backing before concluding
+stock-selection itself is a dead end here: **cross-sectional momentum**.
+
+**`research/momentum_walk_forward.py`** (new script, fully independent of
+`core/smartscore.py` — no setup classification, no target/stop mechanics at all):
+implements the standard **"12-1 momentum"** formation (Jegadeesh & Titman) — trailing
+return over `--momentum-lookback-days` (default 252 trading days, ~12 months), skipping
+the most recent `--momentum-skip-days` (default 21, ~1 month) to avoid the well-documented
+short-term reversal effect that shows up if the skip is omitted. Records a raw
+`--days-ahead`-bar-later forward return (defaults to `MAX_HOLD_DAYS=30`, same convention
+as every other test this session) — no barrier resolution, same deconfounding principle
+as the SmartScore audit.
+
+**Scope note (a real simplification, not hidden):** this is a pooled panel rank-IC
+across all ticker/date pairs, not a strict date-by-date cross-sectional ranking
+normalized within each trading day — the same simplification every rank-IC test this
+session has used (`analyze_confidence.py::compute_ic`, `analyze_smartscore.py`'s
+`compute_rank_ic`). A genuine academic momentum study ranks stocks against each other
+within the same date; pooling across dates instead is simpler and consistent with how
+every other factor was tested here, but a market-wide regime shift during the sample
+window could bias a pooled test in a way a true cross-sectional design would cancel
+out. Worth strengthening if this signal shows any promise.
+
+**`research/analyze_momentum.py`**: reuses `research/analyze_smartscore.py::compute_rank_ic()`
+unmodified (already column-name-agnostic) and `research/analyze_confidence.py::confidence_bucket_report()`
+unmodified (`column="momentum_return_pct"`) — no new analysis logic needed at all,
+pure reuse.
+
+**Tested against synthetic data first**, this time with a genuine signal deliberately
+built in (unlike prior sanity checks, which used a flat/uniform drift with nothing
+cross-sectional to detect): 20 synthetic tickers, each given its own persistent random
+drift so trailing momentum actually carries real information. Result: rank-IC 0.1201,
+p≈0.0, and the top momentum quintile's win rate (59.2%) and mean return (+2.97%) clearly
+beat the bottom quintile (40.4% win rate, -2.31% mean return) — confirms the pipeline
+correctly detects momentum when it's genuinely present, before spending real API
+credits on it.
+
+Wired into `ml_confidence_backtest.yml` as two more steps (`research/momentum_results.csv`
+/ `research/momentum_summary.txt`), same `if [ -s ... ]` guard pattern as every other
+optional step.
+
+**Not yet run against real data.** Next step: trigger the workflow and read the rank-IC
+and quintile bucket report. Given the pattern this entire research effort has shown —
+every single mechanism tested so far has come back null or worse — the honest
+expectation going in is that this may also be null. That would still be a useful,
+different kind of finding than SmartScore's: momentum is a real, replicated academic
+factor, so a null result here would say more about this specific universe/sample/holding
+period than about whether *any* systematic edge could ever be found, unlike the
+technical-setup heuristics already ruled out.
