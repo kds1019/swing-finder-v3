@@ -6,13 +6,15 @@ name: ML Edge Confidence Backtest
 # already live (same secrets scan.yml uses) — no local credentials needed.
 # See docs/ml-edge-confidence-research.md for what this is answering.
 #
-# Scope has broadened past its original name: the last two steps
-# (research/rules_based_walk_forward.py) test something different from
-# everything above — not an ML layer, but whether the base rules-based
-# screening/trade-plan system has a real edge on its own, no ML involved at
-# all. Kept in this workflow rather than a new file for the shared ticker
-# sampling/credentials and one trigger to remember, not because it's still
-# only about "ML edge confidence."
+# Scope has broadened well past its original name: the rules_based_walk_forward.py
+# steps test something different from everything above them — not an ML layer, but
+# whether the base rules-based screening/trade-plan system has a real edge on its own,
+# no ML involved at all. The smartscore_walk_forward.py steps go a level deeper still —
+# not exit/target mechanics (all three rules_based target modes turned out unprofitable)
+# but whether the entry signal itself (core.smartscore's setup classification and
+# scoring weights) tracks forward returns at all. Kept in this one workflow rather than
+# separate files for the shared ticker sampling/credentials and one trigger to
+# remember, not because it's still only about "ML edge confidence."
 
 on:
   workflow_dispatch:
@@ -206,6 +208,34 @@ jobs:
             echo "Skipping volatility-target analysis: research/rules_based_results_volatility_target.csv is missing or empty"
           fi
 
+      # None of the three target-mode tests above are a demonstrated profitable edge —
+      # target-distance modeling was a real, fixable problem, but fixing it alone doesn't
+      # create one. This tests something different: not exit/target mechanics at all, but
+      # whether the *entry* signal itself (core.smartscore.classify_setup()'s Breakout/
+      # Pullback thresholds and compute_smartscore's bonus weights) tracks raw forward
+      # returns, against a no-signal control population as a baseline.
+      - name: Run SmartScore walk-forward
+        if: always()
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: |
+          set -eo pipefail
+          rm -f research/smartscore_results.csv
+          python -m research.smartscore_walk_forward \
+            --n-tickers "${{ inputs.n_tickers }}" \
+            --lookback-days "${{ inputs.lookback_days }}" \
+            --step-days "${{ inputs.step_days }}"
+
+      - name: Analyze SmartScore results
+        run: |
+          set -eo pipefail
+          if [ -s research/smartscore_results.csv ]; then
+            python -m research.analyze_smartscore | tee research/smartscore_summary.txt
+          else
+            echo "Skipping SmartScore analysis: research/smartscore_results.csv is missing or empty"
+          fi
+
       - name: Commit results
         if: always()
         run: |
@@ -221,7 +251,8 @@ jobs:
                    research/triple_barrier_feature_importances.csv \
                    research/rules_based_results.csv research/rules_based_summary.txt \
                    research/rules_based_results_flat_target.csv research/rules_based_summary_flat_target.txt \
-                   research/rules_based_results_volatility_target.csv research/rules_based_summary_volatility_target.txt; do
+                   research/rules_based_results_volatility_target.csv research/rules_based_summary_volatility_target.txt \
+                   research/smartscore_results.csv research/smartscore_summary.txt; do
             [ -f "$f" ] && git add "$f"
           done
           git diff --cached --quiet && echo "No changes to commit" || git commit -m "ML edge confidence backtest: $(date -u +%Y-%m-%d\ %H:%M)Z"
