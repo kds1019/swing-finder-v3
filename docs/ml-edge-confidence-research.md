@@ -1286,3 +1286,88 @@ being fixed). If real win rate clears ~16% with a positive, significant mean R-m
 that's the first real edge finding in this entire research effort. If it lands at or
 below ~16%, that's further evidence pointing at `core/smartscore.py`'s setup
 classification itself, which is the next thing queued up regardless of this result.
+
+**Follow-up before the real run: an uncapped-RR outlier fixed post-merge (PR #31).**
+Sourcery's review on the PR above (#30) flagged that `expected_move_pct` is estimated
+independently of the stop distance, so a tight stop paired with a volatile ticker could
+imply an unrealistic RR. Verified with a stress test (synthetic data, some tickers given
+a 5%/day volatility spike): before a fix, 133/1661 trades exceeded 15:1 RR, max 52:1.
+Fixed by capping at `core.trade_plan.STOP_SANITY_RR_THRESHOLD` (15.0) — reusing the
+threshold the codebase already uses to flag "unusually tight stop" plans rather than
+inventing a new one. Verified the same stress test then showed zero trades above 15:1.
+
+## Update 2026-07-12 (real-data result): volatility target is the least-bad of the three, but it's not a demonstrated edge — and my own "~16% baseline" reasoning above was wrong
+
+Ran the real-data test (GH Actions run 29203304044, commit `f814313`, same
+`n_tickers=60, lookback_days=760, step_days=10` sampling as every prior run). Result,
+alongside the two already-documented target modes:
+
+| | Fibonacci | Flat (3:1) | Volatility (k=1.0, capped) |
+|---|---|---|---|
+| n | 429 | 462 | 525 |
+| win rate | 5.4% | 16.2% | **25.1%** |
+| mean R:R | 10.55 | 3.0 | 3.72 |
+| breakeven win rate (`1/(1+RR)`) | 8.7% | 25.0% | 21.2% |
+| mean R-multiple | -0.6757 | -0.3506 | **-0.1072** |
+| t-stat / p-value | -9.525 / p<0.00005 | -5.104 / p<0.00005 | **-1.110 / p=0.267** |
+
+RR-cap check: 33/525 trades (6.3%) hit the `STOP_SANITY_RR_THRESHOLD` cap on real data,
+one implying 192.5:1 RR before capping — confirms the fix from PR #31 was not a
+theoretical concern, it was actively firing and would have materially distorted
+`mean_rr_ratio`/`mean_r_multiple` if merged without it.
+
+**Before interpreting this: my own "~16% random-walk baseline" reasoning above was
+wrong, and I want to correct it rather than force this result to fit it.** I'd reasoned
+that a driftless random walk should close above a 1-standard-deviation target ~16% of
+the time (`P(Z>1)` on the terminal distribution). But `resolve_trade_plan_outcome`
+checks whether the target is touched on *any* day within the 30-day window, not just the
+terminal value — a running-maximum / first-passage question, not a terminal-distribution
+one. Verified by simulation (200k driftless random walks, daily vol 2%, 30 days): the
+terminal-exceedance probability is indeed ~15.8% (confirms the "~16%" arithmetic was
+right on its own terms), but the probability of *ever touching* that same target within
+the 30-day window is **~27.6%** — the reflection principle roughly doubles it. So "~16%"
+was never the right number to compare a touch-based win rate against.
+
+**The right baseline was already sitting in this doc the whole time: `1/(1+RR)`.** For a
+symmetric driftless random walk between two absorbing barriers — a stop at `-risk` and a
+target at `+RR*risk` — the classic gambler's-ruin result gives `P(hit target first) =
+risk / (risk + RR*risk) = 1/(1+RR)`, exactly the breakeven formula `analyze_rules_based.py`
+already prints for every target mode. It isn't just an EV-accounting convenience; it's
+also (approximately, ignoring drift and the finite 30-day cutoff) the fair win rate a
+driftless random walk with no directional edge would produce. That's the comparison to
+trust, and it's already in the table above via `mean_r_multiple`'s t-test, which performs
+this exact comparison per-trade (using each trade's own RR, not an aggregate one).
+
+**So, reading the real result correctly:** win rate (25.1%) is above its own RR-implied
+breakeven (21.2%) for the first time across all three target modes — Fibonacci and flat
+both landed well below theirs. That's a genuinely different shape of result. But the
+rigorous per-trade test says **this difference is not statistically significant**
+(t=-1.110, p=0.267) — with n=525 and this much per-trade variance (std=2.21, since RR
+varies a lot per trade under this mode, unlike flat's fixed 3.0), we cannot reject the
+null hypothesis that true expectancy is zero. This is the least-bad of the three tests
+by a wide margin, but it is **not** a demonstrated edge, and it would be overclaiming to
+call it one.
+
+**SmartScore quintiles (volatility target): 26.7%, 29.1%, 28.6% (n=7, too small to read
+into), 20.5%** — the *highest*-scored quintile does *worst* of the size­able buckets,
+continuing the same non-monotonic pattern seen in both other target modes.
+**By setup type: Breakout 29.3%, Pullback 18.7%, near_miss_only 22.6%** — Breakout is
+the *best* performer here, the opposite ordering from both the Fibonacci and flat runs
+(where Breakout was worst). A setup-type ranking that flips depending on target
+formula, on overlapping ~100-280-row subsamples of a dataset whose aggregate result
+already fails significance, reads as noise rather than a stable signal — which itself is
+more evidence (on top of the already-planned reasoning) that `core/smartscore.py`'s
+setup-classification logic needs to be checked directly against forward returns, not
+inferred indirectly through breakdowns like this one.
+
+**Bottom line for the target-distance work:** three target formulas tried (Fibonacci
+extension, flat 3:1, volatility-scaled at k=1.0); expectancy improved monotonically
+across all three (mean R -0.68 → -0.35 → -0.11) and only the last one clears its own
+breakeven bar at all — but none is a statistically demonstrated edge, and the
+volatility-scaled version isn't distinguishable from zero. Target-distance modeling was
+a real, fixable problem (confirmed twice now), but fixing it alone does not create a
+profitable system. That leaves `core/smartscore.py`'s setup-classification logic —
+`classify_setup()`'s Breakout/Pullback thresholds and the setup_strength/trend/volume/
+base/level/fib bonus weights — as the one mechanism from the original hypothesis that
+still hasn't been tested directly against forward returns, and it's the next thing on
+deck.
