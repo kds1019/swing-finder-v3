@@ -1468,7 +1468,7 @@ other way."
 **SmartScore's own rank-IC (signal population only): -0.0664, p=0.3465** — not
 significant, and the sign points the wrong way. **Bucket report is inverted, not flat:**
 win rate declines from 55.6% (lowest quintile) to 48.8% to 44.9% (highest quintile) as
-smartscore increases — the opposite of what a working score should show.
+SmartScore increases — the opposite of what a working score should show.
 
 **Per-component rank-IC (signal population only):**
 
@@ -1510,5 +1510,10 @@ entry/setup-classification logic — has produced a statistically demonstrated e
 this entire research effort. That's a materially more serious conclusion than any single
 null result along the way: it means the rules-based foundation this whole system rests
 on hasn't been shown to separate good setups from bad ones, exit mechanics aside. This is
-the point to stop and decide direction with the user rather than picking the next thing
-to test unilaterally — see the conversation for that discussion.
+the point to stop and confirm direction with the user rather than picking the next thing
+to test unilaterally — candidate next steps include: (a) revisiting whether the
+price/volume universe being screened is the right population at all, (b) checking
+whether `classify_setup()`'s specific thresholds (not just its overall verdict) are
+tunable to something better, or (c) stepping back from rules-based signal engineering
+entirely toward position-sizing/risk-management improvements, per the practitioner
+research cited earlier in this document.
