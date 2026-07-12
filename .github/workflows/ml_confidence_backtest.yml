@@ -5,6 +5,14 @@ name: ML Edge Confidence Backtest
 # on GitHub's runners, since that's where ALPACA_API_KEY/ALPACA_SECRET_KEY
 # already live (same secrets scan.yml uses) — no local credentials needed.
 # See docs/ml-edge-confidence-research.md for what this is answering.
+#
+# Scope has broadened past its original name: the last two steps
+# (research/rules_based_walk_forward.py) test something different from
+# everything above — not an ML layer, but whether the base rules-based
+# screening/trade-plan system has a real edge on its own, no ML involved at
+# all. Kept in this workflow rather than a new file for the shared ticker
+# sampling/credentials and one trigger to remember, not because it's still
+# only about "ML edge confidence."
 
 on:
   workflow_dispatch:
@@ -116,6 +124,26 @@ jobs:
           set -eo pipefail
           python -m research.analyze_triple_barrier | tee research/triple_barrier_summary.txt
 
+      # Tests something different from every step above: not an ML layer, but whether the
+      # base rules-based system (core.smartscore + core.trade_plan, no ML at all) has a
+      # real edge on its own. No FMP/News dependency — 100% price/volume-derived.
+      - name: Run rules-based walk-forward
+        if: always()
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: |
+          set -eo pipefail
+          rm -f research/rules_based_results.csv
+          python -m research.rules_based_walk_forward \
+            --n-tickers "${{ inputs.n_tickers }}" \
+            --lookback-days "${{ inputs.lookback_days }}"
+
+      - name: Analyze rules-based results
+        run: |
+          set -eo pipefail
+          python -m research.analyze_rules_based | tee research/rules_based_summary.txt
+
       - name: Commit results
         if: always()
         run: |
@@ -128,7 +156,8 @@ jobs:
           for f in research/walk_forward_results.csv research/walk_forward_summary.txt \
                    research/pooled_model_summary.txt research/pooled_feature_importances.csv \
                    research/triple_barrier_results.csv research/triple_barrier_summary.txt \
-                   research/triple_barrier_feature_importances.csv; do
+                   research/triple_barrier_feature_importances.csv \
+                   research/rules_based_results.csv research/rules_based_summary.txt; do
             [ -f "$f" ] && git add "$f"
           done
           git diff --cached --quiet && echo "No changes to commit" || git commit -m "ML edge confidence backtest: $(date -u +%Y-%m-%d\ %H:%M)Z"
