@@ -781,3 +781,40 @@ these analysis scripts already print. Given this session's track record (two ind
 null results so far), the honest expectation going in is that this also comes back null —
 but it's a genuinely different, previously-untested data category, unlike most of the
 variations tried before the triple-barrier reframe.
+
+## Update 2026-07-12: analyst revision momentum — also null, third result in a row
+
+Ran `ml_confidence_backtest.yml` against real data with the new `analyst_revision_net_90d`
+feature live (60-ticker sample, 760-day lookback, same seed as every prior run).
+
+**Regression ensemble**: rank-IC -0.0065, p=0.75 (previously -0.009, p=0.66) — essentially
+unchanged from the pre-feature run, within noise of each other, not a meaningful shift.
+
+**Triple-barrier classifier**: AUC 0.4937, n=1,715 (previously 0.4876) — still
+indistinguishable from a coin flip. Point-biserial correlation 0.0005, p=0.9849
+(previously 0.0026, p=0.9151) — if anything weaker. The `p_target` bucket report is still
+flat/non-monotonic (8.7%, 13.4%, 11.4%, 8.7%, 10.2% win rate across quintiles).
+
+**Caveat on feature-level attribution**: `research/walk_forward_backtest.py`'s per-step
+retraining design doesn't log per-feature importances across steps (only aggregate
+prediction rows), so this can't isolate whether `analyst_revision_net_90d` individually
+helped, hurt, or was simply ignored by the trees — only that adding it produced no
+detectable change in the ensemble's overall, already-null performance. A ticket for a
+future pass, if this line of work continues: log RF feature importances from
+`research/pooled_model_experiment.py`-style single-shot training instead, since that
+script already prints them and would isolate this cheaply.
+
+**Conclusion**: three independent framings (return regression, triple-barrier
+classification, and now regression + classification with a genuinely new sell-side
+analyst-revision data category added) all show no detectable edge on this universe. This
+doesn't prove no signal exists in analyst revisions generally — the caveat above about
+per-feature attribution being unavailable means it's possible the signal is real but
+diluted among ~30 other features a shallow, heavily-regularized RF/GBM doesn't isolate
+well — but it does mean the "just add a new data source" pattern isn't a reliable path
+forward without also revisiting whether the model class itself can even detect a single
+weak signal buried in this many features. Recommend treating this as this session's
+stopping point for reflexively adding more data sources to the same model shape, and
+revisiting only with either (a) a feature-importance-isolated single-feature test before
+folding a new signal into the full feature set, or (b) accepting the conclusion from the
+"algo trading and financial ML" discussion earlier — this pipeline's value is likely the
+rules-based screening and risk management, not a discovered ML edge.
