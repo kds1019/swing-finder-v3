@@ -84,7 +84,7 @@ from config.settings import load_settings
 from core.indicators import compute_indicators
 from core.pick_tracking import MAX_HOLD_DAYS
 from core.smartscore import compute_smartscore
-from core.trade_plan import compute_trade_plan, resolve_trade_plan_outcome
+from core.trade_plan import STOP_SANITY_RR_THRESHOLD, compute_trade_plan, resolve_trade_plan_outcome
 from core.universe import load_universe
 from research.walk_forward_backtest import WARMUP_BARS, select_sample_universe
 
@@ -143,6 +143,15 @@ def apply_volatility_target(df_upto: pd.DataFrame, plan: dict, settings, max_hol
     if target <= entry:
         return None
     rr_ratio = round((target - entry) / risk, 2)
+    if rr_ratio > STOP_SANITY_RR_THRESHOLD:
+        # Volatility is estimated independently of the stop, so an unusually tight stop
+        # (compute_trade_plan's own swing-low/EMA anchor, not this override's concern)
+        # paired with a volatile ticker can imply an RR far beyond anything realistic —
+        # capped at the same threshold core.trade_plan already uses to flag "unusually
+        # tight stop" plans, so a handful of outlier tickers can't dominate the aggregate
+        # mean_r_multiple / mean_rr_ratio statistics this test is evaluated on.
+        target = round(entry + STOP_SANITY_RR_THRESHOLD * risk, 2)
+        rr_ratio = STOP_SANITY_RR_THRESHOLD
     return {
         "entry": entry, "stop": stop, "target": target,
         "rr_ratio": rr_ratio, "weak_rr": rr_ratio < settings.min_risk_reward,
