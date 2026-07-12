@@ -23,6 +23,7 @@ from config.settings import load_settings
 from core.universe import load_universe
 from core.sector_cap import apply_sector_cap
 from core.ml_forecast import ensemble_ml_forecast, evaluate_ml_edge_score
+from core.sentiment import build_sentiment_df
 from core.multi_timeframe import get_multi_timeframe_analysis
 from core.relative_strength import calculate_relative_strength_rank
 from core.volume_profile import evaluate_volume_profile_position
@@ -76,6 +77,11 @@ def enrich_with_technical_analysis(
     fundamentals/news calls elsewhere in the pipeline. Optional — degrades to "no insider/
     rating/grades features" if not passed, same as vix_df.
 
+    News-sentiment features (core.ml_forecast's sentiment_df, FinBERT-scored via
+    core.sentiment) are always attempted regardless of research_agent — Alpaca's News API
+    only needs market_agent, already required. Also degrades gracefully (proceeds without
+    that feature) if the fetch or FinBERT scoring fails for a given ticker.
+
     Re-scores SmartScore with volume-profile-position, ML-edge, and chart-pattern adjustments
     (bonus/penalty, same pattern as core.deep_discount_filter) and re-sorts by the result —
     this only affects ranking among tickers that already survived sector cap on their
@@ -108,9 +114,19 @@ def enrich_with_technical_analysis(
                 except Exception as e:
                     print(f"[pipeline] {ticker}: FMP insider/rating/grades fetch failed, proceeding "
                           f"without those features: {e}", file=sys.stderr)
+
+            sentiment_df = None
+            try:
+                news_df = market_agent.fetch_news(ticker, lookback_days=DEEP_HISTORY_LOOKBACK_DAYS)
+                sentiment_df = build_sentiment_df(news_df)
+            except Exception as e:
+                print(f"[pipeline] {ticker}: news fetch/sentiment scoring failed, proceeding "
+                      f"without that feature: {e}", file=sys.stderr)
+
             ml_result = ensemble_ml_forecast(
                 compute_indicators(bars.copy()), vix_df=vix_df, spy_df=spy_deep_bars,
                 insider_df=insider_df, rating_df=rating_df, grades_df=grades_df,
+                sentiment_df=sentiment_df,
             )
             ml_forecasts.append(ml_result)
             mtf_analyses.append(get_multi_timeframe_analysis(bars))

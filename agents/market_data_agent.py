@@ -103,6 +103,48 @@ class MarketDataAgent:
     def fetch_spy_bars(self, lookback_days: int | None = None) -> pd.DataFrame | None:
         return self.fetch_universe_bars(["SPY"], lookback_days).get("SPY")
 
+    def fetch_news(self, ticker: str, lookback_days: int, limit: int = 50) -> pd.DataFrame:
+        """Historical headlines/summaries for one ticker via Alpaca's free News API
+        (Benzinga-sourced) — explicitly documented as usable for sentiment-model training,
+        the data source behind core.sentiment's FinBERT scoring. Unlike bars this needs no
+        feed/adjustment choice. include_content=False and exclude_contentless=True keep
+        this to headline+summary text only, never full article bodies — cheap to score,
+        and this repo has no need for more than that.
+
+        An article can tag multiple tickers; NewsRequest(symbols=ticker) filters server-side
+        to just this one, so no manual explode-by-symbol is needed the way a multi-symbol
+        batched request would require. Per-ticker (not batched across tickers) mirrors
+        agents.research_agent.ResearchAgent's get_insider_trades/get_rating_history/
+        get_grade_history — one call per ticker, same as those, rather than a single
+        multi-symbol call whose page-count cap could skew coverage toward whichever
+        tickers happen to have more news.
+
+        Returns empty DataFrame (not None) if nothing found, so callers can treat "no
+        news" the same as "no insider trades" without a None-check."""
+        from alpaca.data.historical import NewsClient
+        from alpaca.data.requests import NewsRequest
+
+        cols = ["Date", "headline", "summary"]
+        news_client = NewsClient(self.settings.alpaca_api_key, self.settings.alpaca_secret_key)
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=int(lookback_days * 2.5) + 5)
+
+        request = NewsRequest(
+            symbols=ticker, start=start, end=end, limit=limit,
+            include_content=False, exclude_contentless=True,
+        )
+        news_set = news_client.get_news(request)
+        df = news_set.df
+        if df is None or df.empty:
+            return pd.DataFrame(columns=cols)
+
+        df = df.reset_index()
+        df["Date"] = pd.to_datetime(df["created_at"]).dt.tz_localize(None)
+        for col in ["headline", "summary"]:
+            if col not in df.columns:
+                df[col] = ""
+        return df[cols].sort_values("Date").reset_index(drop=True)
+
     def scan_universe(
         self, universe_df: pd.DataFrame, settings
     ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:

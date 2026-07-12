@@ -34,6 +34,7 @@ def build_feature_table(
     insider_df: Optional[pd.DataFrame] = None,
     rating_df: Optional[pd.DataFrame] = None,
     grades_df: Optional[pd.DataFrame] = None,
+    sentiment_df: Optional[pd.DataFrame] = None,
     lookback: int = 1500,
 ) -> tuple:
     """
@@ -67,8 +68,12 @@ def build_feature_table(
     in turn a different category from rating_df: rating_df is FMP's own daily
     fundamentals-ratio composite score, while grades_df is real, dated sell-side analyst
     upgrade/downgrade events — the actual "estimate revision momentum" signal, not
-    another transform of the same quant score. All three are safe to pass in
-    un-truncated (full available history, including dates after this call's as-of date)
+    another transform of the same quant score. sentiment_df, if provided, is
+    core.sentiment.build_sentiment_df() output (Date, net_sentiment — already
+    FinBERT-scored per-article; this function only aggregates it, never scores anything
+    itself) — a genuinely different category again, text/news-derived rather than
+    price/volume/filing-derived. All four are safe to pass in un-truncated
+    (full available history, including dates after this call's as-of date)
     because every value gets reindexed onto `features.index`, which itself never
     extends past `df`'s last row — a caller building a walk-forward/backtest dataset by
     truncating `df` to each as-of date automatically gets a causally correct,
@@ -221,6 +226,26 @@ def build_feature_table(
 
             features["analyst_revision_net_90d"] = rolling_revision_90d.reindex(features.index, method="ffill").fillna(0.0)
 
+    # --- News sentiment (core.sentiment.build_sentiment_df's already-FinBERT-scored
+    # net_sentiment per article — this only aggregates it, no scoring happens here). A
+    # shorter trailing window than insider/grades' 90 days (30, not 90) since news
+    # sentiment decays faster than an ownership/rating change — a 90-day-old headline says
+    # little about today, unlike a 90-day-old institutional trade. Unlike insider/grades'
+    # rolling *sum* over a zero-filled daily series (no trades on a given day is a
+    # meaningful "0" to sum), this is a rolling *mean*, and days without any news are left
+    # as NaN (not filled to 0) before the mean — a mean that included manufactured
+    # "neutral" observations on every newsless day would understate the real sentiment on
+    # the days that did have coverage. ---
+    if sentiment_df is not None and not sentiment_df.empty:
+        daily_sentiment = sentiment_df.groupby(
+            pd.to_datetime(sentiment_df["Date"]).dt.normalize()
+        )["net_sentiment"].mean()
+
+        full_range = pd.date_range(min(daily_sentiment.index.min(), features.index.min()), features.index.max(), freq="D")
+        rolling_sentiment_30d = daily_sentiment.reindex(full_range).rolling(30, min_periods=1).mean()
+
+        features["news_sentiment_net_30d"] = rolling_sentiment_30d.reindex(features.index, method="ffill").fillna(0.0)
+
     # --- Merge VIX (already correctly-dated — no re-derivation from a maybe-broken index) ---
     if vix_df is not None and not vix_df.empty:
         vix_series = vix_df.set_index(pd.to_datetime(vix_df["Date"]).dt.normalize())["vix"]
@@ -266,6 +291,7 @@ def prepare_features(
     insider_df: Optional[pd.DataFrame] = None,
     rating_df: Optional[pd.DataFrame] = None,
     grades_df: Optional[pd.DataFrame] = None,
+    sentiment_df: Optional[pd.DataFrame] = None,
     lookback: int = 1500,
     days_ahead: int = 5,
 ) -> tuple:
@@ -276,8 +302,8 @@ def prepare_features(
     engineering to build_feature_table() (shared with research/triple_barrier_walk_forward.py)
     and adds this module's specific label: forward return `days_ahead` bars out.
 
-    See build_feature_table() for the df/vix_df/spy_df/insider_df/rating_df/grades_df
-    argument contract — unchanged here.
+    See build_feature_table() for the df/vix_df/spy_df/insider_df/rating_df/grades_df/
+    sentiment_df argument contract — unchanged here.
 
     Returns (X, y, feature_names, y_stats, dates, current_features) — dates is
     the as-of date for each row in X/y, aligned 1:1 (needed to pool multiple
@@ -287,7 +313,9 @@ def prepare_features(
     construction below for why this must NOT be X[-1]. Returns a 6-tuple of
     Nones if there isn't enough data.
     """
-    features, dates_aligned = build_feature_table(df, vix_df, spy_df, insider_df, rating_df, grades_df, lookback)
+    features, dates_aligned = build_feature_table(
+        df, vix_df, spy_df, insider_df, rating_df, grades_df, sentiment_df, lookback
+    )
     if features is None or len(features) < max(20, days_ahead + 1):
         return None, None, None, None, None, None
 
@@ -333,6 +361,7 @@ def random_forest_forecast(
     insider_df: Optional[pd.DataFrame] = None,
     rating_df: Optional[pd.DataFrame] = None,
     grades_df: Optional[pd.DataFrame] = None,
+    sentiment_df: Optional[pd.DataFrame] = None,
     days_ahead: int = 5,
 ) -> Dict[str, Any]:
     try:
@@ -340,7 +369,7 @@ def random_forest_forecast(
 
         X, y, feature_names, y_stats, _dates, current_features = prepare_features(
             df, vix_df=vix_df, spy_df=spy_df, insider_df=insider_df, rating_df=rating_df,
-            grades_df=grades_df, lookback=1500, days_ahead=days_ahead,
+            grades_df=grades_df, sentiment_df=sentiment_df, lookback=1500, days_ahead=days_ahead,
         )
 
         if X is None or len(X) < 20:
@@ -408,6 +437,7 @@ def gradient_boosting_forecast(
     insider_df: Optional[pd.DataFrame] = None,
     rating_df: Optional[pd.DataFrame] = None,
     grades_df: Optional[pd.DataFrame] = None,
+    sentiment_df: Optional[pd.DataFrame] = None,
     days_ahead: int = 5,
 ) -> Dict[str, Any]:
     try:
@@ -416,7 +446,7 @@ def gradient_boosting_forecast(
 
         X, y, feature_names, y_stats, _dates, current_features = prepare_features(
             df, vix_df=vix_df, spy_df=spy_df, insider_df=insider_df, rating_df=rating_df,
-            grades_df=grades_df, lookback=1500, days_ahead=days_ahead,
+            grades_df=grades_df, sentiment_df=sentiment_df, lookback=1500, days_ahead=days_ahead,
         )
 
         if X is None or len(X) < 20:
@@ -486,16 +516,17 @@ def ensemble_ml_forecast(
     insider_df: Optional[pd.DataFrame] = None,
     rating_df: Optional[pd.DataFrame] = None,
     grades_df: Optional[pd.DataFrame] = None,
+    sentiment_df: Optional[pd.DataFrame] = None,
     days_ahead: int = 5,
 ) -> Dict[str, Any]:
     """Combine Random Forest and Gradient Boosting via an R²-weighted blend."""
     rf_result = random_forest_forecast(
         df, vix_df=vix_df, spy_df=spy_df, insider_df=insider_df, rating_df=rating_df,
-        grades_df=grades_df, days_ahead=days_ahead
+        grades_df=grades_df, sentiment_df=sentiment_df, days_ahead=days_ahead
     )
     gb_result = gradient_boosting_forecast(
         df, vix_df=vix_df, spy_df=spy_df, insider_df=insider_df, rating_df=rating_df,
-        grades_df=grades_df, days_ahead=days_ahead
+        grades_df=grades_df, sentiment_df=sentiment_df, days_ahead=days_ahead
     )
 
     if not rf_result["success"] or not gb_result["success"]:
