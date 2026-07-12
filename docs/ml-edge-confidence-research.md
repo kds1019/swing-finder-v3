@@ -777,7 +777,7 @@ degrades gracefully with `grades_df=None` and with an empty DataFrame.
 workflow changes needed — it already calls these scripts, which now fetch and use grades
 data automatically whenever `FMP_API_KEY` is set) and check whether rank-IC / AUC move at
 all, and whether `analyst_revision_net_90d` shows up in the RF feature-importance ranking
-this analyze scripts already print. Given this session's track record (two independent
+these analysis scripts already print. Given this session's track record (two independent
 null results so far), the honest expectation going in is that this also comes back null —
 but it's a genuinely different, previously-untested data category, unlike most of the
 variations tried before the triple-barrier reframe.
