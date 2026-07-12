@@ -1178,8 +1178,11 @@ point back at the entry/setup-detection logic itself, not just target distance.
 ## Update 2026-07-12 (real-data result): flat target helps a lot, but doesn't fix it — both mechanisms are real
 
 Ran the isolation test for real (GH Actions run 29199835039, same `n_tickers=60,
-lookback_days=760, step_days=10` sampling as every prior run this session). Result,
-compared directly against the Fibonacci-target run documented above:
+lookback_days=760, step_days=10` sampling as every prior run this session; results
+committed to `main` at `277fcfb` — `research/rules_based_results.csv` /
+`rules_based_results_flat_target.csv` and their `_summary` files at that commit are the
+exact source of every number below). Result, compared directly against the
+Fibonacci-target run documented above:
 
 | | Fibonacci target | Flat (3:1) target |
 |---|---|---|
@@ -1188,14 +1191,18 @@ compared directly against the Fibonacci-target run documented above:
 | mean R:R | 10.55 | 3.0 |
 | breakeven win rate (`1/(1+RR)`) | 8.7% | 25.0% |
 | mean R-multiple | -0.6757 | **-0.3506** |
-| t-stat / p-value | -9.525 / 0.0 | -5.104 / 0.0 |
+| t-stat / p-value | -9.525 / p < 0.00005 | -5.104 / p < 0.00005 |
+
+(`analyze_rules_based.py` rounds `p_value` to 4 decimals, so both print as `0.0`; scipy's
+underlying value is smaller than that rounding can distinguish from zero, not literally
+zero — `p < 0.00005` is the precise bound the printed `0.0` implies.)
 
 The flat target roughly **tripled the win rate** (5.4%→16.2%) and cut the loss in half
 (mean R -0.68→-0.35), exactly the direction the target-distance hypothesis predicted —
 confirming the Fibonacci extension was a real, substantial part of the problem, not a red
-herring. But it's **still significantly negative** (p≈0.0): a 16.2% win rate doesn't
-clear the 25% breakeven bar a 3:1 target requires. So this isolation test lands on
-neither of the two clean answers it was designed to distinguish between — it's both.
+herring. But it's **still significantly negative** (p < 0.00005): a 16.2% win rate
+doesn't clear the 25% breakeven bar a 3:1 target requires. So this isolation test lands
+on neither of the two clean answers it was designed to distinguish between — it's both.
 Fixing the target alone would not make this system profitable.
 
 **SmartScore quintile win rates (flat target): 15.0%, 13.1%, 14.3%, 20.1%** (lowest to
