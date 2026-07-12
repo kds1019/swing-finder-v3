@@ -1440,3 +1440,80 @@ population doesn't clear the control, or components show no rank-IC, that would 
 the entry-timing side of the hypothesis is also unsupported — a materially different and
 more serious finding than anything found so far, since target-distance was at least
 confirmed fixable in part.
+
+## Update 2026-07-12 (real-data result): the entry signal shows no demonstrated edge either — and the control population outperformed it on every measure
+
+Ran the real-data test (GH Actions run 29206457741, commit `8410437`, same
+`n_tickers=60, lookback_days=760, step_days=10` sampling as every prior run). n=323
+scored dates total: 203 signal (Breakout/Pullback/near-miss), 120 no-signal control.
+
+**Signal vs. no-signal control:**
+
+| | signal (Breakout/Pullback/near-miss) | no-signal control |
+|---|---|---|
+| n | 203 | 120 |
+| win rate | 48.8% | **60.0%** |
+| mean return | -0.409% | **+0.738%** |
+| median return | -0.08% | **+0.645%** |
+
+The control group — same tickers, same dates, just no Breakout/Pullback/near-miss
+pattern detected — outperformed the signal population on every measure. Ran a direct
+significance test on this gap (not in the script's default output, computed separately):
+Welch's t-test gives t=-1.235, p=0.218 (not significant); Mann-Whitney U gives p=0.056
+(borderline, favors control). **This gap is suggestive but not conclusively established
+at conventional significance thresholds** — it should not be read as "SmartScore actively
+hurts you," only as "this data gives no evidence it helps, and if anything leans the
+other way."
+
+**SmartScore's own rank-IC (signal population only): -0.0664, p=0.3465** — not
+significant, and the sign points the wrong way. **Bucket report is inverted, not flat:**
+win rate declines from 55.6% (lowest quintile) to 48.8% to 44.9% (highest quintile) as
+SmartScore increases — the opposite of what a working score should show.
+
+**Per-component rank-IC (signal population only):**
+
+| component | rank-IC | p-value |
+|---|---|---|
+| setup_strength | -0.0405 | 0.566 |
+| trend_context | — | too few distinct values (expected — see prior update) |
+| volume_bonus | -0.1168 | 0.097 |
+| base_tightness_bonus | **+0.1537** | **0.0286** |
+| meaningful_level_bonus | 0.0058 | 0.935 |
+| fibonacci_bonus | -0.0185 | 0.794 |
+
+`base_tightness_bonus` is the only component clearing conventional significance
+(p=0.0286) — but six components were tested here, and a Bonferroni-corrected threshold
+for six comparisons would be ≈0.0083, which this doesn't clear. One marginal hit out of
+six tests, with everything else non-significant or wrong-signed, and the combined score's
+own rank-IC negative, reads as consistent with chance rather than a real, isolable
+signal. Not dismissed outright — worth another look with more data if this research
+continues — but not something to act on from this single result.
+
+**By setup type: Breakout 51.8%/-0.252%, Pullback 52.0%/+0.200%, near_miss_only
+36.6%/-1.583%, no_signal_control 60.0%/+0.738%.** Every single signal category —
+including Breakout, the setup SmartScore scores most aggressively — underperforms the
+no-signal control. near_miss_only is worst of all groups by a wide margin.
+
+**Bottom line — and this closes out the original three-part hypothesis this whole
+research effort was investigating:**
+1. ML overlays on top of the pipeline: five separate feature experiments (regression
+   ensemble, triple-barrier classifier, analyst revisions, insider trading, FinBERT
+   sentiment) — all null.
+2. Target/exit mechanics: three target formulas tried (Fibonacci, flat 3:1,
+   volatility-scaled) — expectancy improved but none reached a demonstrated edge.
+3. Entry signal quality (this update): no evidence SmartScore's setup classification or
+   scoring weights track forward returns; the no-signal control outperformed every
+   signal category on this sample.
+
+None of the three legs of the system — the ML overlay, the exit/target logic, or the
+entry/setup-classification logic — has produced a statistically demonstrated edge across
+this entire research effort. That's a materially more serious conclusion than any single
+null result along the way: it means the rules-based foundation this whole system rests
+on hasn't been shown to separate good setups from bad ones, exit mechanics aside. This is
+the point to stop and confirm direction with the user rather than picking the next thing
+to test unilaterally — candidate next steps include: (a) revisiting whether the
+price/volume universe being screened is the right population at all, (b) checking
+whether `classify_setup()`'s specific thresholds (not just its overall verdict) are
+tunable to something better, or (c) stepping back from rules-based signal engineering
+entirely toward position-sizing/risk-management improvements, per the practitioner
+research cited earlier in this document.
