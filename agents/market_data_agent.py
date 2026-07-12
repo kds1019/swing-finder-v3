@@ -103,7 +103,7 @@ class MarketDataAgent:
     def fetch_spy_bars(self, lookback_days: int | None = None) -> pd.DataFrame | None:
         return self.fetch_universe_bars(["SPY"], lookback_days).get("SPY")
 
-    def fetch_news(self, ticker: str, lookback_days: int, limit: int = 50) -> pd.DataFrame:
+    def fetch_news(self, ticker: str, lookback_days: int, limit: int = 1000) -> pd.DataFrame:
         """Historical headlines/summaries for one ticker via Alpaca's free News API
         (Benzinga-sourced) — explicitly documented as usable for sentiment-model training,
         the data source behind core.sentiment's FinBERT scoring. Unlike bars this needs no
@@ -118,6 +118,13 @@ class MarketDataAgent:
         get_grade_history — one call per ticker, same as those, rather than a single
         multi-symbol call whose page-count cap could skew coverage toward whichever
         tickers happen to have more news.
+
+        limit here is the *total* article count across the whole date range, not a
+        per-page size — alpaca-py's NewsClient.get_news already paginates internally via
+        next_page_token (confirmed by reading its _get_marketdata source) until either this
+        total is reached or the range is exhausted, so this matches the limit=1000 default
+        convention already used by get_insider_trades/get_rating_history/get_grade_history,
+        not an arbitrarily small per-request page size.
 
         Returns empty DataFrame (not None) if nothing found, so callers can treat "no
         news" the same as "no insider trades" without a None-check."""

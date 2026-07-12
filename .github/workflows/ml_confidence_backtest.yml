@@ -44,7 +44,13 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          # ubuntu-latest runners have no GPU — installing plain "torch" from PyPI can
+          # pull a much larger CUDA-enabled wheel for no benefit. Installing the CPU-only
+          # build first from PyTorch's own index satisfies requirements.txt's torch>=2.0
+          # constraint without the extra download/install weight on every run.
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
 
       - name: Run walk-forward backtest
         env:
