@@ -1371,3 +1371,72 @@ profitable system. That leaves `core/smartscore.py`'s setup-classification logic
 base/level/fib bonus weights — as the one mechanism from the original hypothesis that
 still hasn't been tested directly against forward returns, and it's the next thing on
 deck.
+
+## Update 2026-07-12 (SmartScore audit): built, not yet run
+
+Picked up the leftover mechanism: does `core/smartscore.py`'s entry signal itself —
+`classify_setup()`'s Breakout/Pullback thresholds, and `compute_smartscore`'s
+setup_strength/trend/volume/base/level/fibonacci bonus weights — track forward returns
+at all, independent of any target/stop mechanics (all three tested, none profitable)?
+
+**`research/smartscore_walk_forward.py`** (new script, not a mode of the existing one —
+this measures something structurally different): walks forward exactly like every other
+script this session (causal `df.iloc[:idx+1]` slicing, same `WARMUP_BARS`/ticker-sampling
+reuse from `research/walk_forward_backtest.py`), but records a raw N-day-ahead
+close-to-close return (`--days-ahead`, defaults to `MAX_HOLD_DAYS=30`) — no stop, no
+target, no barrier resolution at all. A null result here can't be blamed on target
+distance the way the three `rules_based_walk_forward.py` tests could be.
+
+Also records a **no-signal control population** — same tickers/dates, but where
+`compute_smartscore` returned `reason="no_signal"` (passed price/volume filters, no
+Breakout/Pullback/near-miss pattern found) — excluding `"insufficient_data"`/`"filtered"`
+reasons, which are data-quality exclusions, not a meaningful comparison group. Without
+this, a Breakout-vs-Pullback comparison can't tell you whether *either* beats doing
+nothing, which is exactly the gap in every setup-type breakdown this session has run so
+far (they only ever compared signal sub-populations against each other).
+
+**`research/analyze_smartscore.py`**: three checks — (1) signal vs. no-signal baseline
+comparison, (2) rank-IC (Spearman) between `smartscore` and forward return, plus a
+**rank-IC broken out per individual scoring component** — does each ingredient
+(`setup_strength`, `trend_context`, `volume`, `base_tightness`, `meaningful_level`,
+`fibonacci`) actually correlate with forward returns on its own, since
+`compute_smartscore` just sums them into one number and a component with no real
+predictive value would otherwise hide inside a combined score that might look
+non-trivial by chance, (3) reuses `research/analyze_confidence.py::confidence_bucket_report()`
+unmodified (`column="smartscore"`) — same reuse-via-matching-column-names pattern as
+`analyze_rules_based.py`.
+
+**A structural finding from the synthetic sanity check, not a bug:** `trend_context`
+(the ±10 bonus for `ema20` vs `ema50`) will always show "too few distinct values" for
+the signal population specifically — `classify_setup()`'s Breakout/Pullback/near-miss
+detection is entirely nested inside `if ema20 > ema50:`, so every signal row has
+`trend_context = +10` by construction. It only ever varies in the no-signal control
+group (which includes both `ema20 > ema50` misses and `ema20 <= ema50` rows). This isn't
+something to fix here — `core/smartscore.py` itself is out of scope for this audit
+script — just a real property of the existing code worth knowing before reading that
+component's rank-IC as "undefined" and assuming something's broken.
+
+**Tested against synthetic data first** (20 seeds, 900-bar random walks with a small
+positive drift, same pattern as every other script this session): 2984 rows, 1162
+signal / 1822 control. Signal population modestly outperformed control (win rate 49.0%
+vs. 43.9%, mean return +0.46% vs. -0.54%) — plausible given Breakout/Pullback both
+require `ema20 > ema50`, an uptrend filter that would correlate with a random walk's own
+recently-realized drift; smartscore's own rank-IC came back non-significant
+(-0.0122, p=0.68) as expected on data with no real setup-quality signal to detect.
+Confirms the pipeline runs correctly and produces sensible output; not a finding about
+`core/smartscore.py` itself.
+
+Wired into `ml_confidence_backtest.yml` as two more steps
+(`research/smartscore_results.csv` / `research/smartscore_summary.txt`), same
+`if [ -s ... ]` guard pattern as every other optional step in that workflow.
+
+**Not yet run against real data.** Next step: trigger the workflow and read the four
+real-data checks above. A genuinely important result either way: if the signal
+population clears the no-signal control by a real, significant margin and/or individual
+components show real rank-IC, that's the first evidence in this entire research effort
+that some part of the rules-based system has actual predictive value worth preserving
+and possibly recombining with a repaired target-distance model. If the signal
+population doesn't clear the control, or components show no rank-IC, that would mean
+the entry-timing side of the hypothesis is also unsupported — a materially different and
+more serious finding than anything found so far, since target-distance was at least
+confirmed fixable in part.
