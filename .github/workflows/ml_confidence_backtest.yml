@@ -12,9 +12,12 @@ name: ML Edge Confidence Backtest
 # no ML involved at all. The smartscore_walk_forward.py steps go a level deeper still —
 # not exit/target mechanics (all three rules_based target modes turned out unprofitable)
 # but whether the entry signal itself (core.smartscore's setup classification and
-# scoring weights) tracks forward returns at all. Kept in this one workflow rather than
-# separate files for the shared ticker sampling/credentials and one trigger to
-# remember, not because it's still only about "ML edge confidence."
+# scoring weights) tracks forward returns at all (it didn't — no-signal control beat
+# every signal category). The momentum_walk_forward.py steps test a candidate
+# replacement entirely independent of core.smartscore: cross-sectional 12-1 momentum,
+# unlike anything tested above. Kept in this one workflow rather than separate files
+# for the shared ticker sampling/credentials and one trigger to remember, not because
+# it's still only about "ML edge confidence."
 
 on:
   workflow_dispatch:
@@ -236,6 +239,33 @@ jobs:
             echo "Skipping SmartScore analysis: research/smartscore_results.csv is missing or empty"
           fi
 
+      # SmartScore's entry signal showed no evidence of predictive value (the no-signal
+      # control outperformed every signal category). This tests a completely different,
+      # independent candidate: cross-sectional 12-1 momentum (Jegadeesh & Titman) — one
+      # of the most replicated factors in equity research, unlike the technical-setup
+      # heuristics tested above.
+      - name: Run momentum walk-forward
+        if: always()
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: |
+          set -eo pipefail
+          rm -f research/momentum_results.csv
+          python -m research.momentum_walk_forward \
+            --n-tickers "${{ inputs.n_tickers }}" \
+            --lookback-days "${{ inputs.lookback_days }}" \
+            --step-days "${{ inputs.step_days }}"
+
+      - name: Analyze momentum results
+        run: |
+          set -eo pipefail
+          if [ -s research/momentum_results.csv ]; then
+            python -m research.analyze_momentum | tee research/momentum_summary.txt
+          else
+            echo "Skipping momentum analysis: research/momentum_results.csv is missing or empty"
+          fi
+
       - name: Commit results
         if: always()
         run: |
@@ -252,7 +282,8 @@ jobs:
                    research/rules_based_results.csv research/rules_based_summary.txt \
                    research/rules_based_results_flat_target.csv research/rules_based_summary_flat_target.txt \
                    research/rules_based_results_volatility_target.csv research/rules_based_summary_volatility_target.txt \
-                   research/smartscore_results.csv research/smartscore_summary.txt; do
+                   research/smartscore_results.csv research/smartscore_summary.txt \
+                   research/momentum_results.csv research/momentum_summary.txt; do
             [ -f "$f" ] && git add "$f"
           done
           git diff --cached --quiet && echo "No changes to commit" || git commit -m "ML edge confidence backtest: $(date -u +%Y-%m-%d\ %H:%M)Z"
