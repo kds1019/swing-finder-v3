@@ -1582,3 +1582,53 @@ different kind of finding than SmartScore's: momentum is a real, replicated acad
 factor, so a null result here would say more about this specific universe/sample/holding
 period than about whether *any* systematic edge could ever be found, unlike the
 technical-setup heuristics already ruled out.
+
+## Update 2026-07-12 (real-data result): momentum is null too — no rank-IC, and the bucket pattern doesn't even trend the right direction
+
+Ran the real-data test (GH Actions run 29210133520, commit `61b79b7`, same
+`n_tickers=60, lookback_days=760, step_days=10` sampling as every prior run). n=2250
+scored ticker/dates.
+
+**Rank-IC: -0.0224, p=0.289.** Not significant, and the sign is negative — the opposite
+of what real momentum should show. This is the pooled panel version (see the scope note
+above); the signal isn't showing up even at this simpler, less rigorous level, so there
+was no reason to build the stricter date-by-date cross-sectional version this result
+would have justified investing in.
+
+**Quintile bucket report doesn't trend at all, let alone monotonically:**
+
+| momentum quintile (lowest → highest) | win rate | mean return | median return |
+|---|---|---|---|
+| lowest (-77.9% to -21.5%) | 51.1% | **+5.29%** | +0.70% |
+| 2nd (-21.5% to -1.3%) | 53.6% | +2.30% | +0.78% |
+| middle (-1.3% to +13.5%) | 51.6% | +0.45% | +0.18% |
+| 4th (+13.5% to +41.6%) | 56.4% | +2.46% | +1.31% |
+| highest (+41.6% to +1682%) | 49.8% | +3.79% | **-0.12%** |
+
+If anything, this leans slightly toward the opposite pattern (biggest past losers doing
+best on mean return, biggest past winners having the worst median return) — but it's not
+clean or monotonic enough to call it mean-reversion either; the middle quintiles don't
+form a consistent shape. Combined with the non-significant overall rank-IC, the honest
+read is noise, not a real signal in either direction.
+
+**This is a materially different kind of null result than every prior one in this
+document.** Momentum is one of the most replicated factors in the actual academic
+literature — unlike the ad hoc technical-setup heuristics in `core/smartscore.py`, this
+isn't a heuristic that was never rigorously tested elsewhere. A null result on a factor
+with this much independent evidence behind it says less about momentum itself and more
+about this specific setup: the ~60-ticker sample, the pooled (not strict
+date-by-date-ranked) methodology documented as a scope limitation above, the ~2-year
+window, and the 30-day holding period this test used throughout. It does not mean
+momentum doesn't exist in markets generally — only that it didn't show up here, in this
+test, on this data.
+
+**Where this leaves the research effort overall:** every mechanism tested across the
+whole session — five ML feature experiments, three exit/target formulas, SmartScore's
+entry-signal classification, and now a factor with real academic backing — has come back
+without a demonstrated edge. This is the point to stop reaching for another signal
+candidate unilaterally. Candidate directions from here: pivot away from stock-selection
+research entirely toward position-sizing/risk-management improvements (per the
+practitioner research cited earlier in this document), try a specific different
+angle (e.g. a different holding period, a different universe of tickers, or a
+fundamentals-based factor rather than a price-only one), or stop the signal-hunting
+phase of this research effort here and work with what's already been learned.
