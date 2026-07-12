@@ -804,17 +804,15 @@ would produce exactly this same result. What these three runs do rule out is a s
 existence of any signal in analyst revisions, insider trading, or the technical feature
 set more broadly.
 
-**Caveat — feature-level attribution is unavailable, not just uninspected.**
+**Caveat — feature-level attribution was unavailable, not just uninspected.**
 `research/walk_forward_backtest.py::backtest_ticker()` retrains a fresh RF/GBM at every
 walk-forward step and only writes `RESULT_COLUMNS` (predictions/confidence) per step to
 `walk_forward_results.csv` — it never captures `rf_model.feature_importances_` anywhere,
-so there is no record to go back and inspect for this run or any prior one. Concrete next
-step, if this line of work continues: add a `--dump-feature-importances <path>` mode to
-`research/pooled_model_experiment.py` (which already computes and prints top-10 RF
-importances once per ticker, at `research/pooled_model_experiment.py:159-162`) to write
-per-ticker importances to CSV, and check where `analyst_revision_net_90d` ranks. That
-isolates the attribution question far more cheaply than instrumenting the walk-forward
-script's per-step retrain loop.
+so there was no record to go back and inspect for this run or any prior one. (Correction
+to this doc: an earlier draft of this paragraph said `pooled_model_experiment.py` already
+computed importances "once per ticker" — wrong, it trains one single pooled model over
+all tickers combined and only ever printed that one model's top 10.) See the next update
+below for what was actually built to close this gap.
 
 **Conclusion.** Three independent framings — return regression, triple-barrier
 classification, and now both of those with a genuinely new sell-side analyst-revision
@@ -832,3 +830,35 @@ statistical sense above. Practical takeaways:
   feature set, or (b) stepping back to the conclusion from the "algo trading and financial
   ML" discussion earlier in this doc — this pipeline's value is more likely the
   rules-based screening and risk management than a still-undiscovered ML edge.
+
+## Update 2026-07-12 (later): feature-importance instrumentation built, not yet run
+
+Closed the attribution gap flagged above, in both model framings rather than just the
+one originally scoped:
+
+- **`research/pooled_model_experiment.py`**: now fetches `insider_df`/`rating_df`/
+  `grades_df` per ticker (previously never wired in at all — this script's pooled dataset
+  didn't include `analyst_revision_net_90d`, or insider/rating features, until now) and
+  writes the *full* ranked RF feature-importance list to
+  `research/pooled_feature_importances.csv` (`rank`, `feature`, `importance`), not just
+  the top-10 console print from before.
+- **`research/triple_barrier_walk_forward.py`**: captures each per-ticker `LGBMClassifier`'s
+  `feature_importances_` after every fit, averages across all trained tickers (same spirit
+  as the pooled model's single ranked list, but built from N per-ticker models instead of
+  one pooled one — this script deliberately doesn't pool, see its own module docstring),
+  and writes `research/triple_barrier_feature_importances.csv` (`feature`,
+  `mean_importance`, `n_tickers`).
+
+Both wired into `ml_confidence_backtest.yml` — the pooled-model step returns (previously
+removed once pooling-for-prediction was ruled out; it's back now for this diagnostic
+purpose only, not as a reconsideration of pooling as the primary approach) and the
+existing triple-barrier step now also produces its importances file as a side effect of
+the run it already does.
+
+Tested against synthetic data first: both scripts' importance-aggregation logic (groupby-
+mean over per-ticker/per-model rows, correct sort/rank) verified end-to-end, and confirmed
+`analyst_revision_net_90d` actually appears in the output when synthetic grade events are
+present. **Not yet run against real data** — next step is triggering the workflow and
+checking where `analyst_revision_net_90d` (and the older `insider_net_buy_pct_90d`/
+`rating_score_change_20d`) actually rank, which will tell us whether the null result above
+is "no signal" or "signal present but diluted among ~30 other features."

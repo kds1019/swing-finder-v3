@@ -33,6 +33,12 @@ Usage:
 
 Output CSV columns: as_of_date, ticker, entry, stop, target, rr_ratio, p_target,
 direction_correct (True = target hit before stop), actual_return_pct, bars_to_resolution.
+
+Also writes a second CSV (--importances-output, default
+research/triple_barrier_feature_importances.csv) of each feature's LGBM importance,
+averaged across every ticker's own trained classifier — feature-level attribution the
+walk-forward regression script doesn't capture (see docs/ml-edge-confidence-research.md's
+2026-07-12 update on why that mattered for analyst_revision_net_90d).
 """
 
 from __future__ import annotations
@@ -148,7 +154,7 @@ def build_ticker_dataset(
 
 def run(
     n_tickers: int, lookback_days: int, step_days: int, max_hold_days: int,
-    seed: int, train_frac: float, output: str,
+    seed: int, train_frac: float, output: str, importances_output: str,
 ) -> None:
     from lightgbm import LGBMClassifier
 
@@ -190,6 +196,7 @@ def run(
     wrote_header = output_path.exists()
 
     total_test_rows = 0
+    importance_rows = []
     for i, ticker in enumerate(tickers, 1):
         df = bars_by_ticker.get(ticker)
         if df is None or len(df) < 150:
@@ -225,6 +232,11 @@ def run(
         result["p_target"] = np.round(p_target, 4)
         total_test_rows += len(result)
 
+        importance_rows.extend(
+            {"ticker": ticker, "feature": name, "importance": float(imp)}
+            for name, imp in zip(feature_names, clf.feature_importances_)
+        )
+
         print(f"[triple_barrier] ({i}/{len(tickers)}) {ticker}: {len(train)} train / {len(test)} test "
               f"({dataset['direction_correct'].mean() * 100:.1f}% target-hit-first overall)", file=sys.stderr)
 
@@ -233,6 +245,28 @@ def run(
 
     print(f"[triple_barrier] done — {total_test_rows} total held-out predictions written to {output_path}",
           file=sys.stderr)
+
+    if importance_rows:
+        # LGBM's feature_importances_ (default "split" type: how many times a feature was
+        # used to split, not gain) isn't directly comparable across tickers with different
+        # tree counts/depths reached, but averaging across every trained ticker's own
+        # ranking is still informative for "does this feature matter anywhere" — the same
+        # spirit as research/pooled_model_experiment.py's single-model importances, just
+        # aggregated over N per-ticker models instead of one pooled one.
+        imp_df = pd.DataFrame(importance_rows)
+        summary = (
+            imp_df.groupby("feature")["importance"]
+            .agg(mean_importance="mean", n_tickers="count")
+            .sort_values("mean_importance", ascending=False)
+            .reset_index()
+        )
+        imp_path = Path(importances_output)
+        imp_path.parent.mkdir(parents=True, exist_ok=True)
+        summary.to_csv(imp_path, index=False)
+        print(f"\n[triple_barrier] mean LGBM feature importances across {imp_df['ticker'].nunique()} "
+              f"trained tickers, written to {imp_path}:", file=sys.stderr)
+        for _, row in summary.head(15).iterrows():
+            print(f"  {row['feature']}: {row['mean_importance']:.2f} (n={int(row['n_tickers'])})", file=sys.stderr)
 
 
 def main() -> None:
@@ -244,9 +278,11 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--train-frac", type=float, default=0.8)
     parser.add_argument("--output", type=str, default="research/triple_barrier_results.csv")
+    parser.add_argument("--importances-output", type=str,
+                         default="research/triple_barrier_feature_importances.csv")
     args = parser.parse_args()
     run(args.n_tickers, args.lookback_days, args.step_days, args.max_hold_days,
-        args.seed, args.train_frac, args.output)
+        args.seed, args.train_frac, args.output, args.importances_output)
 
 
 if __name__ == "__main__":
