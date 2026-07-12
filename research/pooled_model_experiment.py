@@ -18,7 +18,17 @@ Most of prepare_features' engineered columns are already scale-normalized
 raw price levels — that's what makes pooling rows from tickers at wildly
 different price points into one training set valid in the first place.
 
-Requires ALPACA_API_KEY/ALPACA_SECRET_KEY.
+Requires ALPACA_API_KEY/ALPACA_SECRET_KEY. FMP_API_KEY is optional (insider/rating/grades
+features skipped if unset, same as research/walk_forward_backtest.py).
+
+Also serves a second purpose beyond the pooling-vs-per-ticker comparison above: a single
+pooled model gives one ranked feature-importance list over a much larger combined sample
+than any individual ticker's own few-hundred-row model would, which is otherwise not
+captured anywhere — research/walk_forward_backtest.py's per-step retraining never logs
+importances, and this script already computed but only ever printed the top 10. See
+docs/ml-edge-confidence-research.md's 2026-07-12 update for why that gap mattered for
+evaluating whether a newly added feature (e.g. analyst_revision_net_90d) is being used at
+all, not just whether it moved the ensemble's overall accuracy.
 
 Usage:
     python -m research.pooled_model_experiment
@@ -28,12 +38,14 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from scipy import stats
 
 from agents.market_data_agent import MarketDataAgent
+from agents.research_agent import ResearchAgent
 from config.settings import load_settings
 from core.indicators import compute_indicators
 from core.ml_forecast import prepare_features
@@ -44,7 +56,13 @@ MIN_TICKER_BARS = 120
 
 
 def build_pooled_dataset(
-    tickers: list[str], bars_by_ticker: dict, spy_df: pd.DataFrame | None, days_ahead: int
+    tickers: list[str],
+    bars_by_ticker: dict,
+    spy_df: pd.DataFrame | None,
+    insider_by_ticker: dict,
+    rating_by_ticker: dict,
+    grades_by_ticker: dict,
+    days_ahead: int,
 ) -> pd.DataFrame:
     """One row per (ticker, as-of date) sample — the panel dataset a cross-sectional
     model trains on, instead of one ticker's own few-hundred-row time series."""
@@ -58,7 +76,9 @@ def build_pooled_dataset(
 
         df = compute_indicators(bars.copy())
         X, y, feature_names, _, dates, _current_features = prepare_features(
-            df, vix_df=None, spy_df=spy_df, days_ahead=days_ahead
+            df, vix_df=None, spy_df=spy_df,
+            insider_df=insider_by_ticker.get(ticker), rating_df=rating_by_ticker.get(ticker),
+            grades_df=grades_by_ticker.get(ticker), days_ahead=days_ahead,
         )
         if X is None:
             continue
@@ -106,7 +126,10 @@ def evaluate(y_true: np.ndarray, y_pred: np.ndarray, label: str) -> None:
     print(f"  directional_accuracy_pct={round(float(direction_correct.mean()) * 100, 1)}")
 
 
-def run(n_tickers: int, lookback_days: int, days_ahead: int, seed: int, train_frac: float) -> None:
+def run(
+    n_tickers: int, lookback_days: int, days_ahead: int, seed: int, train_frac: float,
+    importances_output: str,
+) -> None:
     from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
     from sklearn.preprocessing import StandardScaler
 
@@ -121,7 +144,27 @@ def run(n_tickers: int, lookback_days: int, days_ahead: int, seed: int, train_fr
     spy_df = agent.fetch_spy_bars(lookback_days=lookback_days)
     print(f"[pooled] fetched bars for {len(bars_by_ticker)}/{len(tickers)} tickers", file=sys.stderr)
 
-    pooled = build_pooled_dataset(tickers, bars_by_ticker, spy_df, days_ahead)
+    insider_by_ticker: dict[str, pd.DataFrame] = {}
+    rating_by_ticker: dict[str, pd.DataFrame] = {}
+    grades_by_ticker: dict[str, pd.DataFrame] = {}
+    if settings.fmp_api_key:
+        research_agent = ResearchAgent(settings)
+        for ticker in tickers:
+            try:
+                insider_by_ticker[ticker] = research_agent.get_insider_trades(ticker)
+                rating_by_ticker[ticker] = research_agent.get_rating_history(ticker)
+                grades_by_ticker[ticker] = research_agent.get_grade_history(ticker)
+            except Exception as e:
+                print(f"[pooled] {ticker}: FMP insider/rating/grades fetch failed ({e}), "
+                      f"skipping those features for this ticker", file=sys.stderr)
+        print(f"[pooled] fetched insider/rating/grades data for "
+              f"{sum(1 for t in tickers if t in insider_by_ticker)}/{len(tickers)} tickers", file=sys.stderr)
+    else:
+        print("[pooled] FMP_API_KEY not set — insider/rating/grades features will be skipped", file=sys.stderr)
+
+    pooled = build_pooled_dataset(
+        tickers, bars_by_ticker, spy_df, insider_by_ticker, rating_by_ticker, grades_by_ticker, days_ahead
+    )
     if pooled.empty:
         print("[pooled] no usable data — aborting", file=sys.stderr)
         return
@@ -156,10 +199,19 @@ def run(n_tickers: int, lookback_days: int, days_ahead: int, seed: int, train_fr
     ensemble_pred = (rf_pred + gb_pred) / 2
     evaluate(y_test, ensemble_pred, "Pooled ensemble (RF+GB average) — held-out test period")
 
-    importances = sorted(zip(feature_cols, rf.feature_importances_), key=lambda x: x[1], reverse=True)[:10]
-    print("\n=== Top 10 RF feature importances (pooled model) ===")
-    for name, imp in importances:
-        print(f"  {name}: {imp:.4f}")
+    importances = pd.DataFrame({
+        "feature": feature_cols, "importance": rf.feature_importances_,
+    }).sort_values("importance", ascending=False).reset_index(drop=True)
+    importances.insert(0, "rank", importances.index + 1)
+
+    imp_path = Path(importances_output)
+    imp_path.parent.mkdir(parents=True, exist_ok=True)
+    importances.to_csv(imp_path, index=False)
+
+    print(f"\n=== Top 10 RF feature importances (pooled model, full ranking written to "
+          f"{imp_path}) ===")
+    for _, row in importances.head(10).iterrows():
+        print(f"  {int(row['rank'])}. {row['feature']}: {row['importance']:.4f}")
 
 
 def main() -> None:
@@ -169,8 +221,11 @@ def main() -> None:
     parser.add_argument("--days-ahead", type=int, default=5)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--train-frac", type=float, default=0.8)
+    parser.add_argument("--importances-output", type=str,
+                         default="research/pooled_feature_importances.csv")
     args = parser.parse_args()
-    run(args.n_tickers, args.lookback_days, args.days_ahead, args.seed, args.train_frac)
+    run(args.n_tickers, args.lookback_days, args.days_ahead, args.seed, args.train_frac,
+        args.importances_output)
 
 
 if __name__ == "__main__":

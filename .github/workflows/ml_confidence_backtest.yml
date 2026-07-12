@@ -67,10 +67,25 @@ jobs:
           set -eo pipefail
           python -m research.analyze_confidence | tee research/walk_forward_summary.txt
 
-      # research/pooled_model_experiment.py (punch-list item #1) is no longer run here —
-      # see docs/ml-edge-confidence-research.md's "pooling made it worse" update. The
-      # research/pooled_model_summary.txt from that result stays committed as a record;
-      # this workflow just doesn't regenerate it every run anymore.
+      # research/pooled_model_experiment.py (punch-list item #1) was removed from here once
+      # pooling-for-prediction was ruled out worse than per-ticker training — see
+      # docs/ml-edge-confidence-research.md's "pooling made it worse" update. It's back
+      # below for a different reason: it's now the cheapest way to get a full ranked
+      # feature-importance list (a single pooled model over every ticker's combined data),
+      # which research/walk_forward_backtest.py's per-step retrain design never captures.
+      # Diagnostic only — not a reconsideration of pooling as the primary approach.
+      - name: Run pooled feature-importance diagnostic
+        if: always()
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+        run: |
+          set -eo pipefail
+          python -m research.pooled_model_experiment \
+            --n-tickers "${{ inputs.n_tickers }}" \
+            --lookback-days "${{ inputs.lookback_days }}" \
+            | tee research/pooled_model_summary.txt
 
       - name: Run triple-barrier walk-forward
         if: always()
@@ -100,7 +115,10 @@ jobs:
           # if: always() means this runs even if an earlier step failed (and possibly never
           # wrote one of these files) — only stage whatever actually exists, so a failure in
           # one step doesn't also throw away another step's completed results.
-          for f in research/walk_forward_results.csv research/walk_forward_summary.txt research/pooled_model_summary.txt research/triple_barrier_results.csv research/triple_barrier_summary.txt; do
+          for f in research/walk_forward_results.csv research/walk_forward_summary.txt \
+                   research/pooled_model_summary.txt research/pooled_feature_importances.csv \
+                   research/triple_barrier_results.csv research/triple_barrier_summary.txt \
+                   research/triple_barrier_feature_importances.csv; do
             [ -f "$f" ] && git add "$f"
           done
           git diff --cached --quiet && echo "No changes to commit" || git commit -m "ML edge confidence backtest: $(date -u +%Y-%m-%d\ %H:%M)Z"
