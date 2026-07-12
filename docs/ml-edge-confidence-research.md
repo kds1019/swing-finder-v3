@@ -1349,7 +1349,7 @@ by a wide margin, but it is **not** a demonstrated edge, and it would be overcla
 call it one.
 
 **SmartScore quintiles (volatility target): 26.7%, 29.1%, 28.6% (n=7, too small to read
-into), 20.5%** — the *highest*-scored quintile does *worst* of the size­able buckets,
+into), 20.5%** — the *highest*-scored quintile does *worst* of the sizeable buckets,
 continuing the same non-monotonic pattern seen in both other target modes.
 **By setup type: Breakout 29.3%, Pullback 18.7%, near_miss_only 22.6%** — Breakout is
 the *best* performer here, the opposite ordering from both the Fibonacci and flat runs
