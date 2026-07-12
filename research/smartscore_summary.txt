@@ -1,0 +1,40 @@
+[analyze_smartscore] 323 scored dates loaded from research/smartscore_results.csv
+
+=== Signal vs. no-signal baseline ===
+  signal (Breakout/Pullback/near-miss): n=203 win_rate_pct=48.8 mean_return_pct=-0.409 median_return_pct=-0.08
+  no-signal control: n=120 win_rate_pct=60.0 mean_return_pct=0.738 median_return_pct=0.645
+
+  Interpretation: if the signal population's win rate / mean return isn't meaningfully better than the no-signal control's, compute_smartscore's setup classification isn't adding value over doing nothing, regardless of how the signal population ranks internally below.
+
+=== Rank-IC: smartscore vs. forward return (signal population only) ===
+  n: 203
+  rank_ic: -0.0664
+  p_value: 0.3465
+
+  Interpretation: near-zero or non-significant rank-IC means a higher SmartScore doesn't track a better forward return at all, independent of whatever the signal-vs-control comparison above showed.
+
+=== Rank-IC per scoring component (signal population only) ===
+  setup_strength (setup_strength): {'n': 203, 'rank_ic': -0.0405, 'p_value': 0.5663}
+  trend_context (trend_context): {'n': 203, 'rank_ic': None, 'p_value': None, 'note': 'too few distinct values'}
+  volume (volume_bonus): {'n': 203, 'rank_ic': -0.1168, 'p_value': 0.0971}
+  base_tightness (base_tightness_bonus): {'n': 203, 'rank_ic': 0.1537, 'p_value': 0.0286}
+  meaningful_level (meaningful_level_bonus): {'n': 203, 'rank_ic': 0.0058, 'p_value': 0.935}
+  fibonacci (fibonacci_bonus): {'n': 203, 'rank_ic': -0.0185, 'p_value': 0.7938}
+
+  Interpretation: compute_smartscore sums several bonus components into one score. A component with a near-zero/non-significant rank-IC here is adding noise (or worse) to the total rather than real signal, even if the combined smartscore's own rank-IC above looks non-trivial.
+
+=== SmartScore bucket report (quintiles, signal population only) ===
+        bucket  n  smartscore_min  smartscore_max  win_rate_pct  mean_actual_return_pct  median_actual_return_pct
+(44.999, 75.0] 45            45.0            75.0          55.6                  -0.332                     0.250
+  (75.0, 85.0] 80            76.0            85.0          48.8                  -0.226                    -0.030
+ (85.0, 100.0] 78            86.0           100.0          44.9                  -0.642                    -0.445
+
+=== By setup type (Breakout / Pullback / near-miss-only / no-signal control) ===
+                       n  win_rate_pct  mean_actual_return_pct
+setup_label                                                   
+Breakout           112.0          51.8                  -0.252
+Pullback            50.0          52.0                   0.200
+near_miss_only      41.0          36.6                  -1.583
+no_signal_control  120.0          60.0                   0.738
+
+  Interpretation: if classify_setup()'s thresholds are doing their job, Breakout and Pullback should both beat no_signal_control, ideally by a meaningful margin — not just outrank each other.
