@@ -1583,7 +1583,7 @@ factor, so a null result here would say more about this specific universe/sample
 period than about whether *any* systematic edge could ever be found, unlike the
 technical-setup heuristics already ruled out.
 
-## Update 2026-07-12 (real-data result): momentum is null too — no rank-IC, and the bucket pattern doesn't even trend the right direction
+## Update 2026-07-12 (real-data result): momentum is null too — no rank-IC, and the bucket pattern doesn't even trend in the right direction
 
 Ran the real-data test (GH Actions run 29210133520, commit `61b79b7`, same
 `n_tickers=60, lookback_days=760, step_days=10` sampling as every prior run). n=2250
