@@ -1142,3 +1142,35 @@ isolate whether SmartScore's entry-timing/ranking has real value once the target
 set unrealistically far for the hold window it's paired with. That test would cleanly
 separate "the setup detection is bad" from "the target is bad," which this run cannot
 distinguish on its own.
+
+## Update 2026-07-12 (later): flat-target isolation test built, not yet run
+
+Built the follow-up test proposed above, to separate "the target is set too far" from
+"the entries/SmartScore are bad."
+
+**`research/rules_based_walk_forward.py --target-mode flat`**: reuses `compute_trade_plan()`'s
+entry/stop exactly as-is (its swing-low/EMA-anchored stop logic isn't implicated in the
+negative-expectancy finding) but overrides the target to a flat `settings.min_risk_reward`
+multiple of that same risk distance — no Fibonacci extension, no resistance-based
+refinement. `apply_flat_target()` is a small experimental override living only in the
+research script; `core.trade_plan.compute_trade_plan()` itself is untouched, so live
+pipeline behavior is unaffected. Wired into `ml_confidence_backtest.yml` as two more
+steps (`research/rules_based_results_flat_target.csv` /
+`research/rules_based_summary_flat_target.txt`), reusing `research/analyze_rules_based.py`
+unmodified via its existing `--input` flag.
+
+**Tested against synthetic data first**: on the same synthetic random-walk price series,
+`fibonacci` mode gave mean R:R 9.1 / win rate 9.8%, while `flat` mode gave mean R:R 3.0
+(exactly, by construction) / win rate 25.8% — a large, qualitatively expected shift in the
+direction the target-distance hypothesis predicts, confirming the override logic works
+correctly before spending real API credits on it. (Not a finding — synthetic random-walk
+data has no real edge to detect either way; this only confirms the mechanism behaves as
+designed.)
+
+**Not yet run against real data.** Next step: trigger `ml_confidence_backtest.yml` and
+compare `research/rules_based_summary_flat_target.txt` against the Fibonacci-target
+result documented above. If the flat-target expectancy is close to breakeven or positive
+and/or SmartScore's bucket ranking shows real separation once win rates aren't uniformly
+crushed by an unreachable target, that isolates the Fibonacci extension as the specific
+fixable problem. If flat-target expectancy is still significantly negative, that would
+point back at the entry/setup-detection logic itself, not just target distance.
