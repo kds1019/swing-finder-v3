@@ -23,7 +23,12 @@ a real historical-data pull, not something that can run without credentials.
 FMP_API_KEY is optional — if set, also fetches insider-trading and daily
 quant-rating history per ticker (core.ml_forecast's insider_df/rating_df
 features); if unset, those features are skipped and everything else runs the
-same as before.
+same as before. News-sentiment history (core.ml_forecast's sentiment_df,
+FinBERT-scored via core.sentiment) is fetched per ticker via Alpaca's News API —
+no separate credential needed since ALPACA_API_KEY is already required — and
+scored once per ticker before any walk-forward looping, since FinBERT inference
+is comparatively expensive and every walk-forward step for one ticker shares the
+same underlying news history.
 
 Usage:
     python -m research.walk_forward_backtest
@@ -49,6 +54,7 @@ from agents.research_agent import ResearchAgent
 from config.settings import load_settings
 from core.indicators import compute_indicators
 from core.ml_forecast import ensemble_ml_forecast
+from core.sentiment import build_sentiment_df
 from core.universe import load_universe
 
 RESULT_COLUMNS = [
@@ -101,6 +107,7 @@ def backtest_ticker(
     insider_df: pd.DataFrame | None,
     rating_df: pd.DataFrame | None,
     grades_df: pd.DataFrame | None,
+    sentiment_df: pd.DataFrame | None,
     step_days: int,
     days_ahead: int,
 ) -> list[dict]:
@@ -108,9 +115,12 @@ def backtest_ticker(
     to that bar only (df.iloc[:idx+1] — indicators were computed causally over the full
     history up front, so slicing is equivalent to recomputing them fresh at each step) and
     score it against the actual close days_ahead bars later, which is already known since
-    this is historical data. spy_df/insider_df/rating_df/grades_df are truncated to the
-    same as-of date at each step for the same no-lookahead reason (prepare_features' own
-    reindexing already bounds this, but truncating here too is cheap defense-in-depth)."""
+    this is historical data. spy_df/insider_df/rating_df/grades_df/sentiment_df are
+    truncated to the same as-of date at each step for the same no-lookahead reason
+    (prepare_features' own reindexing already bounds this, but truncating here too is
+    cheap defense-in-depth). sentiment_df is already FinBERT-scored by the caller before
+    this function is ever called — only the cheap rolling-window aggregation happens
+    per-step here, not per-step rescoring."""
     rows = []
     last_idx = len(df) - days_ahead - 1
     for idx in range(WARMUP_BARS, last_idx + 1, step_days):
@@ -120,9 +130,10 @@ def backtest_ticker(
         insider_upto = insider_df[insider_df["filingDate"] <= as_of_date] if insider_df is not None else None
         rating_upto = rating_df[rating_df["Date"] <= as_of_date] if rating_df is not None else None
         grades_upto = grades_df[grades_df["date"] <= as_of_date] if grades_df is not None else None
+        sentiment_upto = sentiment_df[sentiment_df["Date"] <= as_of_date] if sentiment_df is not None else None
         result = ensemble_ml_forecast(
             df_upto, vix_df=None, spy_df=spy_upto, insider_df=insider_upto, rating_df=rating_upto,
-            grades_df=grades_upto, days_ahead=days_ahead,
+            grades_df=grades_upto, sentiment_df=sentiment_upto, days_ahead=days_ahead,
         )
         if not result.get("success"):
             continue
@@ -183,6 +194,22 @@ def run(n_tickers: int, lookback_days: int, step_days: int, days_ahead: int, see
     else:
         print("[walk_forward] FMP_API_KEY not set — insider/rating/grades features will be skipped", file=sys.stderr)
 
+    # News sentiment: fetched and FinBERT-scored once per ticker here, up front — not
+    # inside backtest_ticker's per-step loop, since scoring is comparatively expensive and
+    # every walk-forward step for a given ticker shares the same underlying news history.
+    # No settings gate (unlike insider/rating/grades above) since ALPACA_API_KEY is already
+    # required for this whole script.
+    sentiment_by_ticker: dict[str, pd.DataFrame] = {}
+    for ticker in tickers:
+        try:
+            news_df = agent.fetch_news(ticker, lookback_days=lookback_days)
+            sentiment_by_ticker[ticker] = build_sentiment_df(news_df)
+        except Exception as e:
+            print(f"[walk_forward] {ticker}: news fetch/sentiment scoring failed ({e}), "
+                  f"skipping that feature for this ticker", file=sys.stderr)
+    print(f"[walk_forward] scored news sentiment for "
+          f"{sum(1 for t in tickers if t in sentiment_by_ticker)}/{len(tickers)} tickers", file=sys.stderr)
+
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wrote_header = output_path.exists()
@@ -197,7 +224,7 @@ def run(n_tickers: int, lookback_days: int, step_days: int, days_ahead: int, see
         df = compute_indicators(df.copy())
         rows = backtest_ticker(
             ticker, df, spy_df, insider_by_ticker.get(ticker), rating_by_ticker.get(ticker),
-            grades_by_ticker.get(ticker), step_days, days_ahead
+            grades_by_ticker.get(ticker), sentiment_by_ticker.get(ticker), step_days, days_ahead
         )
         print(f"[walk_forward] ({i}/{len(tickers)}) {ticker}: {len(rows)} walk-forward predictions", file=sys.stderr)
         total_rows += len(rows)

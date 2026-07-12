@@ -32,7 +32,9 @@ jobs:
     # 60 tickers x ~45 walk-forward windows each is ~2700 calls, so budget
     # generously (public repo — Actions minutes are free either way). Extra
     # room beyond the regression backtest's own budget accounts for the
-    # triple-barrier step's per-ticker compute_trade_plan() sweep below.
+    # triple-barrier step's per-ticker compute_trade_plan() sweep below, plus
+    # the one-time FinBERT model download and per-ticker CPU inference (core.
+    # sentiment, fetched via Alpaca's News API) both scripts now also do.
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
@@ -48,8 +50,10 @@ jobs:
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
-          # Optional — enables insider-trading/daily-rating features (core.ml_forecast's
-          # insider_df/rating_df). Degrades gracefully to "features skipped" if unset.
+          # Optional — enables insider-trading/daily-rating/analyst-revision features
+          # (core.ml_forecast's insider_df/rating_df/grades_df). Degrades gracefully to
+          # "features skipped" if unset. News-sentiment (core.ml_forecast's sentiment_df)
+          # needs no separate key — it's fetched via the ALPACA_* creds already above.
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
         run: |
           set -eo pipefail

@@ -24,7 +24,9 @@ date via compute_trade_plan on a truncated df, so a single split is sufficient a
 cheaper than retraining per step).
 
 Requires ALPACA_API_KEY/ALPACA_SECRET_KEY. FMP_API_KEY is optional (insider/rating
-features skipped if unset, same as research/walk_forward_backtest.py).
+features skipped if unset, same as research/walk_forward_backtest.py). News-sentiment
+history is fetched via Alpaca (no separate credential) and FinBERT-scored once per ticker
+before any per-ticker training, same reasoning as research/walk_forward_backtest.py.
 
 Usage:
     python -m research.triple_barrier_walk_forward
@@ -56,6 +58,7 @@ from config.settings import load_settings
 from core.indicators import compute_indicators
 from core.ml_forecast import build_feature_table
 from core.pick_tracking import MAX_HOLD_DAYS
+from core.sentiment import build_sentiment_df
 from core.trade_plan import compute_trade_plan, resolve_trade_plan_outcome
 from core.universe import load_universe
 from research.walk_forward_backtest import select_sample_universe
@@ -81,6 +84,7 @@ def build_ticker_dataset(
     insider_df: pd.DataFrame | None,
     rating_df: pd.DataFrame | None,
     grades_df: pd.DataFrame | None,
+    sentiment_df: pd.DataFrame | None,
     settings,
     max_hold_days: int,
     step_days: int,
@@ -101,7 +105,7 @@ def build_ticker_dataset(
     """
     features, dates_aligned = build_feature_table(
         df, vix_df=None, spy_df=spy_df, insider_df=insider_df, rating_df=rating_df,
-        grades_df=grades_df, lookback=1500,
+        grades_df=grades_df, sentiment_df=sentiment_df, lookback=1500,
     )
     if features is None:
         return pd.DataFrame(), []
@@ -191,6 +195,20 @@ def run(
     else:
         print("[triple_barrier] FMP_API_KEY not set — insider/rating/grades features will be skipped", file=sys.stderr)
 
+    # News sentiment: fetched and FinBERT-scored once per ticker here, same reasoning as
+    # research/walk_forward_backtest.py — no settings gate needed since ALPACA_API_KEY is
+    # already required for this whole script.
+    sentiment_by_ticker: dict[str, pd.DataFrame] = {}
+    for ticker in tickers:
+        try:
+            news_df = agent.fetch_news(ticker, lookback_days=lookback_days)
+            sentiment_by_ticker[ticker] = build_sentiment_df(news_df)
+        except Exception as e:
+            print(f"[triple_barrier] {ticker}: news fetch/sentiment scoring failed ({e}), "
+                  f"skipping that feature for this ticker", file=sys.stderr)
+    print(f"[triple_barrier] scored news sentiment for "
+          f"{sum(1 for t in tickers if t in sentiment_by_ticker)}/{len(tickers)} tickers", file=sys.stderr)
+
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wrote_header = output_path.exists()
@@ -206,7 +224,7 @@ def run(
         df = compute_indicators(df.copy())
         dataset, feature_names = build_ticker_dataset(
             ticker, df, spy_df, insider_by_ticker.get(ticker), rating_by_ticker.get(ticker),
-            grades_by_ticker.get(ticker), settings, max_hold_days, step_days,
+            grades_by_ticker.get(ticker), sentiment_by_ticker.get(ticker), settings, max_hold_days, step_days,
         )
         if len(dataset) < MIN_LABELED_ROWS:
             print(f"[triple_barrier] ({i}/{len(tickers)}) {ticker}: only {len(dataset)} labeled "

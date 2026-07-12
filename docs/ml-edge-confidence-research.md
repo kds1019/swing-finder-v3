@@ -928,3 +928,55 @@ sentiment next rather than continuing to iterate on this feature set.
   despite a null held-out result; needs the isolation test above, not a conclusion either way.
 - **Next step:** FinBERT sentiment (a genuinely untested data category), not another pass
   over this feature set.
+
+## Update 2026-07-12 (later still): FinBERT news sentiment built, not yet validated
+
+Built the FinBERT sentiment feature per the plan above — a genuinely different data
+category (text/news-derived) from every feature tested so far (all price/volume/filing-
+derived).
+
+**Data source**: `agents/market_data_agent.py::fetch_news()` — Alpaca's News API
+(Benzinga-sourced, free, no separate credential beyond `ALPACA_API_KEY` already
+required), verified live in this session (`NewsClient`/`NewsRequest`/`News` model fields
+inspected directly against the installed `alpaca-py` package) before writing any parsing
+code, per this session's established discipline. Headline+summary only
+(`include_content=False`), never full article bodies.
+
+**Model**: `ProsusAI/finbert` (`core/sentiment.py`) via HuggingFace `transformers` — the
+standard, most widely-used open-source FinBERT checkpoint. `transformers`/`torch` are new
+dependencies (`requirements.txt`), lazy-imported inside `core.sentiment._get_pipeline()`
+so importing the module doesn't force the load for callers that never score anything.
+
+**Feature**: `news_sentiment_net_30d` in `core/ml_forecast.py::build_feature_table()` —
+rolling 30-day mean of each article's FinBERT `positive - negative` score. Shorter window
+than `insider_net_buy_pct_90d`/`analyst_revision_net_90d`'s 90 days (news sentiment decays
+faster than an ownership/rating change) and a rolling *mean* over unfilled (NaN, not
+zero-filled) days rather than those two features' rolling *sum* over a zero-filled series
+— a newsless day isn't a meaningful "neutral" observation to average in, unlike a
+no-trades day being a meaningful "$0" to sum.
+
+Threaded `sentiment_df` through `build_feature_table`/`prepare_features`/both
+forecasters/`ensemble_ml_forecast`, `research/walk_forward_backtest.py`, `research/
+triple_barrier_walk_forward.py`, and `pipeline.py` — same optional-parameter pattern as
+`grades_df` throughout. Scoring happens once per ticker before any walk-forward looping
+(FinBERT inference is comparatively expensive; every step for one ticker shares the same
+underlying news history), mirroring how insider/rating/grades are fetched once up front
+rather than re-fetched per step.
+
+**Tested — with one real limitation.** The feature-engineering and aggregation logic
+(rolling-mean-over-NaN-gaps, correct reindexing, `build_ticker_dataset`/`backtest_ticker`
+integration) is verified end-to-end with mocked/synthetic sentiment scores, and
+`fetch_news()`'s DataFrame-shaping is verified against a mocked Alpaca response matching
+the real `News`/`NewsSet` model's actual field names. **The FinBERT model itself was
+never actually run in this development session** — this sandbox's network policy blocks
+`huggingface.co` (confirmed via the proxy's own status endpoint, same class of restriction
+that also blocked `download.pytorch.org` for a CPU-only torch wheel), so model download
+and real inference are both untested outside of GitHub Actions. This is a materially
+bigger unknown than the "not yet run against real data" caveat on every other feature this
+session — those all reused already-proven scoring code (RF/GBM/LGBM) against a new
+column; this is new scoring code (FinBERT inference) that has literally never executed.
+**Next step**: trigger `ml_confidence_backtest.yml` and confirm the model downloads and
+produces sane-looking sentiment scores before reading anything into rank-IC/AUC — a
+pipeline bug here (e.g. a silently-empty or constant sentiment feature) could look
+identical to a genuine null result without careful inspection of the actual scored values,
+not just the downstream backtest metrics.
