@@ -30,6 +30,9 @@ from scipy import stats
 from research.analyze_confidence import confidence_bucket_report
 
 
+MIN_TRADES_FOR_TTEST = 2  # ddof=1 std and a one-sample t-test are both undefined below this
+
+
 def compute_expectancy(df: pd.DataFrame) -> dict:
     """Per-trade R-multiple: +rr_ratio if target was hit first, -1 if stop was hit first
     (by construction, since resolve_trade_plan_outcome resolves to the exact stop/target
@@ -37,6 +40,14 @@ def compute_expectancy(df: pd.DataFrame) -> dict:
     standard trading sense — positive means the average trade makes money net of losers,
     independent of position sizing."""
     r_multiple = np.where(df["direction_correct"], df["rr_ratio"], -1.0)
+    if len(r_multiple) < MIN_TRADES_FOR_TTEST:
+        return {
+            "n": len(r_multiple),
+            "win_rate_pct": round(float(df["direction_correct"].mean()) * 100, 1) if len(df) else None,
+            "mean_rr_ratio": None, "mean_r_multiple": None, "std_r_multiple": None,
+            "t_stat": None, "p_value": None,
+            "note": f"fewer than {MIN_TRADES_FOR_TTEST} trades — t-test undefined",
+        }
     mean_r, std_r = float(np.mean(r_multiple)), float(np.std(r_multiple, ddof=1))
     t_stat, p_value = stats.ttest_1samp(r_multiple, popmean=0.0)
     return {

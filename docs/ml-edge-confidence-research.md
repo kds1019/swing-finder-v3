@@ -1057,7 +1057,7 @@ near-miss, matching the live pipeline's own behavior (`MarketDataAgent.scan_univ
 computes a trade plan after a ticker already has a non-None SmartScore). No FMP or Alpaca
 News dependency at all — this system is 100% price/volume-derived.
 
-**`research/analyze_rules_based.py`** asks two new questions no prior analysis script
+**`research/analyze_rules_based.py`** asks two new questions that no prior analysis script
 this session asked:
 1. **Expectancy** — is the realized average R-multiple per trade (+`rr_ratio` on a win,
    -1 on a loss, exact by construction since `resolve_trade_plan_outcome` resolves to the

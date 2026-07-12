@@ -142,7 +142,11 @@ jobs:
       - name: Analyze rules-based results
         run: |
           set -eo pipefail
-          python -m research.analyze_rules_based | tee research/rules_based_summary.txt
+          if [ -s research/rules_based_results.csv ]; then
+            python -m research.analyze_rules_based | tee research/rules_based_summary.txt
+          else
+            echo "Skipping rules-based analysis: research/rules_based_results.csv is missing or empty"
+          fi
 
       - name: Commit results
         if: always()
