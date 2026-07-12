@@ -33,6 +33,7 @@ def build_feature_table(
     spy_df: Optional[pd.DataFrame] = None,
     insider_df: Optional[pd.DataFrame] = None,
     rating_df: Optional[pd.DataFrame] = None,
+    grades_df: Optional[pd.DataFrame] = None,
     lookback: int = 1500,
 ) -> tuple:
     """
@@ -59,13 +60,17 @@ def build_feature_table(
     rather than by calling those row-at-a-time functions in a loop, which would
     be prohibitively slow across a 1500-row training set.
 
-    insider_df / rating_df, if provided, are agents.research_agent.ResearchAgent.
-    get_insider_trades() / get_rating_history() output — a fundamentally different
-    information category from everything else here (all derived from this ticker's
-    own price/volume one way or another). Both are safe to pass in un-truncated
-    (full available history, including dates after this call's as-of date) because
-    every value gets reindexed onto `features.index`, which itself never extends
-    past `df`'s last row — a caller building a walk-forward/backtest dataset by
+    insider_df / rating_df / grades_df, if provided, are agents.research_agent.
+    ResearchAgent.get_insider_trades() / get_rating_history() / get_grade_history()
+    output — a fundamentally different information category from everything else here
+    (all derived from this ticker's own price/volume one way or another). grades_df is
+    in turn a different category from rating_df: rating_df is FMP's own daily
+    fundamentals-ratio composite score, while grades_df is real, dated sell-side analyst
+    upgrade/downgrade events — the actual "estimate revision momentum" signal, not
+    another transform of the same quant score. All three are safe to pass in
+    un-truncated (full available history, including dates after this call's as-of date)
+    because every value gets reindexed onto `features.index`, which itself never
+    extends past `df`'s last row — a caller building a walk-forward/backtest dataset by
     truncating `df` to each as-of date automatically gets a causally correct,
     lookahead-free result here without needing to separately truncate these too.
 
@@ -197,6 +202,25 @@ def build_feature_table(
             features["rating_score_change_20d"] = features["rating_score"].diff(20).fillna(0)
         # else: skip rating features silently — models train fine without them
 
+    # --- Analyst revision momentum (FMP grades — real, dated sell-side upgrade/downgrade
+    # events, not another cut of rating_df's own daily quant score). Net signed count
+    # (upgrades minus downgrades) over a trailing 90-day window: relies only on FMP's own
+    # action classification, not a hand-built ordinal mapping across grading firms' own
+    # scales ("Outperform" vs "Buy" vs "Overweight" aren't directly comparable, but FMP has
+    # already resolved each firm's previousGrade->newGrade pair into upgrade/downgrade/
+    # maintain/initiate for us). "maintain"/"initiate" carry no revision direction, so
+    # they're excluded rather than counted as zero-weight noise. ---
+    if grades_df is not None and not grades_df.empty:
+        actionable = grades_df[grades_df["action"].isin(["upgrade", "downgrade"])]
+        if not actionable.empty:
+            signed = actionable["action"].map({"upgrade": 1, "downgrade": -1})
+            daily_signed = signed.groupby(actionable["date"].dt.normalize()).sum()
+
+            full_range = pd.date_range(min(daily_signed.index.min(), features.index.min()), features.index.max(), freq="D")
+            rolling_revision_90d = daily_signed.reindex(full_range, fill_value=0.0).rolling(90, min_periods=1).sum()
+
+            features["analyst_revision_net_90d"] = rolling_revision_90d.reindex(features.index, method="ffill").fillna(0.0)
+
     # --- Merge VIX (already correctly-dated — no re-derivation from a maybe-broken index) ---
     if vix_df is not None and not vix_df.empty:
         vix_series = vix_df.set_index(pd.to_datetime(vix_df["Date"]).dt.normalize())["vix"]
@@ -241,6 +265,7 @@ def prepare_features(
     spy_df: Optional[pd.DataFrame] = None,
     insider_df: Optional[pd.DataFrame] = None,
     rating_df: Optional[pd.DataFrame] = None,
+    grades_df: Optional[pd.DataFrame] = None,
     lookback: int = 1500,
     days_ahead: int = 5,
 ) -> tuple:
@@ -251,8 +276,8 @@ def prepare_features(
     engineering to build_feature_table() (shared with research/triple_barrier_walk_forward.py)
     and adds this module's specific label: forward return `days_ahead` bars out.
 
-    See build_feature_table() for the df/vix_df/spy_df/insider_df/rating_df argument
-    contract — unchanged here.
+    See build_feature_table() for the df/vix_df/spy_df/insider_df/rating_df/grades_df
+    argument contract — unchanged here.
 
     Returns (X, y, feature_names, y_stats, dates, current_features) — dates is
     the as-of date for each row in X/y, aligned 1:1 (needed to pool multiple
@@ -262,7 +287,7 @@ def prepare_features(
     construction below for why this must NOT be X[-1]. Returns a 6-tuple of
     Nones if there isn't enough data.
     """
-    features, dates_aligned = build_feature_table(df, vix_df, spy_df, insider_df, rating_df, lookback)
+    features, dates_aligned = build_feature_table(df, vix_df, spy_df, insider_df, rating_df, grades_df, lookback)
     if features is None or len(features) < max(20, days_ahead + 1):
         return None, None, None, None, None, None
 
@@ -307,6 +332,7 @@ def random_forest_forecast(
     spy_df: Optional[pd.DataFrame] = None,
     insider_df: Optional[pd.DataFrame] = None,
     rating_df: Optional[pd.DataFrame] = None,
+    grades_df: Optional[pd.DataFrame] = None,
     days_ahead: int = 5,
 ) -> Dict[str, Any]:
     try:
@@ -314,7 +340,7 @@ def random_forest_forecast(
 
         X, y, feature_names, y_stats, _dates, current_features = prepare_features(
             df, vix_df=vix_df, spy_df=spy_df, insider_df=insider_df, rating_df=rating_df,
-            lookback=1500, days_ahead=days_ahead,
+            grades_df=grades_df, lookback=1500, days_ahead=days_ahead,
         )
 
         if X is None or len(X) < 20:
@@ -381,6 +407,7 @@ def gradient_boosting_forecast(
     spy_df: Optional[pd.DataFrame] = None,
     insider_df: Optional[pd.DataFrame] = None,
     rating_df: Optional[pd.DataFrame] = None,
+    grades_df: Optional[pd.DataFrame] = None,
     days_ahead: int = 5,
 ) -> Dict[str, Any]:
     try:
@@ -389,7 +416,7 @@ def gradient_boosting_forecast(
 
         X, y, feature_names, y_stats, _dates, current_features = prepare_features(
             df, vix_df=vix_df, spy_df=spy_df, insider_df=insider_df, rating_df=rating_df,
-            lookback=1500, days_ahead=days_ahead,
+            grades_df=grades_df, lookback=1500, days_ahead=days_ahead,
         )
 
         if X is None or len(X) < 20:
@@ -458,14 +485,17 @@ def ensemble_ml_forecast(
     spy_df: Optional[pd.DataFrame] = None,
     insider_df: Optional[pd.DataFrame] = None,
     rating_df: Optional[pd.DataFrame] = None,
+    grades_df: Optional[pd.DataFrame] = None,
     days_ahead: int = 5,
 ) -> Dict[str, Any]:
     """Combine Random Forest and Gradient Boosting via an R²-weighted blend."""
     rf_result = random_forest_forecast(
-        df, vix_df=vix_df, spy_df=spy_df, insider_df=insider_df, rating_df=rating_df, days_ahead=days_ahead
+        df, vix_df=vix_df, spy_df=spy_df, insider_df=insider_df, rating_df=rating_df,
+        grades_df=grades_df, days_ahead=days_ahead
     )
     gb_result = gradient_boosting_forecast(
-        df, vix_df=vix_df, spy_df=spy_df, insider_df=insider_df, rating_df=rating_df, days_ahead=days_ahead
+        df, vix_df=vix_df, spy_df=spy_df, insider_df=insider_df, rating_df=rating_df,
+        grades_df=grades_df, days_ahead=days_ahead
     )
 
     if not rf_result["success"] or not gb_result["success"]:

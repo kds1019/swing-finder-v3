@@ -74,6 +74,7 @@ def build_ticker_dataset(
     spy_df: pd.DataFrame | None,
     insider_df: pd.DataFrame | None,
     rating_df: pd.DataFrame | None,
+    grades_df: pd.DataFrame | None,
     settings,
     max_hold_days: int,
     step_days: int,
@@ -93,7 +94,8 @@ def build_ticker_dataset(
     level touched within max_hold_days) are dropped: ambiguous, not a clean binary label.
     """
     features, dates_aligned = build_feature_table(
-        df, vix_df=None, spy_df=spy_df, insider_df=insider_df, rating_df=rating_df, lookback=1500,
+        df, vix_df=None, spy_df=spy_df, insider_df=insider_df, rating_df=rating_df,
+        grades_df=grades_df, lookback=1500,
     )
     if features is None:
         return pd.DataFrame(), []
@@ -167,19 +169,21 @@ def run(
 
     insider_by_ticker: dict[str, pd.DataFrame] = {}
     rating_by_ticker: dict[str, pd.DataFrame] = {}
+    grades_by_ticker: dict[str, pd.DataFrame] = {}
     if settings.fmp_api_key:
         research_agent = ResearchAgent(settings)
         for ticker in tickers:
             try:
                 insider_by_ticker[ticker] = research_agent.get_insider_trades(ticker)
                 rating_by_ticker[ticker] = research_agent.get_rating_history(ticker)
+                grades_by_ticker[ticker] = research_agent.get_grade_history(ticker)
             except Exception as e:
-                print(f"[triple_barrier] {ticker}: FMP insider/rating fetch failed ({e}), "
+                print(f"[triple_barrier] {ticker}: FMP insider/rating/grades fetch failed ({e}), "
                       f"skipping those features for this ticker", file=sys.stderr)
-        print(f"[triple_barrier] fetched insider/rating data for "
+        print(f"[triple_barrier] fetched insider/rating/grades data for "
               f"{sum(1 for t in tickers if t in insider_by_ticker)}/{len(tickers)} tickers", file=sys.stderr)
     else:
-        print("[triple_barrier] FMP_API_KEY not set — insider/rating features will be skipped", file=sys.stderr)
+        print("[triple_barrier] FMP_API_KEY not set — insider/rating/grades features will be skipped", file=sys.stderr)
 
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -195,7 +199,7 @@ def run(
         df = compute_indicators(df.copy())
         dataset, feature_names = build_ticker_dataset(
             ticker, df, spy_df, insider_by_ticker.get(ticker), rating_by_ticker.get(ticker),
-            settings, max_hold_days, step_days,
+            grades_by_ticker.get(ticker), settings, max_hold_days, step_days,
         )
         if len(dataset) < MIN_LABELED_ROWS:
             print(f"[triple_barrier] ({i}/{len(tickers)}) {ticker}: only {len(dataset)} labeled "

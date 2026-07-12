@@ -727,3 +727,57 @@ plan's own caution, even a promising AUC would have only justified ranking/filte
 until the bucket report showed real calibration (a 70%-`p_target` bucket actually
 resolving to target-hit-first about 70% of the time) — moot here since the bucket report
 came back flat rather than calibrated.
+
+## Update 2026-07-11 (later): analyst revision momentum feature added, not yet validated
+
+Repo research (`stefan-jansen/machine-learning-for-trading`, `hudson-and-thames/mlfinlab`,
+`dreyhsu/Meta_Labeling`) didn't turn up a usable off-the-shelf tool, but it did sharpen
+which untried data category to try next: **analyst estimate revision momentum**, not
+another cut of data already tested. Two things worth recording from that research:
+
+- Insider trading (Form 4) is now *doubly* disconfirmed — our own FMP-based test found it
+  "a wash" earlier in this doc, and an independent public analysis
+  (`jvgalvin/Insider-Trading`) reached the same conclusion from scratch. Deprioritized.
+- What `rating_score`/`rating_score_change_20d` already test is FMP's own daily
+  fundamentals-ratio composite score (`historical-ratings`'s `overallScore`) — not real
+  sell-side analyst revisions. The actual academically-supported "revision momentum"
+  signal is about analyst *rating changes* over time, a genuinely different FMP endpoint
+  we hadn't wired up.
+
+**Built**: `ResearchAgent.get_grade_history()` (`agents/research_agent.py`) calls FMP's
+`grades` endpoint — verified live before writing any parsing code (established discipline
+after the earlier wrong-endpoint-path bug) — which returns real, dated, individual
+sell-side analyst rating-change events (`date`, `gradingCompany`, `previousGrade`,
+`newGrade`, `action` ∈ {upgrade, downgrade, maintain, initiate}). Confirmed the `limit`
+query param isn't honored server-side (1,771 rows came back for a 10-row-limit AAPL
+request spanning back to 2012) — handled with a client-side `.tail(limit)`.
+
+New feature in `core/ml_forecast.py::build_feature_table()`: `analyst_revision_net_90d` —
+net count of upgrade-minus-downgrade actions in a trailing 90-day window, using FMP's own
+upgrade/downgrade classification directly rather than building a hand-rolled ordinal
+mapping across grading firms' incompatible letter-grade scales ("Outperform" vs "Buy" vs
+"Overweight" isn't directly comparable, but FMP has already resolved each firm's own
+previousGrade→newGrade pair into a direction for us). "maintain"/"initiate" actions carry
+no revision direction and are excluded rather than treated as zero-signal noise.
+
+Threaded `grades_df` through `prepare_features()`, both regression forecasters,
+`ensemble_ml_forecast()`, `research/walk_forward_backtest.py`,
+`research/triple_barrier_walk_forward.py`, and `pipeline.py` — same optional-parameter
+pattern as `insider_df`/`rating_df` throughout, degrades to "feature skipped" if
+`FMP_API_KEY` is unset, same as everything else in this family.
+
+**Tested against synthetic data first**: the feature engineering (net-signed rolling
+window, correctly excluding maintain/initiate, correctly reindexed onto the daily feature
+table) and both downstream paths (`research/walk_forward_backtest.py`'s per-step
+retraining, `research/triple_barrier_walk_forward.py`'s labeled-dataset construction) run
+cleanly end-to-end with fabricated grade events. Also confirmed `ensemble_ml_forecast`
+degrades gracefully with `grades_df=None` and with an empty DataFrame.
+
+**Not yet run against real data.** Next step: trigger `ml_confidence_backtest.yml` (no
+workflow changes needed — it already calls these scripts, which now fetch and use grades
+data automatically whenever `FMP_API_KEY` is set) and check whether rank-IC / AUC move at
+all, and whether `analyst_revision_net_90d` shows up in the RF feature-importance ranking
+these analysis scripts already print. Given this session's track record (two independent
+null results so far), the honest expectation going in is that this also comes back null —
+but it's a genuinely different, previously-untested data category, unlike most of the
+variations tried before the triple-barrier reframe.

@@ -126,6 +126,34 @@ class ResearchAgent:
         df["filingDate"] = pd.to_datetime(df["filingDate"])
         return df[cols].sort_values("filingDate").reset_index(drop=True)
 
+    def get_grade_history(self, ticker: str, limit: int = 1000) -> pd.DataFrame:
+        """Individual sell-side analyst rating-change events (date/gradingCompany/
+        previousGrade/newGrade/action, action in {"upgrade","downgrade","maintain",
+        "initiate"} — FMP's own classification, not something this code has to infer from
+        the free-text previousGrade/newGrade pair, which vary by grading firm's own scale
+        ("Outperform" vs "Buy" vs "Overweight" etc. all mean roughly the same thing but
+        aren't directly comparable across firms). Feeds core.ml_forecast.prepare_features'
+        grades_df parameter, which only uses the action field for exactly that reason —
+        this is genuinely different from get_rating_history()'s FMP-internal daily quant
+        score (a fundamentals-ratio composite): this is real, dated sell-side analyst
+        revision events, the actual "estimate revision momentum" data category flagged in
+        docs/ml-edge-confidence-research.md as untested, not another transform of it.
+        Verified live against the real /stable/grades endpoint before writing this — it
+        does not honor `limit` server-side (returns full history regardless), so this
+        truncates to the most recent `limit` rows client-side."""
+        try:
+            data = self._get("grades", params={"symbol": ticker})
+        except requests.HTTPError as e:
+            print(f"[research_agent] get_grade_history({ticker}) failed: {e}", file=sys.stderr)
+            data = []
+        rows = data if isinstance(data, list) else []
+        cols = ["date", "gradingCompany", "previousGrade", "newGrade", "action"]
+        if not rows:
+            return pd.DataFrame(columns=cols)
+        df = pd.DataFrame(rows)[cols]
+        df["date"] = pd.to_datetime(df["date"])
+        return df.sort_values("date").tail(limit).reset_index(drop=True)
+
     def get_rating_history(self, ticker: str, limit: int = 1000) -> pd.DataFrame:
         """Daily FMP quant rating score (overallScore, from historical-ratings — a
         ratio-based daily score, distinct from the monthly analyst buy/hold/sell
