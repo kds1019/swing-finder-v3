@@ -781,3 +781,54 @@ these analysis scripts already print. Given this session's track record (two ind
 null results so far), the honest expectation going in is that this also comes back null —
 but it's a genuinely different, previously-untested data category, unlike most of the
 variations tried before the triple-barrier reframe.
+
+## Update 2026-07-12: analyst revision momentum — also null, third result in a row
+
+Ran `ml_confidence_backtest.yml` against real data with the new `analyst_revision_net_90d`
+feature live (60-ticker sample, 760-day lookback, same seed as every prior run).
+
+**Regression ensemble**: rank-IC -0.0065, p=0.75 (previously -0.009, p=0.66) — essentially
+unchanged from the pre-feature run, within noise of each other, not a meaningful shift.
+
+**Triple-barrier classifier**: AUC 0.4937, n=1,715 (previously 0.4876) — still
+indistinguishable from a coin flip. Point-biserial correlation 0.0005, p=0.9849
+(previously 0.0026, p=0.9151) — if anything weaker. The `p_target` bucket report is still
+flat/non-monotonic (8.7%, 13.4%, 11.4%, 8.7%, 10.2% win rate across quintiles).
+
+**Caveat — statistical framing.** "No detectable edge" is not the same claim as "proven no
+edge." All three p-values above are large (0.66-0.98) — the tests fail to reject "no
+relationship," which is a much weaker statement than a small p-value confirming the
+absence of one. A true weak signal, diluted or masked by the rest of the feature set,
+would produce exactly this same result. What these three runs do rule out is a signal
+*strong enough for this model/feature-set combination to surface* — not the underlying
+existence of any signal in analyst revisions, insider trading, or the technical feature
+set more broadly.
+
+**Caveat — feature-level attribution is unavailable, not just uninspected.**
+`research/walk_forward_backtest.py::backtest_ticker()` retrains a fresh RF/GBM at every
+walk-forward step and only writes `RESULT_COLUMNS` (predictions/confidence) per step to
+`walk_forward_results.csv` — it never captures `rf_model.feature_importances_` anywhere,
+so there is no record to go back and inspect for this run or any prior one. Concrete next
+step, if this line of work continues: add a `--dump-feature-importances <path>` mode to
+`research/pooled_model_experiment.py` (which already computes and prints top-10 RF
+importances once per ticker, at `research/pooled_model_experiment.py:159-162`) to write
+per-ticker importances to CSV, and check where `analyst_revision_net_90d` ranks. That
+isolates the attribution question far more cheaply than instrumenting the walk-forward
+script's per-step retrain loop.
+
+**Conclusion.** Three independent framings — return regression, triple-barrier
+classification, and now both of those with a genuinely new sell-side analyst-revision
+data category added — all show no *detectable* edge on this universe, in the weaker
+statistical sense above. Practical takeaways:
+
+- The "just add a new data source" pattern isn't a reliable path forward on its own,
+  without also revisiting whether this model class (shallow, heavily-regularized RF/GBM
+  over ~30 mixed features) can even detect a single weak signal buried among that many
+  others.
+- Recommend treating this as this session's stopping point for reflexively adding more
+  data sources to the same model shape.
+- If this line of work continues, do it via either (a) the feature-importance-isolated
+  single-feature test described above, run *before* folding any new signal into the full
+  feature set, or (b) stepping back to the conclusion from the "algo trading and financial
+  ML" discussion earlier in this doc — this pipeline's value is more likely the
+  rules-based screening and risk management than a still-undiscovered ML edge.
