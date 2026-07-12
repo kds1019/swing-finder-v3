@@ -1,0 +1,21 @@
+[analyze_momentum] 2250 scored dates loaded from research/momentum_results.csv
+
+=== Rank-IC: trailing 12-1 momentum vs. forward return ===
+  n: 2250
+  rank_ic: -0.0224
+  p_value: 0.289
+
+  Interpretation: near-zero or non-significant rank-IC means trailing momentum doesn't track forward return at all in this sample. Values above ~0.03-0.05 are considered meaningful in equity return prediction; treat the sign and p-value as the first-order read, magnitude as secondary.
+
+=== Momentum bucket report (quintiles) ===
+                       bucket   n  momentum_return_pct_min  momentum_return_pct_max  win_rate_pct  mean_actual_return_pct  median_actual_return_pct
+(-77.93100000000001, -21.466] 450                   -77.93                   -21.49          51.1                   5.287                     0.700
+            (-21.466, -1.304] 450                   -21.46                    -1.31          53.6                   2.295                     0.775
+             (-1.304, 13.464] 450                    -1.30                    13.46          51.6                   0.449                     0.175
+             (13.464, 41.634] 450                    13.47                    41.59          56.4                   2.462                     1.310
+            (41.634, 1682.13] 450                    41.81                  1682.13          49.8                   3.792                    -0.115
+
+  Interpretation: if win_rate_pct and mean_actual_return_pct climb roughly monotonically from the lowest to the highest momentum bucket, momentum is doing its job — a stock with stronger trailing performance is genuinely more likely to keep outperforming. If flat or non-monotonic (or inverted, consistent with mean-reversion instead of momentum), this factor isn't showing the expected edge in this sample either.
+
+=== Overall directional accuracy ===
+  n=2250  directional_accuracy_pct=52.5

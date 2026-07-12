@@ -2,16 +2,16 @@
 
 === AUC and point-biserial correlation (p_target vs. hit-target-first) ===
   n=1715
-  auc=0.4918  (0.5 = no better than chance, 1.0 = perfect ranking)
-  point_biserial_r=-0.0364 p=0.1316
+  auc=0.4897  (0.5 = no better than chance, 1.0 = perfect ranking)
+  point_biserial_r=0.0221 p=0.3598
 
 === p_target bucket report (quintiles) — calibration check ===
           bucket   n  p_target_min  p_target_max  win_rate_pct  mean_actual_return_pct  median_actual_return_pct
-(-0.001, 0.0001] 366        0.0000        0.0001           9.6                  -0.808                    -2.510
-(0.0001, 0.0012] 328        0.0002        0.0012          11.9                  -0.576                    -2.805
-(0.0012, 0.0068] 339        0.0013        0.0068          10.3                  -2.114                    -2.980
-(0.0068, 0.0452] 339        0.0069        0.0449           9.1                  -1.933                    -2.990
- (0.0452, 0.956] 343        0.0462        0.9560          10.8                  -1.526                    -3.110
+(-0.001, 0.0001] 382        0.0000        0.0001           9.2                  -1.052                    -2.595
+ (0.0001, 0.001] 316        0.0002        0.0010          12.0                  -0.809                    -2.725
+ (0.001, 0.0058] 333        0.0011        0.0058          12.9                  -1.021                    -2.890
+(0.0058, 0.0485] 341        0.0059        0.0484           7.3                  -2.543                    -3.180
+ (0.0485, 0.961] 343        0.0487        0.9606          10.5                  -1.503                    -2.900
 
   Interpretation: win_rate_pct here IS P(target hit first) realized in each bucket — if it climbs roughly in step with the bucket's own p_target range (e.g. the ~70-80% p_target bucket actually hits target ~70-80% of the time), the classifier is usably calibrated, the bar docs/ml-edge-confidence-research.md sets before this could inform expected-value ranking or position sizing. If it's flat or non-monotonic, this reframe hasn't found a real edge either, same conclusion as the regression ensemble after the stale-features fix — treat p_target as unproven until this check passes.
 
