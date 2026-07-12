@@ -31,6 +31,19 @@ Usage:
     python -m research.rules_based_walk_forward --n-tickers 60 --lookback-days 760 \
         --step-days 3 --max-hold-days 30 --output research/rules_based_results.csv
 
+--target-mode flat isolation test (added after the 2026-07-12 real-data run found
+significant negative expectancy at 10.55:1 average R:R and 5.4% win rate — a signature of
+targets set too far for MAX_HOLD_DAYS, not necessarily bad entries): overrides
+compute_trade_plan()'s Fibonacci-extension target with a flat settings.min_risk_reward
+multiple of the *same* stop/risk compute_trade_plan already computed. Entry and stop are
+completely unchanged — only the target-distance variable is isolated, to answer whether
+SmartScore's entry-timing has real value once the target isn't set unrealistically far.
+Not a change to core.trade_plan.compute_trade_plan() itself (production behavior is
+untouched) — this experimental override lives only in this research script.
+
+    python -m research.rules_based_walk_forward --target-mode flat \
+        --output research/rules_based_results_flat_target.csv
+
 Output CSV columns: as_of_date, ticker, smartscore, setup, near_miss, entry, stop, target,
 rr_ratio, weak_rr, direction_correct (True = target hit before stop, named to match
 research/analyze_confidence.py::confidence_bucket_report()'s expected column so that
@@ -59,9 +72,31 @@ RESULT_COLUMNS = [
     "rr_ratio", "weak_rr", "direction_correct", "actual_return_pct", "bars_to_resolution",
 ]
 
+TARGET_MODES = ("fibonacci", "flat")
+
+
+def apply_flat_target(plan: dict, settings) -> dict | None:
+    """Experimental override for the --target-mode flat isolation test: same entry/stop as
+    compute_trade_plan() (its swing-low/EMA-anchored stop logic isn't implicated in the
+    negative-expectancy finding — only the Fibonacci-extension target is), but the target
+    becomes a flat settings.min_risk_reward multiple of that same risk distance, not an
+    extension that can imply many multiples more. Returns None if risk is zero/invalid
+    (mirrors compute_trade_plan's own None-on-insufficient-data contract)."""
+    entry, stop = plan["entry"], plan["stop"]
+    risk = abs(entry - stop)
+    if risk <= 0:
+        return None
+    target = round(entry + settings.min_risk_reward * risk, 2)
+    return {
+        "entry": entry, "stop": stop, "target": target,
+        "rr_ratio": settings.min_risk_reward, "weak_rr": False,
+        "stop_distance_sanity_flag": plan["stop_distance_sanity_flag"], "fib_warning": "",
+    }
+
 
 def backtest_ticker_rules(
     ticker: str, df: pd.DataFrame, settings, max_hold_days: int, step_days: int,
+    target_mode: str = "fibonacci",
 ) -> list[dict]:
     """Walk df forward step_days at a time; at each point, score and plan the trade using
     only data up to that bar (df.iloc[:idx+1] — indicators computed causally over the full
@@ -71,6 +106,11 @@ def backtest_ticker_rules(
     compute_smartscore finds no setup or near-miss — the live pipeline never computes a
     trade plan for those either (core.market_data_agent.MarketDataAgent.scan_universe only
     calls compute_trade_plan after a ticker already has a non-None smartscore)."""
+    if target_mode not in TARGET_MODES:
+        # argparse's choices=TARGET_MODES already rules this out for CLI use; this guards
+        # programmatic/library-style callers (e.g. a typo'd "Flat") from silently falling
+        # through to fibonacci behavior and invalidating a mode comparison without error.
+        raise ValueError(f"target_mode must be one of {TARGET_MODES}, got {target_mode!r}")
     rows = []
     last_idx = len(df) - 1
     for idx in range(WARMUP_BARS, last_idx + 1, step_days):
@@ -82,6 +122,10 @@ def backtest_ticker_rules(
         plan = compute_trade_plan(df_upto, settings)
         if plan is None:
             continue
+        if target_mode == "flat":
+            plan = apply_flat_target(plan, settings)
+            if plan is None:
+                continue
 
         after = df.iloc[idx + 1: idx + 1 + max_hold_days].reset_index(drop=True)
         if len(after) < max_hold_days:
@@ -112,12 +156,15 @@ def backtest_ticker_rules(
     return rows
 
 
-def run(n_tickers: int, lookback_days: int, step_days: int, max_hold_days: int, seed: int, output: str) -> None:
+def run(
+    n_tickers: int, lookback_days: int, step_days: int, max_hold_days: int, seed: int,
+    output: str, target_mode: str = "fibonacci",
+) -> None:
     settings = load_settings()
     universe_df = load_universe(settings.universe_csv_path)
     tickers = select_sample_universe(universe_df, settings, n_tickers, seed)
     print(f"[rules_based] sampled {len(tickers)} tickers (same seed as walk_forward_backtest.py "
-          f"for apples-to-apples comparison)", file=sys.stderr)
+          f"for apples-to-apples comparison), target_mode={target_mode}", file=sys.stderr)
 
     agent = MarketDataAgent(settings)
     bars_by_ticker = agent.fetch_universe_bars(tickers, lookback_days=lookback_days)
@@ -135,7 +182,7 @@ def run(n_tickers: int, lookback_days: int, step_days: int, max_hold_days: int, 
             continue
 
         df = compute_indicators(df.copy())
-        rows = backtest_ticker_rules(ticker, df, settings, max_hold_days, step_days)
+        rows = backtest_ticker_rules(ticker, df, settings, max_hold_days, step_days, target_mode)
         print(f"[rules_based] ({i}/{len(tickers)}) {ticker}: {len(rows)} scored trade plans", file=sys.stderr)
         total_rows += len(rows)
 
@@ -156,8 +203,10 @@ def main() -> None:
     parser.add_argument("--max-hold-days", type=int, default=MAX_HOLD_DAYS)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output", type=str, default="research/rules_based_results.csv")
+    parser.add_argument("--target-mode", type=str, choices=TARGET_MODES, default="fibonacci")
     args = parser.parse_args()
-    run(args.n_tickers, args.lookback_days, args.step_days, args.max_hold_days, args.seed, args.output)
+    run(args.n_tickers, args.lookback_days, args.step_days, args.max_hold_days, args.seed,
+        args.output, args.target_mode)
 
 
 if __name__ == "__main__":

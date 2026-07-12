@@ -148,6 +148,34 @@ jobs:
             echo "Skipping rules-based analysis: research/rules_based_results.csv is missing or empty"
           fi
 
+      # Isolation test from the 2026-07-12 negative-expectancy finding: same entries/stops
+      # as the step above, but a flat settings.min_risk_reward target instead of the
+      # Fibonacci extension implicated as the likely cause (10.55:1 average R:R, 5.4% win
+      # rate). Answers whether SmartScore's entry-timing has value once the target isn't
+      # set unrealistically far for MAX_HOLD_DAYS.
+      - name: Run rules-based walk-forward (flat target isolation test)
+        if: always()
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: |
+          set -eo pipefail
+          rm -f research/rules_based_results_flat_target.csv
+          python -m research.rules_based_walk_forward --target-mode flat \
+            --n-tickers "${{ inputs.n_tickers }}" \
+            --lookback-days "${{ inputs.lookback_days }}" \
+            --output research/rules_based_results_flat_target.csv
+
+      - name: Analyze rules-based results (flat target isolation test)
+        run: |
+          set -eo pipefail
+          if [ -s research/rules_based_results_flat_target.csv ]; then
+            python -m research.analyze_rules_based --input research/rules_based_results_flat_target.csv \
+              | tee research/rules_based_summary_flat_target.txt
+          else
+            echo "Skipping flat-target analysis: research/rules_based_results_flat_target.csv is missing or empty"
+          fi
+
       - name: Commit results
         if: always()
         run: |
@@ -161,7 +189,8 @@ jobs:
                    research/pooled_model_summary.txt research/pooled_feature_importances.csv \
                    research/triple_barrier_results.csv research/triple_barrier_summary.txt \
                    research/triple_barrier_feature_importances.csv \
-                   research/rules_based_results.csv research/rules_based_summary.txt; do
+                   research/rules_based_results.csv research/rules_based_summary.txt \
+                   research/rules_based_results_flat_target.csv research/rules_based_summary_flat_target.txt; do
             [ -f "$f" ] && git add "$f"
           done
           git diff --cached --quiet && echo "No changes to commit" || git commit -m "ML edge confidence backtest: $(date -u +%Y-%m-%d\ %H:%M)Z"
