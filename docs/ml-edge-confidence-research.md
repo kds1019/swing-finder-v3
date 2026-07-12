@@ -1235,3 +1235,54 @@ look at whether `classify_setup()`'s Breakout/Pullback thresholds and SmartScore
 weights (`SETUP_THRESHOLDS`, the setup_strength/trend/volume/base/level/fib bonuses in
 `core/smartscore.py::compute_smartscore`) are actually correlated with forward returns,
 which no test this session has directly checked before now.
+
+## Update 2026-07-12 (target-distance rework, round 2): volatility-scaled target built, not yet run
+
+Picked up mechanism #1 above first (target-distance model). Both the Fibonacci extension
+and the flat 3:1 floor share a blind spot: neither target is set relative to how far this
+specific ticker actually tends to move in 30 days — Fibonacci extrapolates a recent swing
+by a fixed multiple, flat just multiplies whatever the stop distance happens to be.
+Neither reflects the ticker's own realized volatility over the actual hold window.
+
+**`research/rules_based_walk_forward.py --target-mode volatility`** (`apply_volatility_target()`):
+same entry/stop as `compute_trade_plan()` — only the target changes. Computes this
+ticker's trailing daily-return standard deviation over `VOL_LOOKBACK_DAYS=60` bars,
+projects it to the actual hold window via random-walk `sqrt(MAX_HOLD_DAYS)` scaling
+(expected dispersion grows with the square root of time under a driftless random walk),
+and sets the target at `VOL_TARGET_K=1.0` standard deviations of that projected move.
+`rr_ratio` is intentionally left unfloored (unlike `compute_trade_plan` and
+`apply_flat_target`) so it reports whatever R:R a volatility-scaled target naturally
+implies, rather than engineering it back to a fixed number.
+
+**Why k=1.0 specifically:** a pure random walk with zero directional edge would be
+expected to close above a 1-standard-deviation target roughly 16% of the time (one-tailed
+`P(Z>1)` on a symmetric distribution ≈ 15.9%). That gives this isolation test a cleaner
+edge check than an R:R-implied breakeven bar: if SmartScore's entries have real
+directional value, realized win rate should clear that ~16% random-walk baseline;
+if SmartScore is picking setups no better than chance, win rate should land near it.
+
+**Tested against synthetic data first** (20 seeds of synthetic daily-return-normal random
+walks, 900 bars each, drift +0.03%/day / volatility 2%/day, `step_days=3`,
+`max_hold_days=30` — same sanity-check pattern used for the flat-target build):
+`fibonacci` gave win rate 6.3% (n=847, mean R:R 9.50), `flat` gave win rate 24.2% (n=980,
+mean R:R 3.00, exactly by construction), `volatility` gave win rate **25.7%** (n=1051,
+mean R:R 4.48). The volatility mode's win rate landing meaningfully above the ~16%
+driftless-random-walk baseline is exactly what a small positive drift (0.03%/day × 30 ≈
+0.9%, small but nonzero next to ~11% of 30-day volatility) should produce — confirms the
+mechanism behaves as designed before spending real API credits on it. (Not a finding —
+synthetic data's "edge" here is a manufactured drift, not anything about SmartScore.)
+`research/analyze_rules_based.py` needed zero changes to work against the new mode's
+output — same reuse-via-matching-column-names design as the flat-target test.
+
+Wired into `ml_confidence_backtest.yml` as two more steps
+(`research/rules_based_results_volatility_target.csv` /
+`research/rules_based_summary_volatility_target.txt`), same `if [ -s ... ]` guard pattern
+as every other optional step in that workflow.
+
+**Not yet run against real data.** Next step: trigger the workflow and compare this
+mode's real win rate against the ~16% random-walk baseline (not the R:R-implied breakeven
+bar used for the other two modes, since this target's R:R varies per-trade rather than
+being fixed). If real win rate clears ~16% with a positive, significant mean R-multiple,
+that's the first real edge finding in this entire research effort. If it lands at or
+below ~16%, that's further evidence pointing at `core/smartscore.py`'s setup
+classification itself, which is the next thing queued up regardless of this result.

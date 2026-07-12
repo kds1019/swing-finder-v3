@@ -176,6 +176,36 @@ jobs:
             echo "Skipping flat-target analysis: research/rules_based_results_flat_target.csv is missing or empty"
           fi
 
+      # Second isolation test, added after the flat-target run confirmed target distance
+      # was a real driver (5.4%->16.2% win rate) but didn't reach breakeven on its own.
+      # Flat mode ties the target to the *stop* distance; this mode instead ties it to
+      # this ticker's own trailing volatility scaled to MAX_HOLD_DAYS, so the win rate can
+      # be compared directly against the ~16% a pure random walk would clear at
+      # VOL_TARGET_K=1.0 — a direct test of whether SmartScore's entries have real
+      # directional edge, independent of R:R-implied breakeven math.
+      - name: Run rules-based walk-forward (volatility target isolation test)
+        if: always()
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: |
+          set -eo pipefail
+          rm -f research/rules_based_results_volatility_target.csv
+          python -m research.rules_based_walk_forward --target-mode volatility \
+            --n-tickers "${{ inputs.n_tickers }}" \
+            --lookback-days "${{ inputs.lookback_days }}" \
+            --output research/rules_based_results_volatility_target.csv
+
+      - name: Analyze rules-based results (volatility target isolation test)
+        run: |
+          set -eo pipefail
+          if [ -s research/rules_based_results_volatility_target.csv ]; then
+            python -m research.analyze_rules_based --input research/rules_based_results_volatility_target.csv \
+              | tee research/rules_based_summary_volatility_target.txt
+          else
+            echo "Skipping volatility-target analysis: research/rules_based_results_volatility_target.csv is missing or empty"
+          fi
+
       - name: Commit results
         if: always()
         run: |
@@ -190,7 +220,8 @@ jobs:
                    research/triple_barrier_results.csv research/triple_barrier_summary.txt \
                    research/triple_barrier_feature_importances.csv \
                    research/rules_based_results.csv research/rules_based_summary.txt \
-                   research/rules_based_results_flat_target.csv research/rules_based_summary_flat_target.txt; do
+                   research/rules_based_results_flat_target.csv research/rules_based_summary_flat_target.txt \
+                   research/rules_based_results_volatility_target.csv research/rules_based_summary_volatility_target.txt; do
             [ -f "$f" ] && git add "$f"
           done
           git diff --cached --quiet && echo "No changes to commit" || git commit -m "ML edge confidence backtest: $(date -u +%Y-%m-%d\ %H:%M)Z"

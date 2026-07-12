@@ -44,6 +44,26 @@ untouched) — this experimental override lives only in this research script.
     python -m research.rules_based_walk_forward --target-mode flat \
         --output research/rules_based_results_flat_target.csv
 
+--target-mode volatility (added after the flat-target run confirmed target distance was
+a real driver but did not reach breakeven on its own): flat mode fixes the target as a
+multiple of the *stop* distance, which has nothing to do with how far this ticker
+actually tends to move in MAX_HOLD_DAYS days. This mode instead scales the target to the
+ticker's own trailing daily-return volatility over VOL_LOOKBACK_DAYS bars, projected to
+MAX_HOLD_DAYS via a random-walk sqrt(time) scaling — i.e. the target is set at
+VOL_TARGET_K standard deviations of this specific ticker's own realistically-achievable
+move over the exact hold window being tested, not an arbitrary R:R multiple or swing
+extension. At VOL_TARGET_K=1.0, a pure random walk with no directional edge would be
+expected to reach the target roughly 16% of the time (one-tailed P(Z>1) on a symmetric
+walk) — so comparing the realized win rate against that ~16% random-walk baseline (not
+against an R:R-implied breakeven bar) is a direct edge test: SmartScore's entries should
+clear the random-walk baseline if they have any real directional value, independent of
+whatever the stop happens to be. rr_ratio is left unfloored here (unlike compute_trade_plan
+and apply_flat_target) specifically so it reports what R:R a volatility-scaled target
+naturally implies, rather than engineering it back to a fixed value.
+
+    python -m research.rules_based_walk_forward --target-mode volatility \
+        --output research/rules_based_results_volatility_target.csv
+
 Output CSV columns: as_of_date, ticker, smartscore, setup, near_miss, entry, stop, target,
 rr_ratio, weak_rr, direction_correct (True = target hit before stop, named to match
 research/analyze_confidence.py::confidence_bucket_report()'s expected column so that
@@ -53,6 +73,7 @@ function can be reused unmodified), actual_return_pct, bars_to_resolution.
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from pathlib import Path
 
@@ -72,7 +93,12 @@ RESULT_COLUMNS = [
     "rr_ratio", "weak_rr", "direction_correct", "actual_return_pct", "bars_to_resolution",
 ]
 
-TARGET_MODES = ("fibonacci", "flat")
+TARGET_MODES = ("fibonacci", "flat", "volatility")
+
+VOL_LOOKBACK_DAYS = 60  # ~1 quarter of trailing daily returns to estimate volatility from
+VOL_TARGET_K = 1.0  # target set at 1 std dev of the sqrt(time)-scaled expected move;
+# a pure random walk with no edge clears this ~16% of the time (one-tailed P(Z>1)),
+# so realized win rate vs. that ~16% baseline is a direct test of directional edge.
 
 
 def apply_flat_target(plan: dict, settings) -> dict | None:
@@ -90,6 +116,36 @@ def apply_flat_target(plan: dict, settings) -> dict | None:
     return {
         "entry": entry, "stop": stop, "target": target,
         "rr_ratio": settings.min_risk_reward, "weak_rr": False,
+        "stop_distance_sanity_flag": plan["stop_distance_sanity_flag"], "fib_warning": "",
+    }
+
+
+def apply_volatility_target(df_upto: pd.DataFrame, plan: dict, settings, max_hold_days: int) -> dict | None:
+    """Experimental override for the --target-mode volatility isolation test: same
+    entry/stop as compute_trade_plan(), but the target is scaled to this ticker's own
+    trailing daily-return volatility projected to max_hold_days (random-walk sqrt(time)
+    scaling), not to the stop distance (apply_flat_target) or a swing-based extension
+    (compute_trade_plan's default). Returns None if there's insufficient trailing history
+    or the ticker's volatility is zero/undefined — both mirror compute_trade_plan's own
+    None-on-insufficient-data contract."""
+    entry, stop = plan["entry"], plan["stop"]
+    risk = abs(entry - stop)
+    if risk <= 0:
+        return None
+    daily_returns = df_upto["Close"].pct_change().tail(VOL_LOOKBACK_DAYS).dropna()
+    if len(daily_returns) < VOL_LOOKBACK_DAYS // 2:
+        return None
+    daily_vol = float(daily_returns.std())
+    if not daily_vol or daily_vol <= 0:
+        return None
+    expected_move_pct = daily_vol * math.sqrt(max_hold_days)
+    target = round(entry * (1 + VOL_TARGET_K * expected_move_pct), 2)
+    if target <= entry:
+        return None
+    rr_ratio = round((target - entry) / risk, 2)
+    return {
+        "entry": entry, "stop": stop, "target": target,
+        "rr_ratio": rr_ratio, "weak_rr": rr_ratio < settings.min_risk_reward,
         "stop_distance_sanity_flag": plan["stop_distance_sanity_flag"], "fib_warning": "",
     }
 
@@ -124,6 +180,10 @@ def backtest_ticker_rules(
             continue
         if target_mode == "flat":
             plan = apply_flat_target(plan, settings)
+            if plan is None:
+                continue
+        elif target_mode == "volatility":
+            plan = apply_volatility_target(df_upto, plan, settings, max_hold_days)
             if plan is None:
                 continue
 
