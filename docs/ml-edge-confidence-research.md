@@ -1174,3 +1174,57 @@ and/or SmartScore's bucket ranking shows real separation once win rates aren't u
 crushed by an unreachable target, that isolates the Fibonacci extension as the specific
 fixable problem. If flat-target expectancy is still significantly negative, that would
 point back at the entry/setup-detection logic itself, not just target distance.
+
+## Update 2026-07-12 (real-data result): flat target helps a lot, but doesn't fix it — both mechanisms are real
+
+Ran the isolation test for real (GH Actions run 29199835039, same `n_tickers=60,
+lookback_days=760, step_days=10` sampling as every prior run this session). Result,
+compared directly against the Fibonacci-target run documented above:
+
+| | Fibonacci target | Flat (3:1) target |
+|---|---|---|
+| n | 429 | 462 |
+| win rate | 5.4% | **16.2%** |
+| mean R:R | 10.55 | 3.0 |
+| breakeven win rate (`1/(1+RR)`) | 8.7% | 25.0% |
+| mean R-multiple | -0.6757 | **-0.3506** |
+| t-stat / p-value | -9.525 / 0.0 | -5.104 / 0.0 |
+
+The flat target roughly **tripled the win rate** (5.4%→16.2%) and cut the loss in half
+(mean R -0.68→-0.35), exactly the direction the target-distance hypothesis predicted —
+confirming the Fibonacci extension was a real, substantial part of the problem, not a red
+herring. But it's **still significantly negative** (p≈0.0): a 16.2% win rate doesn't
+clear the 25% breakeven bar a 3:1 target requires. So this isolation test lands on
+neither of the two clean answers it was designed to distinguish between — it's both.
+Fixing the target alone would not make this system profitable.
+
+**SmartScore quintile win rates (flat target): 15.0%, 13.1%, 14.3%, 20.1%** (lowest to
+highest bucket) — the top quintile does best, but the ordering is not monotonic (bucket 2
+underperforms bucket 1) and even the best bucket is well below the 25% breakeven bar.
+Same weak, non-monotonic pattern as the Fibonacci run's quintiles (5.4%, 5.5%, 6.1%,
+5.1%) — SmartScore is not cleanly separating good setups from bad ones under either
+target scheme.
+
+**By setup type (flat target): Breakout 12.2%, Pullback 18.9%, near_miss_only 21.8%.**
+Breakout — the setup SmartScore scores most aggressively (setup_strength + trend_bonus +
+base_tightness bonuses all stack for Breakout, see `core/smartscore.py`) — has the
+*worst* win rate of the three, and near-misses (setups that didn't even clear the
+classification bar) do best. Same inversion as the Fibonacci run. This is the more
+concerning half of the picture: even holding target distance constant at a realistic 3:1,
+the setups SmartScore is most confident about are not the ones that actually work.
+
+**Bottom line:** this closes the isolation test cleanly, just not with a single-cause
+answer. Both hypothesized mechanisms are real:
+1. The Fibonacci-extension target was set unrealistically far for a 30-day hold window —
+   confirmed, and worth fixing on its own (it more than halved the loss).
+2. Independent of target distance, SmartScore's entry/setup classification is not
+   correctly ranking quality — Breakout setups underperform near-misses under both target
+   schemes, and quintile separation is weak and non-monotonic under both.
+
+Combined with the earlier practitioner research (this doc's prior updates on position
+sizing and signal diversification), the actionable path forward is not "revert the target
+formula and ship it" — it needs both a more realistic target-distance model *and* a hard
+look at whether `classify_setup()`'s Breakout/Pullback thresholds and SmartScore's bonus
+weights (`SETUP_THRESHOLDS`, the setup_strength/trend/volume/base/level/fib bonuses in
+`core/smartscore.py::compute_smartscore`) are actually correlated with forward returns,
+which no test this session has directly checked before now.
