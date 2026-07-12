@@ -980,3 +980,53 @@ produces sane-looking sentiment scores before reading anything into rank-IC/AUC 
 pipeline bug here (e.g. a silently-empty or constant sentiment feature) could look
 identical to a genuine null result without careful inspection of the actual scored values,
 not just the downstream backtest metrics.
+
+## Update 2026-07-12 (later still): FinBERT ran for real — engineering validated, edge still null
+
+Ran `ml_confidence_backtest.yml` against real data for the first time with FinBERT live
+(60 tickers, 760-day lookback). **The model itself worked**: torch/transformers installed
+cleanly (CPU-only wheel, ~1 minute), the model downloaded, and CPU inference completed
+across all tickers with no failures — the biggest unknown flagged in the prior update is
+resolved. Total runtime rose from ~35 to ~55 minutes (both the regression and
+triple-barrier steps independently fetch and score news, same redundant-per-process
+pattern already accepted for insider/rating/grades).
+
+**Sanity check first, before reading anything into the metrics** (per the caution in the
+prior update): `news_sentiment_net_30d` ranks **6th of 33 features** in
+`research/triple_barrier_feature_importances.csv` (mean_importance 0.0436, present in
+53/53 trained tickers — full coverage, unlike insider/grades' partial coverage). A
+tree-based model gives a constant or silently-broken column ~zero importance, since
+there's no split to make on a single value — ranking 6th with a non-trivial value this
+close to several genuine technical features is itself strong evidence the FinBERT scoring
+pipeline is producing real, varied sentiment values, not a placeholder. This was
+specifically checked because a broken pipeline could otherwise masquerade as a null
+result.
+
+**But the held-out predictive metrics are still null, same as everything else this
+session:**
+- Regression ensemble: rank-IC -0.0024, p=0.91 (unchanged in character from every prior
+  run).
+- Triple-barrier classifier: AUC 0.4897 (still ~coin flip), point-biserial r=0.0221,
+  p=0.36 (not significant), `p_target` bucket report still flat/non-monotonic (7.3%-12.9%
+  win rate across quintiles, no relationship to predicted probability).
+
+**This is the same pattern already flagged for `insider_net_buy_pct_90d`**: high
+training-time feature usage that does not translate into genuine out-of-sample signal.
+Feature importance measures how much the trees *used* a column, not whether doing so
+improved held-out accuracy — a model can lean on a feature that's mostly fitting
+training-set noise. Sentiment joins insider trading in the "ambiguous, ranks high but
+unproven" bucket, not the "closed, tested null" bucket `analyst_revision_net_90d` and
+`rating_score` are in.
+
+**Where this leaves the project.** Four data categories tested this session
+(price/volume-derived technicals, insider trading, analyst revision momentum, news
+sentiment) — none has produced a statistically significant held-out edge. Two of the four
+(insider, sentiment) show unusually high training-time feature importance without a
+matching accuracy improvement, which is a real, specific, and now twice-observed pattern
+worth its own investigation rather than two isolated coincidences — both would benefit
+from the same narrower single-feature-isolation test proposed earlier
+(`research/pooled_model_experiment.py`-style single-shot training with just one
+non-technical feature added, to see if held-out AUC/rank-IC moves at all when the
+distracting ~30-feature technical noise is removed). Recommend that isolation test as the
+next concrete step if this line of work continues, rather than adding a fifth data
+category on top of an already-large, still-unexplained importance/accuracy mismatch.
