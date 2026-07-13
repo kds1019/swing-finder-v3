@@ -55,8 +55,21 @@ class Settings:
     risk_per_trade_pct: float = 1.0
 
     # --- Data pull parameters ---
-    bars_lookback_days: int = 60
-    alpaca_batch_size: int = 85
+    # Bumped from 60 to 300 (2026-07-13): core.pullback_reversal's EMA200 uptrend check
+    # looks EMA200_TREND_LOOKBACK_DAYS=126 bars back, and needs real EMA200 warmup on top
+    # of that — 60 days was the old core.smartscore's own minimum (`len(df) < 60`), left
+    # over from before the screener replacement, and silently caused every ticker in the
+    # first two live runs of the new pipeline to fail with reason="insufficient_data",
+    # not because the pattern itself is rare. 300 matches the WARMUP_BARS convention
+    # research/walk_forward_backtest.py already uses for the same underlying reason.
+    bars_lookback_days: int = 300
+    # Scaled down proportionally from 85 (calibrated for 60-day lookback, per
+    # agents/market_data_agent.py's module docstring: "~85-87 symbols x 60-day lookback
+    # per call; Alpaca's 1MB response cap is the real constraint") — 300/60 = 5x more data
+    # per symbol now, so batch_size must shrink roughly 5x (85/5=17) to avoid exceeding
+    # that same response cap. Not verified against Alpaca's actual cap at this new size;
+    # revisit if fetch_universe_bars starts erroring or silently truncating batches.
+    alpaca_batch_size: int = 17
 
 
 def load_settings() -> Settings:
