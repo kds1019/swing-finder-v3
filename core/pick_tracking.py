@@ -60,7 +60,8 @@ def load_pick_outcomes_log(path: str) -> pd.DataFrame:
             df[col] = None
     df = df[LOG_COLUMNS]
     for col in _STRING_COLUMNS:
-        df[col] = df[col].astype(object)
+        if col in df.columns:
+            df[col] = df[col].astype(object)
     return df
 
 
