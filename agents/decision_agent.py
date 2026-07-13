@@ -1,11 +1,20 @@
 """
 Decision Agent — Anthropic API.
 
-Pure synthesis/judgment layer on top of deterministic numbers: takes the
-SmartScore shortlist + FMP research + Webull position context and produces
-a final ranked, explained shortlist with flags. Never recomputes SmartScore,
-sector cap, or any other numeric filter — those are already-decided facts by
-the time they reach this agent.
+Rewritten from scratch alongside the removal of SmartScore (classify_setup's
+Breakout/Pullback classification, the ML-edge adjustment, and chart-pattern
+detection were all walk-forward tested and found no demonstrated edge — see
+docs/ml-edge-confidence-research.md). Previously this agent's job was to polish
+an already-decided SmartScore ranking with research color; now it IS the
+ranking/selection mechanism. Input is every ticker that passed
+core.pullback_reversal's technical screener (a real, if unvalidated, chart
+pattern) plus extended fundamentals/earnings-history/news context (6-12 months,
+not a single snapshot); this agent's job is to read that research, write a plain
+highlight per ticker (trend direction, earnings beats/misses, notable catalysts
+— informational judgment support, not a backtested score), and select the final
+FINAL_WATCHLIST_SIZE tickers most likely to keep moving up. Never recomputes the
+technical screener's numbers, sector cap, or trade-plan stop/target — those are
+already-decided facts by the time they reach this agent.
 """
 
 from __future__ import annotations
@@ -28,91 +37,82 @@ def _strip_code_fence(text: str) -> str:
     return _CODE_FENCE_RE.sub("", text).strip()
 
 MODEL = "claude-sonnet-5"
+FINAL_WATCHLIST_SIZE = 18  # user asked for a top 15-20; picked the midpoint as the target count
 
-SYSTEM_PROMPT = """You are the final synthesis step of a swing-trading screening pipeline.
-You receive tickers that have ALREADY passed deterministic scoring (SmartScore), sector-cap
-filtering, and an earnings-buffer filter, each with a pre-computed trade plan (Entry/Stop/
-Target/RRRatio from core/trade_plan.py — swing-low/EMA-anchored stop, Fibonacci-extension
-target refined against real support/resistance). SmartScore has ALREADY been adjusted (bonus/
-penalty, do not reapply) for three things: where price sits relative to its own volume profile
-(PriceVsPOCPct/VolumeProfileFlag — rewarded if at/below the point of control, penalized if
-stretched above it, especially "extended_above_value_area"), the ML ensemble's 5-day
-directional call (MLEdgePct/MLEdgeFlag — rewarded if positive, penalized if negative or
-"ml_edge_unavailable"), and the single highest-confidence detected chart pattern
-(PatternName/PatternConfidence/PatternAction/PatternFlag — bullish patterns like Bull Flag,
-Cup and Handle, Double Bottom, Ascending Triangle rewarded; bearish patterns like Bear Flag,
-Double Top, Head and Shoulders, Descending Triangle penalized). If ml_track_record is present in
-the input, it's the model's own recent directional accuracy (from actually scoring past
-forecasts against what happened) — use it to calibrate how much weight the MLEdgeFlag for
-THIS run deserves in your rationale (a currently-unreliable model's edge call is worth less
-skepticism-adjustment than a currently-reliable one's). If ml_track_record says the sample
-size is insufficient, don't speculate about accuracy — just treat MLEdgeFlag at face value.
+SYSTEM_PROMPT = f"""You are the research and selection step of a swing-trading screening
+pipeline. You receive tickers that have ALREADY passed core.pullback_reversal's technical
+screener (a pullback into a rising 200-day EMA that has stabilized and shown an early bounce,
+confirmed not extended above its own volume profile's value area — EMA200UptrendPct,
+PriceVsEMA200Pct, ConsolidationRangePct, BounceOffLowPct, POC, PriceVsPOCPct describe exactly
+how each ticker matched it), sector-cap filtering, and an earnings-buffer filter, each with a
+pre-computed trade plan (Entry/Stop/Target/RRRatio from core/trade_plan.py — swing-low/EMA-
+anchored stop, Fibonacci-extension target refined against real support/resistance). This
+technical screener is a real, specific chart pattern but has NOT been statistically validated
+the way the system it replaced was found to have no edge — treat it as a reasonable candidate
+filter, not a proven signal, and say so if asked to justify a pick on technical grounds alone.
 
-If pick_track_record is present, it's THIS SYSTEM'S OWN historical performance — win rate
-(target hit vs. stop hit) of past ranked_picks output, tracked independently of whether any
-pick was actually traded. This is not about any single ticker, it's about how much to trust
-the process as a whole. If pick_track_record.sufficient_data is true, weave a brief,
-proportionate note into overall_recommendation reflecting it (e.g. a strong recent win rate
-supports normal conviction; a weak one warrants a more conservative overall tone regardless
-of how clean individual setups look this run). If sufficient_data is false, don't mention it.
+Each ticker also carries real research context, not a one-time snapshot: Fundamentals (FMP
+company profile), AnalystRating (rating + buy/hold/sell consensus), EarningsHistory (trailing
+reported quarters' actual vs. estimated EPS/revenue — this is the real beat/met/missed record),
+IncomeGrowth (trailing quarters' revenue/net-income/EPS growth rates — the actual trend, not a
+guess), and News (headlines spanning roughly the last 6-12 months, not just the most recent
+few). This research is the PRIMARY basis for your ranking and selection now — it is not
+background color on top of an already-decided score, there is no score to defer to.
 
-Each shortlist ticker also carries Fundamentals (FMP company profile), AnalystRating (rating +
-buy/hold/sell consensus), and News (up to 5 recent headlines) — qualitative context, not
-scoring inputs. Mention AnalystRating only if it's notably bullish/bearish or conflicts
-sharply with the technical setup — one brief note, not a restatement. Scan News for anything
-resembling a material catalyst (earnings surprise, M&A, regulatory/legal action, executive
-departure, guidance change) that could explain or contradict the current technical picture —
-flag it explicitly if found, since this is exactly the kind of real-world risk the technical
-indicators can't see. Fundamentals is background only (sector/industry/description) — never
-let it override the quantitative signals already computed.
+Your job:
 
-Position sizing: account_balance's total_net_liquidation_value is the account's total equity,
-and risk_per_trade_pct is the configured max % of that to risk on any single trade. For each
-ranked pick, compute: risk_amount = total_net_liquidation_value * risk_per_trade_pct / 100;
-position_shares = floor(risk_amount / abs(entry - stop)); position_value = position_shares *
-entry. Include all three in each pick's output. If total_net_liquidation_value is missing,
-non-numeric, or zero, set these three fields to null rather than guessing.
+1. For every ticker provided, write a short (1-3 sentence) research highlight covering: is
+   revenue/earnings/EPS trending up or down recently (from IncomeGrowth), has the company been
+   beating, meeting, or missing estimates in its recent reported quarters (from EarningsHistory
+   — name the actual pattern, e.g. "beat EPS estimates in 3 of the last 4 quarters"), and any
+   material catalyst in News (positive or negative — earnings surprise, M&A, contract/order
+   wins, regulatory action, executive departure, guidance change). Reference concrete numbers
+   from the input, don't invent facts not present in it. Mention AnalystRating only if it's
+   notably bullish/bearish or conflicts with the fundamentals picture.
+2. From every ticker provided, select the final {FINAL_WATCHLIST_SIZE} most likely to keep
+   moving up, based on the research highlight above — genuinely growing fundamentals and a
+   real beat record should rank a ticker higher; deteriorating fundamentals, a recent pattern
+   of missed estimates, or clearly negative news should rank it lower or exclude it entirely,
+   even if its technical setup (EMA200UptrendPct/PriceVsEMA200Pct/etc.) looks clean. If fewer
+   than {FINAL_WATCHLIST_SIZE} tickers were provided, return all of them ranked, don't pad.
+3. Compute position sizing for each selected pick: account_balance's
+   total_net_liquidation_value is the account's total equity, risk_per_trade_pct is the
+   configured max % of that to risk on any single trade. risk_amount =
+   total_net_liquidation_value * risk_per_trade_pct / 100; position_shares =
+   floor(risk_amount / abs(entry - stop)); position_value = position_shares * entry. If
+   total_net_liquidation_value is missing, non-numeric, or zero, set these three fields to
+   null rather than guessing.
+4. Flag risks for each selected pick: sector concentration relative to EXISTING Webull
+   positions (not just this run's candidates), an existing pending order on the same ticker
+   (existing_open_orders lists symbol/side/status/order_type/quantity/prices not yet filled —
+   don't silently recommend piling onto or duplicating one already in flight), earnings-date
+   conflicts, whether the VIX gate is open or closed, WeakRR if true (R:R fell short of the
+   minimum after support/resistance refinement), StopSanityFlag if true (R:R >= 15:1 more
+   often means an unusually tight stop than an unusually good target — say so explicitly), and
+   PriceVsPOCPct if the ticker sits notably above its point of control (thinner volume support
+   underneath than a ticker sitting at/below it).
+5. If pick_track_record is present, it's THIS SYSTEM'S OWN historical performance (win rate,
+   target hit vs. stop hit, of past ranked_picks output, tracked independently of whether any
+   pick was actually traded) — if sufficient_data is true, weave one brief, proportionate note
+   into overall_recommendation (a strong recent win rate supports normal conviction; a weak
+   one warrants a more conservative tone regardless of how clean this run's picks look). If
+   sufficient_data is false, don't mention it.
+6. If the VIX gate is closed (market_gate_open=false), your top-level recommendation must bias
+   toward "monitor only, no new entries" regardless of how promising individual picks look.
 
-existing_open_orders lists currently pending orders (symbol/side/status/order_type/quantity/
-prices) not yet filled. If a ranked pick's ticker already has a pending order, flag it
-explicitly — don't silently recommend piling onto or duplicating an order already in flight —
-and briefly note what the existing order is.
-
-Your job is ONLY to:
-
-1. Rank the provided tickers by overall attractiveness, using the given SmartScore, trade
-   plan, and research context as inputs to your judgment.
-2. Explain each ranking in 1-2 sentences referencing concrete factors already provided
-   (do not invent facts not present in the input, and never recompute Stop/Target/RRRatio,
-   PriceVsPOCPct, MLEdgePct, or pattern fields yourself — pass them through as given).
-3. Compute position sizing per the formula above for each pick.
-4. Flag risks: sector concentration relative to EXISTING Webull positions (not just the
-   day's shortlist), an existing pending order on the same ticker, earnings-date conflicts,
-   whether the VIX gate is open or closed, and ALWAYS flag if WeakRR is true (R:R fell short
-   of the minimum after support/resistance refinement), StopSanityFlag is true (R:R >= 15:1
-   more often means an unusually tight stop than an unusually good target — say so
-   explicitly, don't just repeat the number), VolumeProfileFlag is "extended_above_value_area"
-   (price has run past where 70% of recent volume actually traded — thin support underneath),
-   MLEdgeFlag is "negative_ml_edge" (a clean technical setup the model itself doesn't confirm
-   — say so explicitly, this is exactly the kind of case that looks good on SmartScore alone
-   but may not be worth trading), or PatternFlag indicates a bearish pattern
-   (pattern_bear_flag, pattern_double_top, pattern_head_and_shoulders,
-   pattern_descending_triangle) — name the pattern and its PatternAction explicitly, it's an
-   independent technical signal from SmartScore/MLEdge.
-5. If the VIX gate is closed (market_gate_open=false), your top-level recommendation must
-   bias toward "monitor only, no new entries" regardless of individual SmartScores.
-
-Do NOT recompute or second-guess the SmartScore, sector cap, earnings buffer, or trade
-plan numbers — treat them as given. Respond with ONLY a JSON object matching this shape:
-{
+Do NOT recompute or second-guess the technical screener's numbers, sector cap, earnings
+buffer, or trade-plan stop/target/RRRatio — treat them as given inputs to your judgment, not
+things to verify. Respond with ONLY a JSON object matching this shape:
+{{
   "market_gate_open": bool,
   "overall_recommendation": str,
+  "tickers_reviewed": int,
   "ranked_picks": [
-    {"ticker": str, "rank": int, "smartscore": number, "entry": number, "stop": number,
-     "target": number, "rr_ratio": number, "position_shares": number, "risk_amount": number,
-     "position_value": number, "rationale": str, "flags": [str, ...]}
+    {{"ticker": str, "rank": int, "entry": number, "stop": number, "target": number,
+     "rr_ratio": number, "position_shares": number, "risk_amount": number,
+     "position_value": number, "research_highlight": str, "rationale": str, "flags": [str, ...]}}
   ]
-}"""
+}}"""
 
 
 class DecisionAgent:
@@ -128,11 +128,9 @@ class DecisionAgent:
 
     def _build_user_prompt(
         self,
-        smartscore_shortlist: pd.DataFrame,
         research_data: pd.DataFrame,
         portfolio_context: dict,
         market_gate_open: bool,
-        ml_track_record: Optional[dict] = None,
         pick_track_record: Optional[dict] = None,
         risk_per_trade_pct: Optional[float] = None,
     ) -> str:
@@ -144,7 +142,6 @@ class DecisionAgent:
             "account_balance": portfolio_context.get("balance", {}),
             "existing_sector_exposure": portfolio_context.get("sector_exposure", {}),
             "existing_open_orders": portfolio_context.get("open_orders", []),
-            "ml_track_record": ml_track_record,
             "pick_track_record": pick_track_record,
             "risk_per_trade_pct": risk_per_trade_pct,
         }
@@ -152,28 +149,24 @@ class DecisionAgent:
 
     def synthesize(
         self,
-        smartscore_shortlist: pd.DataFrame,
         research_data: pd.DataFrame,
         portfolio_context: dict,
         market_gate_open: bool,
-        ml_track_record: Optional[dict] = None,
         pick_track_record: Optional[dict] = None,
         risk_per_trade_pct: Optional[float] = None,
     ) -> dict:
         user_prompt = self._build_user_prompt(
-            smartscore_shortlist, research_data, portfolio_context, market_gate_open,
-            ml_track_record, pick_track_record, risk_per_trade_pct,
+            research_data, portfolio_context, market_gate_open, pick_track_record, risk_per_trade_pct,
         )
 
-        # Scaled to shortlist size. This budget has already had to grow twice as more context
-        # got added to the prompt: 800/ticker+1500 (pre-pattern-detection) -> 1200/ticker+2000
-        # (after patterns + ML track record) -> truncated AGAIN at 8000 tokens for a 5-ticker
-        # shortlist once FMP research (analyst/news mentions), position sizing, and open-order
-        # checks were added — each pick's rationale/flags got meaningfully longer. 2000/ticker
-        # + 3000 overhead leaves real margin this time rather than just enough; capped at 32000
-        # as a sanity ceiling. If this truncates again after a future prompt change, raise it
-        # further rather than assuming it's a formatting bug — that's the actual pattern here.
-        num_tickers = len(smartscore_shortlist)
+        # Scaled to candidate-pool size (every technically-screened ticker passed in here, not
+        # just the final watchlist — this agent does the narrowing, so the prompt covers however
+        # many candidates survived sector cap, which can be more than FINAL_WATCHLIST_SIZE).
+        # 2000/ticker + 3000 overhead is the per-ticker budget prior prompt growth settled on
+        # (see git history) once FMP research, position sizing, and open-order checks were all
+        # in the prompt; capped at 32000 as a sanity ceiling. If this truncates again after a
+        # future prompt change, raise it further rather than assuming it's a formatting bug.
+        num_tickers = len(research_data)
         max_tokens = min(32000, max(8000, 2000 * num_tickers + 3000))
 
         try:

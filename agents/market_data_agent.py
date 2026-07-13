@@ -20,8 +20,7 @@ from alpaca.data.enums import DataFeed, Adjustment
 
 from core.universe import batch_tickers
 from core.indicators import compute_indicators
-from core.smartscore import compute_smartscore
-from core.deep_discount_filter import evaluate_deep_discount_stabilization
+from core.pullback_reversal import detect_pullback_reversal
 from core.trade_plan import compute_trade_plan
 
 
@@ -156,11 +155,17 @@ class MarketDataAgent:
         self, universe_df: pd.DataFrame, settings
     ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
         """
-        SmartScore every ticker in the universe. Returns (ranked_df, bars_by_ticker):
-        ranked_df is sorted SmartScore descending with the full factor breakdown;
-        bars_by_ticker is the raw indicator-augmented OHLCV per ticker, kept
-        separately (rather than embedded in ranked_df) for downstream use by
-        the ML forecast / relative strength / multi-timeframe modules.
+        Screens every ticker in the universe for core.pullback_reversal's EMA200
+        pullback + stabilization/reversal setup — replaces the old SmartScore
+        (classify_setup Breakout/Pullback + ML-edge/volume-profile/chart-pattern
+        adjustments) gating, which walk-forward testing found no demonstrated edge
+        for (see docs/ml-edge-confidence-research.md). Returns (ranked_df,
+        bars_by_ticker): ranked_df is every ticker where the setup was detected,
+        sorted by bounce-off-low strength descending as a simple ordering signal —
+        NOT a validated ranking, since this screener hasn't been walk-forward
+        tested (an explicit choice, not an oversight — see the research doc's
+        latest updates); bars_by_ticker is the raw indicator-augmented OHLCV per
+        ticker, kept separately for downstream use.
         """
         tickers = universe_df["Ticker"].tolist()
         sector_lookup = dict(zip(universe_df["Ticker"], universe_df["Sector"]))
@@ -175,12 +180,9 @@ class MarketDataAgent:
                 continue
 
             df = compute_indicators(df.copy())
-            result = compute_smartscore(df, settings)
-            if result.get("smartscore") is None:
+            result = detect_pullback_reversal(df)
+            if not result.get("detected"):
                 continue
-
-            dd = evaluate_deep_discount_stabilization(df, result.get("fib_data"), result["rel_vol"])
-            smartscore = max(0, min(100, result["smartscore"] + dd["penalty"]))
 
             bars_by_ticker[ticker] = df
             trade_plan = compute_trade_plan(df, settings)
@@ -190,16 +192,10 @@ class MarketDataAgent:
                 "Sector": sector_lookup.get(ticker, "Unknown"),
                 "Price": float(df["Close"].iloc[-1]),
                 "Volume": float(df["Volume"].iloc[-1]),
-                "SmartScore": smartscore,
-                "Setup": result["setup"],
-                "NearMiss": result["near_miss"],
-                "NearType": result["near_type"],
-                "Breakdown": result["breakdown"],
-                "RelVolume": result["rel_vol"],
-                "HasBase": result["has_base"],
-                "AtMeaningfulLevel": result["at_meaningful_level"],
-                "FibData": result.get("fib_data"),
-                "DeepDiscountFlag": dd["flag"],
+                "EMA200UptrendPct": result["ema200_uptrend_pct"],
+                "PriceVsEMA200Pct": result["price_vs_ema200_pct"],
+                "ConsolidationRangePct": result["consolidation_range_pct"],
+                "BounceOffLowPct": result["bounce_off_low_pct"],
                 "Stop": trade_plan["stop"] if trade_plan else None,
                 "Target": trade_plan["target"] if trade_plan else None,
                 "RRRatio": trade_plan["rr_ratio"] if trade_plan else None,
@@ -209,6 +205,6 @@ class MarketDataAgent:
 
         ranked_df = pd.DataFrame(rows)
         if not ranked_df.empty:
-            ranked_df = ranked_df.sort_values("SmartScore", ascending=False).reset_index(drop=True)
+            ranked_df = ranked_df.sort_values("BounceOffLowPct", ascending=False).reset_index(drop=True)
 
         return ranked_df, bars_by_ticker

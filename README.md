@@ -11,14 +11,25 @@ Research Agent (FMP)          -+--> Decision Agent (Claude) --> Ranked trade pla
 Portfolio Agent (Webull)      -+
 ```
 
-- **Market Data Agent** — Alpaca bars for the whole universe scan + SmartScore.
-- **Research Agent** — FMP fundamentals/earnings/news/analyst ratings/VIX, called
-  only on the post-SmartScore/post-sector-cap shortlist, never the full universe.
+- **Market Data Agent** — Alpaca bars for the whole universe scan, screened by
+  `core/pullback_reversal.py` (a pullback into a rising 200-day EMA that has
+  stabilized and shown an early bounce, not extended above its own volume
+  profile's value area). This replaced the original SmartScore system
+  (`core/smartscore.py`'s Breakout/Pullback classification, an ML-edge
+  adjustment, and chart-pattern detection) after walk-forward testing found no
+  demonstrated edge in any of those three — see
+  `docs/ml-edge-confidence-research.md` for the full research trail.
+- **Research Agent** — FMP fundamentals/earnings-beat-miss-history/quarterly
+  growth/analyst ratings + 6-12 months of news, called only on the
+  post-screener/post-sector-cap candidate pool, never the full universe.
 - **Portfolio Agent** — Webull SDK positions/balance/orders. `place_order()`
   defaults to `dry_run=True`; flipping to live execution is a deliberate,
   separate decision.
-- **Decision Agent** — Anthropic API, pure synthesis on top of the deterministic
-  numbers above. Never recomputes SmartScore or any filter.
+- **Decision Agent** — Anthropic API. Reads the Research Agent's fundamentals/
+  news context and IS the ranking/selection step — it picks the final watchlist
+  from the candidate pool, it doesn't just polish an already-decided score
+  (there is no score anymore). Never recomputes the technical screener's
+  numbers, sector cap, or trade-plan stop/target.
 
 ## Setup
 
@@ -45,7 +56,6 @@ Portfolio Agent (Webull)      -+
 ```
 python pipeline.py --limit 20 --skip-decision   # fast smoke test — Alpaca only, no FMP/Anthropic
 python pipeline.py --skip-decision               # full universe, still no FMP/Anthropic
-python pipeline.py --skip-ml                     # skip ML forecast/MTF/RS enrichment (faster)
 python pipeline.py                               # full pipeline, all 4 agents
 ```
 
@@ -53,7 +63,7 @@ python pipeline.py                               # full pipeline, all 4 agents
 
 `.github/workflows/scan.yml` runs the full pipeline on GitHub's cloud runners —
 no local machine needed. Trigger manually from the repo's **Actions** tab
-("SwingFinder Scan" → **Run workflow**, optionally setting `limit`/`skip_ml`/
+("SwingFinder Scan" → **Run workflow**, optionally setting `limit`/
 `skip_decision`), or via `gh workflow run scan.yml`. Results are written to
 `results/latest.json` (plus a timestamped copy in `results/`) and committed
 back to the repo automatically.
@@ -79,63 +89,60 @@ Actions → New repository secret) — same values as your local `.env`:
 `WEBULL_REGION_ID`/`WEBULL_ENVIRONMENT` aren't secret and are hardcoded in
 the workflow (`us`/`prod`).
 
-## Freshly-designed logic — still being validated
+## Screening research and the 2026-07-13 rewrite
 
-Two pieces of screening logic have no prior implementation to verify against
-(no confirmed source doc, unlike most of this port) — reviewed 2026-07-09,
-still worth treating as experimental:
+This pipeline originally scored/ranked tickers with a SmartScore system
+(`core/smartscore.py`'s Breakout/Pullback setup classification, an ML-edge
+adjustment from an ensemble forecast in `core/ml_forecast.py`, a volume-profile
+adjustment, and chart-pattern detection in `core/patterns.py`). An extensive
+walk-forward research effort (`docs/ml-edge-confidence-research.md` — five ML
+feature experiments, three exit/target formulas, and direct audits of the
+setup-classification and chart-pattern logic) found no demonstrated edge in
+any of it except volume profile, which was never tested (untested, not
+disproven).
 
-- `core/sector_cap.py` — confirmed correct: runs after full-universe
-  SmartScore scoring, on the already-ranked list, purely for sector
-  diversification in the final shortlist.
-- `core/deep_discount_filter.py` — stabilization checks gating the Fibonacci
-  "Deep Discount" SmartScore bonus. Genuinely new/experimental (no prior
-  version anywhere), intent confirmed reasonable (don't reward a "discount"
-  reading unless there's evidence it's actually stabilizing, not still
-  falling) but not yet validated at scale.
+As a result, the live pipeline was rewritten on 2026-07-13:
 
-A third piece, a Market-Bias Buffer that shifted SmartScore's setup-
-classification thresholds based on SPY's own trend, was removed 2026-07-09
-after review — see core/smartscore.py's module comment for why (it was a
-blanket, universe-wide classification gate that could exclude a ticker
-before any of the more precise per-ticker signals — ML edge, patterns,
-relative strength — ever got to evaluate it).
+- **Removed entirely**: `core/smartscore.py`'s setup classification, the ML
+  ensemble forecast and its accuracy tracking (`core/ml_forecast.py`,
+  `core/ml_tracking.py`, the old `ml_predictions.csv` log), multi-timeframe
+  alignment, relative strength vs. SPY, chart-pattern detection, and
+  `core/deep_discount_filter.py` (which existed only to adjust the
+  now-removed SmartScore). These files still exist in the repo (not deleted,
+  for reference) but nothing in the live pipeline calls them anymore.
+- **Kept and repurposed**: volume profile (`core/volume_profile.py`) — folded
+  into the new technical screener as a confirming condition, not a bonus/
+  penalty on a score that no longer exists.
+- **New**: `core/pullback_reversal.py` — a technical screener for a pullback
+  into a rising 200-day EMA that has stabilized and shown an early bounce,
+  calibrated directly against a real trade rather than a generic pattern.
+  This screener has NOT been walk-forward validated the way the system it
+  replaced was found to have no edge — treat its output as a candidate
+  filter, not a proven signal.
+- **`DecisionAgent`'s role changed**: it used to add research color on top of
+  an already-decided SmartScore ranking; now it reads real fundamentals
+  context (earnings-beat/miss history, quarterly growth trends, 6-12 months
+  of news) and IS the ranking/selection mechanism, picking the final
+  watchlist (`agents/decision_agent.py::FINAL_WATCHLIST_SIZE`) from the
+  technically-screened candidate pool.
 
-## ML edge confidence research
+`docs/ml-edge-confidence-research.md` has the full research trail if you want
+the details behind any of this.
 
-`docs/ml-edge-confidence-research.md` evaluates whether the ML ensemble's
-`confidence` output (`core/ml_forecast.py`) is trustworthy and how to improve
-it (meta-labeling, IC/rank-IC, calibration). `research/walk_forward_backtest.py`
-generates historical (prediction, confidence, actual outcome) data offline —
-much faster than waiting on the live `ml_predictions.csv` log to accumulate
-one row per ticker per manual run — and `research/analyze_confidence.py`
-computes IC/rank-IC and confidence-bucket calibration over it. Both require
-`ALPACA_API_KEY`/`ALPACA_SECRET_KEY` like the live pipeline:
+## Known gaps
 
-```
-python -m research.walk_forward_backtest      # ~60 tickers, 2 years, writes research/walk_forward_results.csv
-python -m research.analyze_confidence          # reads that CSV, prints IC/rank-IC + bucket report
-```
-
-## Known gaps vs. the reference app
-
-- Stop/target/R:R calculation (`utils/target_calculator.py` in the reference)
-  was not part of this initial port — `min_risk_reward`/`atr_stop_multiple` are
-  configured in `config/settings.py` but not yet enforced anywhere.
-- Pattern detection (bull flag, cup and handle, head & shoulders, etc.) and
-  support/resistance clustering from `utils/indicators.py` were not ported —
-  out of scope for this build.
+- The technical screener (`core/pullback_reversal.py`) hasn't been
+  walk-forward validated — see above.
+- `core/sector_cap.py` and `core/deep_discount_filter.py`'s stabilization
+  logic were reviewed for correctness but never validated against a
+  confirmed source spec (no prior implementation existed to check against).
+  `deep_discount_filter.py` is currently unused (see above).
 
 ## Verification status
 
 All four agents have been run live end-to-end (real Alpaca bars, real FMP
 `/stable/` responses, real Webull account, real Anthropic synthesis) against a
 small 5-ticker test universe — not just imported/compiled. Before a full
-945-ticker run:
-
-1. Sanity-check SmartScore against known tickers (e.g. EMBJ, AR) once the real
-   universe CSV is in place.
-2. Watch API usage/cost on a full run — `enrich_with_technical_analysis` trains
-   a fresh RF+GB model per shortlist ticker (`DEEP_HISTORY_LOOKBACK_DAYS=750`
-   re-fetch), and the Decision Agent makes one Anthropic call per run (not per
-   ticker), but FMP calls scale with shortlist size (several calls/ticker).
+945-ticker run, watch API usage/cost: FMP calls scale with candidate-pool size
+(`pipeline.py::CANDIDATE_POOL_SIZE`, several calls/ticker), and the Decision
+Agent makes one Anthropic call per run (not per ticker).

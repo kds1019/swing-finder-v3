@@ -19,6 +19,7 @@ against the real API before writing this, not guessed from older docs.
 
 from __future__ import annotations
 
+import json
 import sys
 from typing import Optional
 
@@ -85,6 +86,44 @@ class ResearchAgent:
     def get_fundamentals(self, ticker: str) -> dict:
         data = self._get("profile", params={"symbol": ticker})
         return data[0] if data else {}
+
+    def get_earnings_history(self, ticker: str, limit: int = 8) -> list[dict]:
+        """Trailing `limit` reported quarters' actual vs. estimated EPS/revenue —
+        the real beat/met/missed history the research brief needs, not just the
+        next-earnings-date lookup get_earnings_calendar() already does. Rows with
+        epsActual still null (future/unreported quarters) are dropped — only
+        reported history is meaningful for a "has this company been beating or
+        missing" read."""
+        try:
+            data = self._get("earnings", params={"symbol": ticker, "limit": limit + 2})
+        except requests.HTTPError as e:
+            print(f"[research_agent] get_earnings_history({ticker}) failed: {e}", file=sys.stderr)
+            data = []
+        rows = data if isinstance(data, list) else []
+        reported = [r for r in rows if r.get("epsActual") is not None]
+        return reported[:limit]
+
+    def get_income_growth(self, ticker: str, limit: int = 4) -> list[dict]:
+        """Trailing `limit` quarters of income-statement growth rates (revenue,
+        net income, EPS — quarter-over-quarter, per FMP's own growth convention)
+        — the "trending up or down" data the research brief needs, distinct from
+        a single-point-in-time profile snapshot."""
+        try:
+            data = self._get(
+                "income-statement-growth", params={"symbol": ticker, "period": "quarter", "limit": limit}
+            )
+        except requests.HTTPError as e:
+            print(f"[research_agent] get_income_growth({ticker}) failed: {e}", file=sys.stderr)
+            data = []
+        rows = data if isinstance(data, list) else []
+        return [
+            {
+                "date": r.get("date"), "period": r.get("period"), "fiscalYear": r.get("fiscalYear"),
+                "growthRevenue": r.get("growthRevenue"), "growthNetIncome": r.get("growthNetIncome"),
+                "growthEPS": r.get("growthEPS"),
+            }
+            for r in rows[:limit]
+        ]
 
     def get_analyst_ratings(self, ticker: str) -> dict:
         """Combines the ratings snapshot (overall rating + factor scores) with
@@ -171,10 +210,21 @@ class ResearchAgent:
         df["Date"] = pd.to_datetime(df["Date"])
         return df.sort_values("Date").reset_index(drop=True)
 
-    def enrich_shortlist(self, shortlist_df: pd.DataFrame) -> pd.DataFrame:
-        """Adds DaysToEarnings, Fundamentals, AnalystRating, News columns to the
-        post-SmartScore/post-sector-cap shortlist. Never call this on the full
-        universe — it's several FMP calls per ticker."""
+    def enrich_shortlist(self, shortlist_df: pd.DataFrame, market_agent=None, news_lookback_days: int = 270) -> pd.DataFrame:
+        """Adds DaysToEarnings, Fundamentals, AnalystRating, EarningsHistory, IncomeGrowth,
+        and News columns to the post-screener/post-sector-cap shortlist. Never call this on
+        the full universe — it's several FMP calls per ticker.
+
+        News is now a genuine trend window (news_lookback_days, default ~9 months), not a
+        5-headline snapshot — DecisionAgent's job changed from "mention News as background
+        color" to "read it as the primary research basis," which needs enough history to
+        judge a trend, not just whatever's most recent. Fetched via market_agent (Alpaca,
+        agents.market_data_agent.MarketDataAgent.fetch_news) rather than FMP's news/stock
+        endpoint, reusing the same mechanism research/walk_forward_backtest.py's FinBERT
+        pipeline already relies on for exactly this kind of lookback-windowed fetch. Falls
+        back to a short FMP-based snapshot (get_news's old 5-headline behavior) if
+        market_agent isn't provided, so this still degrades gracefully rather than requiring
+        a hard dependency change everywhere enrich_shortlist is called."""
         if shortlist_df.empty:
             return shortlist_df
 
@@ -185,6 +235,19 @@ class ResearchAgent:
         enriched["DaysToEarnings"] = enriched["Ticker"].map(earnings)
         enriched["Fundamentals"] = enriched["Ticker"].apply(lambda t: self.get_fundamentals(t))
         enriched["AnalystRating"] = enriched["Ticker"].apply(lambda t: self.get_analyst_ratings(t))
-        enriched["News"] = enriched["Ticker"].apply(lambda t: self.get_news(t, limit=5))
+        enriched["EarningsHistory"] = enriched["Ticker"].apply(lambda t: self.get_earnings_history(t))
+        enriched["IncomeGrowth"] = enriched["Ticker"].apply(lambda t: self.get_income_growth(t))
+
+        if market_agent is not None:
+            def _fetch_news(ticker: str) -> list[dict]:
+                try:
+                    news_df = market_agent.fetch_news(ticker, lookback_days=news_lookback_days)
+                    return json.loads(news_df.to_json(orient="records")) if not news_df.empty else []
+                except Exception as e:
+                    print(f"[research_agent] extended news fetch failed for {ticker}: {e}", file=sys.stderr)
+                    return []
+            enriched["News"] = enriched["Ticker"].apply(_fetch_news)
+        else:
+            enriched["News"] = enriched["Ticker"].apply(lambda t: self.get_news(t, limit=5))
 
         return enriched
