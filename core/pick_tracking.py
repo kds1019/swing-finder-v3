@@ -1,14 +1,18 @@
 """
 Pick outcome tracker.
 
-Persists every Decision Agent ranked pick (ticker/rank/smartscore/entry/stop/target/rr_ratio
-— the actual final recommendation, not just the raw ML forecast core.ml_tracking covers) to
-a durable, append-only log (pick_outcomes.csv, committed to the repo alongside results/ and
-ml_predictions.csv). Each run, before generating new picks: walk forward through Alpaca bars
-since each unresolved pick's date, checking High/Low against its stop/target to determine
-which was hit first. This answers "when this system says rank 1 / SmartScore 90, does it
+Persists every Decision Agent ranked pick (ticker/rank/entry/stop/target/rr_ratio — the
+actual final recommendation) to a durable, append-only log (pick_outcomes.csv, committed to
+the repo alongside results/). Each run, before generating new picks: walk forward through
+Alpaca bars since each unresolved pick's date, checking High/Low against its stop/target to
+determine which was hit first. This answers "when this system ranks a ticker #1, does it
 actually work out" — a question about the pipeline's own decision quality, independent of
 whether any given pick was actually traded (that's the user's own journal's job).
+
+pick_outcomes.csv rows logged before the 2026-07-13 SmartScore removal have a populated
+`smartscore` column; rows logged since don't (DecisionAgent no longer produces a score to
+log) — load_pick_outcomes_log's column reconciliation against LOG_COLUMNS means that old
+column is simply dropped on load rather than carried forward as always-null.
 
 Same-bar ambiguity (a daily bar's range touches both stop and target) can't be sequenced from
 OHLC data alone — resolved conservatively toward stop_hit, since assuming the better outcome
@@ -24,7 +28,7 @@ import pandas as pd
 from core.trade_plan import resolve_trade_plan_outcome
 
 LOG_COLUMNS = [
-    "prediction_date", "ticker", "rank", "smartscore", "entry_price", "stop_price",
+    "prediction_date", "ticker", "rank", "entry_price", "stop_price",
     "target_price", "rr_ratio", "resolved", "outcome", "outcome_price", "outcome_date",
     "bars_to_resolution", "actual_return_pct",
 ]
@@ -56,7 +60,7 @@ def save_pick_outcomes_log(log_df: pd.DataFrame, path: str) -> None:
 
 def record_picks(log_df: pd.DataFrame, ranked_picks: list[dict], prediction_date: str) -> pd.DataFrame:
     """ranked_picks: DecisionAgent.synthesize()'s own result["ranked_picks"] list — already
-    has ticker/rank/smartscore/entry/stop/target/rr_ratio per pick, used as-is."""
+    has ticker/rank/entry/stop/target/rr_ratio per pick, used as-is."""
     if not ranked_picks:
         return log_df
 
@@ -64,7 +68,6 @@ def record_picks(log_df: pd.DataFrame, ranked_picks: list[dict], prediction_date
         "prediction_date": prediction_date,
         "ticker": p["ticker"],
         "rank": p["rank"],
-        "smartscore": p["smartscore"],
         "entry_price": p["entry"],
         "stop_price": p["stop"],
         "target_price": p["target"],
