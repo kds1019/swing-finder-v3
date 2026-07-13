@@ -2,9 +2,14 @@
 Market Data Agent — Alpaca.
 
 Primary data source for the whole universe scan (quotes, daily bars, intraday).
-Batches multi-symbol requests (confirmed working: ~85-87 symbols x 60-day
-lookback per call; Alpaca's 1MB response cap is the real constraint, not a
-point-count limit — see core/universe.py::batch_tickers).
+Batches multi-symbol requests to stay under Alpaca's 1MB per-request response
+cap (not a point-count limit — see core/universe.py::batch_tickers). Batch
+size and lookback are both configured in config/settings.py
+(alpaca_batch_size, bars_lookback_days) and must be scaled together: e.g. the
+original ~85-87 symbols/call was calibrated for a 60-day lookback; when
+bars_lookback_days was raised to 300 (core.pullback_reversal needs ~127+ bars
+of history, not 60), alpaca_batch_size was cut roughly proportionally to
+avoid exceeding the same response cap.
 """
 
 from __future__ import annotations
@@ -20,8 +25,18 @@ from alpaca.data.enums import DataFeed, Adjustment
 
 from core.universe import batch_tickers
 from core.indicators import compute_indicators
-from core.pullback_reversal import detect_pullback_reversal
+from core.pullback_reversal import (
+    detect_pullback_reversal,
+    EMA200_TREND_LOOKBACK_DAYS,
+    CONSOLIDATION_LOOKBACK_DAYS,
+)
 from core.trade_plan import compute_trade_plan
+
+# Same minimum detect_pullback_reversal() itself requires (see core/pullback_reversal.py) —
+# referenced here rather than duplicated as a bare number so the two can't drift apart again
+# the way the old hardcoded `< 60` (a leftover from core.smartscore's own minimum) did once the
+# screener's actual lookback requirement changed.
+MIN_BARS_FOR_SCREENER = max(EMA200_TREND_LOOKBACK_DAYS, CONSOLIDATION_LOOKBACK_DAYS) + 1
 
 
 def compute_market_bias(spy_df: pd.DataFrame | None) -> str | None:
@@ -176,7 +191,7 @@ class MarketDataAgent:
         bars_by_ticker: dict[str, pd.DataFrame] = {}
 
         for ticker, df in raw_bars.items():
-            if df is None or len(df) < 60:
+            if df is None or len(df) < MIN_BARS_FOR_SCREENER:
                 continue
 
             df = compute_indicators(df.copy())
@@ -196,6 +211,8 @@ class MarketDataAgent:
                 "PriceVsEMA200Pct": result["price_vs_ema200_pct"],
                 "ConsolidationRangePct": result["consolidation_range_pct"],
                 "BounceOffLowPct": result["bounce_off_low_pct"],
+                "POC": result["poc"],
+                "PriceVsPOCPct": result["price_vs_poc_pct"],
                 "Stop": trade_plan["stop"] if trade_plan else None,
                 "Target": trade_plan["target"] if trade_plan else None,
                 "RRRatio": trade_plan["rr_ratio"] if trade_plan else None,
