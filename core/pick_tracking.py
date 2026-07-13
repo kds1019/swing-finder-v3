@@ -42,6 +42,14 @@ MIN_SAMPLE_SIZE = 10
 ACCURACY_WINDOW = 60  # most recent N resolved (decisive) picks considered "recent track record"
 
 
+
+# Columns that hold strings once a pick resolves but read as all-NaN (and so get inferred as
+# float64 by pd.read_csv) as long as nothing has resolved yet — explicitly forced to object
+# dtype below so score_due_picks() can later write a real string into them without pandas'
+# strict setitem path raising LossySetitemError/TypeError on the first real resolution.
+_STRING_COLUMNS = ["outcome", "outcome_date"]
+
+
 def load_pick_outcomes_log(path: str) -> pd.DataFrame:
     p = Path(path)
     if not p.exists():
@@ -50,7 +58,10 @@ def load_pick_outcomes_log(path: str) -> pd.DataFrame:
     for col in LOG_COLUMNS:
         if col not in df.columns:
             df[col] = None
-    return df[LOG_COLUMNS]
+    df = df[LOG_COLUMNS]
+    for col in _STRING_COLUMNS:
+        df[col] = df[col].astype(object)
+    return df
 
 
 def save_pick_outcomes_log(log_df: pd.DataFrame, path: str) -> None:
