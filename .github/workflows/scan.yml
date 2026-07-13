@@ -4,9 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       limit:
-        description: "Limit universe to first N tickers (blank = full universe)"
+        description: "Limit universe to N tickers (blank = full universe)"
         required: false
         default: "20"
+      random_sample:
+        description: "With limit set, pick N tickers at random instead of the first N"
+        required: false
+        default: false
+        type: boolean
       skip_decision:
         description: "Skip Anthropic synthesis (agents 1-3 only)"
         required: false
@@ -61,6 +66,7 @@ jobs:
           mkdir -p results
           ARGS=""
           if [ -n "${{ inputs.limit }}" ]; then ARGS="$ARGS --limit ${{ inputs.limit }}"; fi
+          if [ "${{ inputs.random_sample }}" = "true" ]; then ARGS="$ARGS --random-sample"; fi
           if [ "${{ inputs.skip_decision }}" = "true" ]; then ARGS="$ARGS --skip-decision"; fi
           python pipeline.py $ARGS | tee results/latest.json
           cp results/latest.json "results/$(date -u +%Y-%m-%d_%H%M)Z.json"

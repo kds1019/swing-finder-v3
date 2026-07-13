@@ -74,6 +74,7 @@ def apply_earnings_buffer(enriched_df: pd.DataFrame, settings) -> tuple[pd.DataF
 
 def run_pipeline(
     limit: int | None = None,
+    random_sample: bool = False,
     skip_decision: bool = False,
     dry_run: bool = True,
     candidate_pool_size: int = CANDIDATE_POOL_SIZE,
@@ -82,9 +83,17 @@ def run_pipeline(
 
     universe = load_universe(settings.universe_csv_path)
     if limit:
-        universe = universe.head(limit)
+        # random_sample=True picks limit tickers at random instead of the first limit rows —
+        # .head(limit) is whatever order the universe CSV happens to be in (e.g. alphabetical),
+        # not representative; useful for a fast deterministic smoke test, but a poor sample for
+        # actually exercising the pullback/reversal screener against a real cross-section of the
+        # universe. No fixed seed — each run gets a fresh random sample, unlike research/'s
+        # reproducibility-focused sampling (research/walk_forward_backtest.py's own
+        # select_sample_universe), since there's no cross-run comparison need here.
+        universe = universe.sample(n=min(limit, len(universe))) if random_sample else universe.head(limit)
 
-    print(f"[pipeline] Universe loaded: {len(universe)} tickers", file=sys.stderr)
+    print(f"[pipeline] Universe loaded: {len(universe)} tickers"
+          f"{' (random sample)' if (limit and random_sample) else ''}", file=sys.stderr)
 
     # --- Market Data Agent: full-universe technical screen (core.pullback_reversal) ---
     market_agent = MarketDataAgent(settings)
@@ -176,7 +185,9 @@ def run_pipeline(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="SwingFinder Agents pipeline")
-    parser.add_argument("--limit", type=int, default=None, help="Limit universe to first N tickers (fast iteration)")
+    parser.add_argument("--limit", type=int, default=None, help="Limit universe to N tickers (fast iteration)")
+    parser.add_argument("--random-sample", action="store_true",
+                         help="With --limit, pick N tickers at random instead of the first N in the universe CSV")
     parser.add_argument("--skip-decision", action="store_true", help="Stop before FMP research/Anthropic calls (test screener + sector cap only)")
     parser.add_argument("--dry-run", action="store_true", default=True, help="Portfolio execution dry-run (default: True)")
     parser.add_argument("--candidate-pool-size", type=int, default=CANDIDATE_POOL_SIZE,
@@ -200,6 +211,7 @@ def main() -> None:
     try:
         result = run_pipeline(
             limit=args.limit,
+            random_sample=args.random_sample,
             skip_decision=args.skip_decision,
             dry_run=args.dry_run,
             candidate_pool_size=args.candidate_pool_size,
