@@ -1704,3 +1704,85 @@ doesn't, that's further evidence pointing toward building something new rather t
 retrofitting existing code, and toward the general pattern this whole research effort
 has shown: plausible-looking chart patterns very often don't survive rigorous testing,
 even ones a real, profitable trade fit perfectly in hindsight.
+
+## Update 2026-07-13 (real-data result): patterns underperform doing nothing too — including Double Bottom specifically
+
+Ran the real-data test (GH Actions run 29214735773, commit `e887204`, same
+`n_tickers=60, lookback_days=760, step_days=10` sampling as every prior run). n=2250
+scored dates, 2126 with a detected pattern, 124 no-signal control.
+
+**Signal vs. no-signal control (bias-aware):**
+
+| | n | win rate | mean return |
+|---|---|---|---|
+| all patterns | 2126 | 52.1% | +2.60% |
+| Bullish patterns only | 1320 | 53.5% | +2.69% |
+| Bearish patterns only | 806 | 49.8% | +2.46% |
+| no-signal control | 124 | **58.1%** | **+7.19%** |
+
+The no-signal control beat every pattern category on both win rate and mean return —
+by a wide margin. (The control's baseline return is much larger here than in the
+SmartScore audit's control, +7.19% vs. +0.74% — the specific tickers/dates that trigger
+a chart pattern vs. not aren't the same subsample as SmartScore's signal/no-signal
+split, so the two controls aren't directly comparable to each other, only to their own
+respective signal populations.)
+
+**Rank-IC by bias:** Bullish patterns: 0.0079, p=0.773 (no signal at all). Bearish
+patterns: **-0.0751, p=0.0331** — technically significant, and in the theoretically
+correct direction (higher bearish confidence should track more downside). This is the
+first result all session with p < 0.05 in the theoretically expected direction. **Read
+it with real caution, not as a discovery:** the magnitude is tiny (rank-IC -0.075 is
+far below the ~0.03-0.05 threshold this doc has called "meaningful" throughout), the
+overall Bearish population's plain win rate is 49.8% — a coin flip, and well below the
+58.1% control — and this is one significant p-value among dozens of statistical tests
+run across this entire research effort (SmartScore's overall + 6 components, 3 target
+modes, momentum, and now patterns' 2 biases + per-pattern-type breakdown). A single
+borderline hit in a long sequence of tests is exactly what you'd expect from chance
+alone, the same reasoning already applied to the volatility-target test's
+`base_tightness_bonus` result. Not dismissed outright, but not actionable from this
+alone.
+
+**`Double Bottom` specifically — the pattern matching the EMBJ trade — underperformed
+the no-signal control on both measures:**
+
+| | n | win rate | mean return |
+|---|---|---|---|
+| Double Bottom | 988 | 53.3% | +3.00% |
+| no_signal_control | 124 | 58.1% | +7.19% |
+
+Direct, unambiguous answer to the question that motivated this test: `detect_double_bottom()`
+does not show a demonstrated edge in this sample — it underperforms doing nothing, both
+on win rate and average return. This doesn't mean the EMBJ trade was a bad decision or
+that it worked by pure chance — a single winning trade doesn't need to come from a
+systematically reliable pattern, and the news catalyst (large new orders) the user
+described may well have been the more important factor, not the chart shape alone. But
+it does mean the technical pattern by itself, tested the same rigorous way as everything
+else this session, isn't something to trust as a screener.
+
+**Full by-pattern-type breakdown, all 8 detectors:**
+
+| pattern | n | win rate | mean return |
+|---|---|---|---|
+| Cup and Handle | 121 | 60.3% | +2.18% |
+| Head and Shoulders | 75 | 58.7% | +3.20% |
+| no_signal_control | 124 | 58.1% | +7.19% |
+| Bull Flag | 18 | 55.6% | +0.89% |
+| Double Bottom | 988 | 53.3% | +3.00% |
+| Ascending Triangle | 193 | 49.7% | +1.60% |
+| Descending Triangle | 112 | 49.1% | +4.26% |
+| Double Top | 606 | 49.0% | +2.07% |
+| Bear Flag | 13 | 38.5% | +0.82% |
+
+No detector clears the no-signal control's win rate; only Cup and Handle and Head and
+Shoulders come close, both on small-ish samples. Bear Flag's 38.5% win rate (n=13,
+too small to read much into on its own) is notably bad — a Bearish pattern predicting
+price would fall, correct less than 40% of the time.
+
+**Where this leaves the SmartScore-adjustment audit:** of the four inputs that feed
+SmartScore's final score, three have now been directly tested — setup classification
+(null/inverted), ML edge (null, across five separate ML experiments), and chart
+patterns (null, including the specific pattern tied to a real trade). Only volume
+profile (point-of-control/value-area) remains untested. Given the consistency of
+results so far, the honest expectation going in would be more of the same, but it's the
+last piece worth checking before deciding what — if anything — of the current scoring
+system is worth keeping.
