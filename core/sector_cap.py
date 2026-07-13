@@ -3,7 +3,9 @@ Sector cap — FRESH DESIGN, not a port.
 
 swing-finder-v2 has no "max N per sector" logic anywhere (only an opt-in sector-
 momentum inclusion filter, unrelated). This implements a straightforward post-ranking
-cap: walk the SmartScore-descending list and keep at most `cap` tickers per sector.
+cap: walk the ranked list (whatever order the caller sorted it in) and keep at most
+`cap` tickers per sector. Fully generic — doesn't hardcode a ranking column, just
+assumes the caller already sorted ranked_df by their priority order.
 
 Validate this against the actual "SwingFinder Screening Parameters (v2 - Tuned)"
 Google Sheet definition before relying on it at full scale — this is a reasonable
@@ -17,7 +19,7 @@ import pandas as pd
 
 def apply_sector_cap(ranked_df: pd.DataFrame, cap: int = 3, sector_col: str = "Sector") -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    ranked_df must already be sorted by SmartScore descending.
+    ranked_df must already be sorted by the caller's priority order (descending).
 
     Returns (kept_df, excluded_df). excluded_df carries an "ExclusionReason"
     column ("sector_cap") so the reason a ticker was dropped stays visible in

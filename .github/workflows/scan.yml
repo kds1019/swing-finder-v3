@@ -7,11 +7,6 @@ on:
         description: "Limit universe to first N tickers (blank = full universe)"
         required: false
         default: "20"
-      skip_ml:
-        description: "Skip ML/multi-timeframe/relative-strength enrichment (faster)"
-        required: false
-        default: false
-        type: boolean
       skip_decision:
         description: "Skip Anthropic synthesis (agents 1-3 only)"
         required: false
@@ -66,7 +61,6 @@ jobs:
           mkdir -p results
           ARGS=""
           if [ -n "${{ inputs.limit }}" ]; then ARGS="$ARGS --limit ${{ inputs.limit }}"; fi
-          if [ "${{ inputs.skip_ml }}" = "true" ]; then ARGS="$ARGS --skip-ml"; fi
           if [ "${{ inputs.skip_decision }}" = "true" ]; then ARGS="$ARGS --skip-decision"; fi
           python pipeline.py $ARGS | tee results/latest.json
           cp results/latest.json "results/$(date -u +%Y-%m-%d_%H%M)Z.json"
@@ -90,6 +84,11 @@ jobs:
           set -eo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add results/ ml_predictions.csv pick_outcomes.csv
+          # ml_predictions.csv was the ML-forecast accuracy log — no longer generated
+          # since the ML ensemble was removed from the live pipeline (found no
+          # demonstrated edge, see docs/ml-edge-confidence-research.md); only add it
+          # if it still exists from a prior run, so this doesn't fail under -e.
+          git add results/ pick_outcomes.csv
+          [ -f ml_predictions.csv ] && git add ml_predictions.csv
           git diff --cached --quiet && echo "No changes to commit" || git commit -m "Scan results: $(date -u +%Y-%m-%d\ %H:%M)Z"
           git push
