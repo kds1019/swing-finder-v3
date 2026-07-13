@@ -37,6 +37,7 @@ def _strip_code_fence(text: str) -> str:
     return _CODE_FENCE_RE.sub("", text).strip()
 
 MODEL = "claude-sonnet-5"
+MODEL_MAX_OUTPUT_TOKENS = 128_000  # claude-sonnet-5's real max_tokens limit; update if MODEL changes
 FINAL_WATCHLIST_SIZE = 18  # user asked for a top 15-20; picked the midpoint as the target count
 
 SYSTEM_PROMPT = f"""You are the research and selection step of a swing-trading screening
@@ -172,12 +173,12 @@ class DecisionAgent:
         # many candidates survived sector cap, which can be more than FINAL_WATCHLIST_SIZE).
         # 2000/ticker + 3000 overhead is the per-ticker budget prior prompt growth settled on
         # (see git history) once FMP research, position sizing, and open-order checks were all
-        # in the prompt. Ceiling raised from an earlier, too-low 32000 to claude-sonnet-5's
-        # actual max_tokens limit (128000, confirmed via the Models API) after a real 24-candidate
-        # run got cut off mid-JSON at 32000 tokens ("truncated": true, stop_reason="max_tokens") —
-        # CANDIDATE_POOL_SIZE=40's worst case (2000*40+3000=83000) fits comfortably under this.
+        # in the prompt. Ceiling raised from an earlier, too-low 32000 to MODEL_MAX_OUTPUT_TOKENS
+        # after a real 24-candidate run got cut off mid-JSON at 32000 tokens ("truncated": true,
+        # stop_reason="max_tokens") — CANDIDATE_POOL_SIZE=40's worst case (2000*40+3000=83000)
+        # fits comfortably under this.
         num_tickers = len(research_data)
-        max_tokens = min(128000, max(8000, 2000 * num_tickers + 3000))
+        max_tokens = min(MODEL_MAX_OUTPUT_TOKENS, max(8000, 2000 * num_tickers + 3000))
 
         try:
             # A non-streaming create() call errors out ("Streaming is required for
