@@ -33,7 +33,7 @@ from agents.decision_agent import DecisionAgent
 
 # Max tickers (after the technical screener + sector cap) carried into the research/decision
 # step — wider than the old SHORTLIST_SIZE=20, since DecisionAgent's job is now to SELECT the
-# final ~18 (see agents.decision_agent.FINAL_WATCHLIST_SIZE) from this candidate pool using
+# final ~20 (see agents.decision_agent.FINAL_WATCHLIST_SIZE) from this candidate pool using
 # fundamentals/news, not just polish an already-fixed list. Ordered by BounceOffLowPct
 # (core.pullback_reversal's own sort) if more candidates pass than this cap.
 CANDIDATE_POOL_SIZE = 40
