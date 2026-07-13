@@ -15,9 +15,12 @@ name: ML Edge Confidence Backtest
 # scoring weights) tracks forward returns at all (it didn't — no-signal control beat
 # every signal category). The momentum_walk_forward.py steps test a candidate
 # replacement entirely independent of core.smartscore: cross-sectional 12-1 momentum,
-# unlike anything tested above. Kept in this one workflow rather than separate files
-# for the shared ticker sampling/credentials and one trigger to remember, not because
-# it's still only about "ML edge confidence."
+# unlike anything tested above. The patterns_walk_forward.py steps close out the last
+# untested piece of SmartScore's four score-adjustment inputs (setup classification and
+# ML edge already tested null; volume profile is tracked separately) — does
+# core.patterns.py's chart-pattern detection track forward returns at all? Kept in this
+# one workflow rather than separate files for the shared ticker sampling/credentials and
+# one trigger to remember, not because it's still only about "ML edge confidence."
 
 on:
   workflow_dispatch:
@@ -266,6 +269,33 @@ jobs:
             echo "Skipping momentum analysis: research/momentum_results.csv is missing or empty"
           fi
 
+      # Closes out the last untested piece of SmartScore's four score-adjustment inputs
+      # (setup classification and ML edge already tested null; volume profile is tracked
+      # separately) — does core.patterns.py's chart-pattern detection (Bull Flag, Cup and
+      # Handle, Double Bottom, Ascending Triangle, Bear Flag, Double Top, Head and
+      # Shoulders, Descending Triangle) actually track forward returns?
+      - name: Run patterns walk-forward
+        if: always()
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: |
+          set -eo pipefail
+          rm -f research/patterns_results.csv
+          python -m research.patterns_walk_forward \
+            --n-tickers "${{ inputs.n_tickers }}" \
+            --lookback-days "${{ inputs.lookback_days }}" \
+            --step-days "${{ inputs.step_days }}"
+
+      - name: Analyze patterns results
+        run: |
+          set -eo pipefail
+          if [ -s research/patterns_results.csv ]; then
+            python -m research.analyze_patterns | tee research/patterns_summary.txt
+          else
+            echo "Skipping patterns analysis: research/patterns_results.csv is missing or empty"
+          fi
+
       - name: Commit results
         if: always()
         run: |
@@ -283,7 +313,8 @@ jobs:
                    research/rules_based_results_flat_target.csv research/rules_based_summary_flat_target.txt \
                    research/rules_based_results_volatility_target.csv research/rules_based_summary_volatility_target.txt \
                    research/smartscore_results.csv research/smartscore_summary.txt \
-                   research/momentum_results.csv research/momentum_summary.txt; do
+                   research/momentum_results.csv research/momentum_summary.txt \
+                   research/patterns_results.csv research/patterns_summary.txt; do
             [ -f "$f" ] && git add "$f"
           done
           git diff --cached --quiet && echo "No changes to commit" || git commit -m "ML edge confidence backtest: $(date -u +%Y-%m-%d\ %H:%M)Z"

@@ -1583,7 +1583,7 @@ factor, so a null result here would say more about this specific universe/sample
 period than about whether *any* systematic edge could ever be found, unlike the
 technical-setup heuristics already ruled out.
 
-## Update 2026-07-12 (real-data result): momentum is null too — no rank-IC, and the bucket pattern doesn't even trend the right direction
+## Update 2026-07-12 (real-data result): momentum is null too — no rank-IC, and the bucket pattern doesn't even trend in the right direction
 
 Ran the real-data test (GH Actions run 29210133520, commit `61b79b7`, same
 `n_tickers=60, lookback_days=760, step_days=10` sampling as every prior run). n=2250
@@ -1632,3 +1632,75 @@ practitioner research cited earlier in this document), try a specific different
 angle (e.g. a different holding period, a different universe of tickers, or a
 fundamentals-based factor rather than a price-only one), or stop the signal-hunting
 phase of this research effort here and work with what's already been learned.
+
+## Update 2026-07-13 (chart-pattern audit, built): closing out SmartScore's last untested input
+
+User's actual workflow with the pipeline, discussed directly (see chat): run the scan,
+review the top-20 SmartScore-ranked list, hand-pick a few for a watchlist, then apply
+personal judgment (watching for trend reversal/momentum) before acting — not mechanical
+execution of SmartScore's trade plan. Given that, and given the account only trades ~2
+concurrent positions (too small for the diversification-based edge-smoothing
+professional quants rely on with weak signals — see the earlier practitioner-research
+discussion), the honest read is that concentrated, per-pick quality matters more here
+than for a diversified account, which raises the stakes on whether *anything* in this
+pipeline actually identifies quality.
+
+User described a specific pattern they watch for, using a real trade (EMBJ, bought
+2026-06-12 at $57.50, sold 2026-07-01 at $64.00, +11.3%) as the reference case: a big
+pullback, then stabilization or an early reversal, ideally bouncing off support more
+than once. Pulled the actual trade and price history via the Webull MCP tools (not just
+the verbal description) to ground this rather than relying on memory: EMBJ's chart shows
+a real double-bottom — a low of $53.72 (2026-05-19), a bounce to a peak of $58.86
+(2026-05-27), a second low of $53.44 (2026-06-10, 0.5% from the first), then a bounce the
+user bought into on 2026-06-12, before the pattern fully broke out above the $58.86 peak.
+This maps closely onto `core/patterns.py::detect_double_bottom()`, one of 8 existing
+chart-pattern detectors (Bull Flag, Cup and Handle, Double Bottom, Ascending Triangle,
+Bear Flag, Double Top, Head and Shoulders, Descending Triangle) that feed a SmartScore
+bonus/penalty via `evaluate_pattern_score()` but had never been walk-forward tested this
+research effort — the fourth and last of SmartScore's four score-adjustment inputs
+(setup classification and ML edge already tested null this session; volume profile is
+tracked separately, still untested). Worth checking whether this existing detector
+already has real edge before building something new from scratch.
+
+**`research/patterns_walk_forward.py`**: same deconfounding principle as the SmartScore
+audit — raw N-day-ahead forward return, no target/stop/barrier resolution, plus a
+no-signal control population (dates where `detect_patterns()` found nothing). Unlike
+SmartScore's audit, chart patterns carry an explicit directional bias (Bullish patterns
+get a SmartScore bonus, Bearish ones a penalty, and each pattern's own `action` text says
+to buy Bullish breakouts / avoid longs on Bearish ones) — so `direction_correct` is
+bias-aware: a Bullish pattern is "correct" if the forward return is positive, a Bearish
+pattern is "correct" if it's negative. This is a stricter, more specific test than
+SmartScore's "any signal beats no signal," since these detectors make an explicit,
+checkable directional claim.
+
+**`research/analyze_patterns.py`**: signal-vs-control baseline (bias-aware), rank-IC
+between `pattern_confidence` and forward return computed separately for Bullish/Bearish
+subsets (reuses `research/analyze_smartscore.py::compute_rank_ic()` unmodified — a
+working Bullish detector should show positive rank-IC, a working Bearish detector
+negative), the standard quintile bucket report (reuses
+`research/analyze_confidence.py::confidence_bucket_report()` unmodified), and a
+by-pattern-type breakdown across all 8 detectors plus the no-signal control.
+
+**Tested against synthetic data first** (same 20-seed random-walk pattern used
+throughout): 1140 rows, 1114 signal / 26 control — patterns fire far more often than
+SmartScore's setup classification did on the same data (`detect_patterns()` has no
+price/volume gating of its own, unlike `compute_smartscore`). Bias-aware win rates and
+rank-ICs computed without error across all 8 pattern types; confirms the pipeline runs
+correctly and the bias-aware scoring logic works as designed. Not a finding — this is
+random-walk data with no real chart-pattern signal to detect either way.
+
+Wired into `ml_confidence_backtest.yml` as two more steps (`research/patterns_results.csv`
+/ `research/patterns_summary.txt`), same `if [ -s ... ]` guard pattern as every other
+optional step.
+
+**Not yet run against real data.** Next step: trigger the workflow and read the
+signal-vs-control comparison, the per-bias rank-ICs, and — most directly relevant to the
+EMBJ discussion — `Double Bottom`'s own row in the by-pattern-type breakdown specifically.
+If `detect_double_bottom()` shows real, statistically-backed edge, that's a strong
+argument for keeping/tuning it (its entry-timing rule, "buy the breakout above the middle
+peak," is more conservative than the actual EMBJ entry, which bought the second bounce
+before breakout — worth testing both timings if the base pattern shows promise). If it
+doesn't, that's further evidence pointing toward building something new rather than
+retrofitting existing code, and toward the general pattern this whole research effort
+has shown: plausible-looking chart patterns very often don't survive rigorous testing,
+even ones a real, profitable trade fit perfectly in hindsight.
