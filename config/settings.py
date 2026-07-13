@@ -50,9 +50,11 @@ class Settings:
     earnings_buffer_hard_days: int = 14  # base scanner: hard exclude
     smartscore_baseline: int = 50
     # Max % of account net liquidation value to risk on a single trade (position size =
-    # this dollar amount / abs(entry - stop)) — standard conservative retail swing-trading
-    # convention. Used by DecisionAgent to size each ranked pick.
-    risk_per_trade_pct: float = 1.0
+    # this dollar amount / abs(entry - stop)). Used by DecisionAgent to size each ranked pick.
+    # Raised from 1.0 to 4.0 on 2026-07-13 per explicit user instruction (wanted 3-5%,
+    # picked the midpoint) after seeing the 1%-based sizing round several picks down to
+    # 2-4 shares on a small account.
+    risk_per_trade_pct: float = 4.0
 
     # --- Data pull parameters ---
     # Bumped from 60 to 300 (2026-07-13): core.pullback_reversal's EMA200 uptrend check
