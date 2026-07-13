@@ -35,6 +35,13 @@ class Settings:
     # --- Universe ---
     universe_csv_path: str = field(default_factory=lambda: os.environ.get("UNIVERSE_CSV_PATH", "data/universe.csv"))
 
+    # Tickers the user already holds long-term (not swing positions) and never wants
+    # re-picked or flagged by this pipeline — excluded right after the screener, before
+    # sector cap/research, so they don't consume a sector-cap slot or an FMP call.
+    # HELP and CYBN are the same company under two ticker symbols (renamed) — both listed
+    # since the universe CSV may carry either depending on when it was last exported.
+    excluded_tickers: tuple[str, ...] = ("HELP", "CYBN")
+
     # --- Canonical screening parameters (from the tuned sheet) ---
     vix_gate_ceiling: float = 20.0
     # Raised from the sheet's 2.0 to 3.0 on 2026-07-07: professional swing-trading
