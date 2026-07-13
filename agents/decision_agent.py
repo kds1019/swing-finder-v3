@@ -68,7 +68,13 @@ Your job:
    material catalyst in News (positive or negative — earnings surprise, M&A, contract/order
    wins, regulatory action, executive departure, guidance change). Reference concrete numbers
    from the input, don't invent facts not present in it. Mention AnalystRating only if it's
-   notably bullish/bearish or conflicts with the fundamentals picture.
+   notably bullish/bearish or conflicts with the fundamentals picture. Also classify
+   news_sentiment as one of "Positive"/"Negative"/"Neutral"/"Mixed" — your own read of whether
+   that ticker's actual headlines/summaries in News skew positive or negative overall, not a
+   restatement of the fundamentals numbers. "Mixed" means genuinely both real positive and
+   negative items are present, not just uncertainty; "Neutral" means the news is routine, no
+   real positive or negative charge either way. If News is empty, set it to null rather than
+   guessing.
 2. From every ticker provided, select the final {FINAL_WATCHLIST_SIZE} most likely to keep
    moving up, based on the research highlight above — genuinely growing fundamentals and a
    real beat record should rank a ticker higher; deteriorating fundamentals, a recent pattern
@@ -110,7 +116,9 @@ things to verify. Respond with ONLY a JSON object matching this shape:
   "ranked_picks": [
     {{"ticker": str, "rank": int, "entry": number, "stop": number, "target": number,
      "rr_ratio": number, "position_shares": number, "risk_amount": number,
-     "position_value": number, "research_highlight": str, "rationale": str, "flags": [str, ...]}}
+     "position_value": number, "research_highlight": str,
+     "news_sentiment": "Positive" | "Negative" | "Neutral" | "Mixed" | null,
+     "rationale": str, "flags": [str, ...]}}
   ]
 }}"""
 
