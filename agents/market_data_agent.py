@@ -25,18 +25,8 @@ from alpaca.data.enums import DataFeed, Adjustment
 
 from core.universe import batch_tickers
 from core.indicators import compute_indicators
-from core.pullback_reversal import (
-    detect_pullback_reversal,
-    EMA200_TREND_LOOKBACK_DAYS,
-    CONSOLIDATION_LOOKBACK_DAYS,
-)
+from core.pullback_reversal import detect_pullback_reversal, MIN_BARS_FOR_SCREENER
 from core.trade_plan import compute_trade_plan
-
-# Same minimum detect_pullback_reversal() itself requires (see core/pullback_reversal.py) —
-# referenced here rather than duplicated as a bare number so the two can't drift apart again
-# the way the old hardcoded `< 60` (a leftover from core.smartscore's own minimum) did once the
-# screener's actual lookback requirement changed.
-MIN_BARS_FOR_SCREENER = max(EMA200_TREND_LOOKBACK_DAYS, CONSOLIDATION_LOOKBACK_DAYS) + 1
 
 
 def compute_market_bias(spy_df: pd.DataFrame | None) -> str | None:
@@ -182,6 +172,17 @@ class MarketDataAgent:
         latest updates); bars_by_ticker is the raw indicator-augmented OHLCV per
         ticker, kept separately for downstream use.
         """
+        # Fail fast rather than silently rejecting every ticker as "insufficient_data" —
+        # this exact misconfiguration (bars_lookback_days too short for the screener's
+        # real requirement) already caused two live runs to come back with zero matches.
+        if settings.bars_lookback_days < MIN_BARS_FOR_SCREENER:
+            raise ValueError(
+                f"settings.bars_lookback_days ({settings.bars_lookback_days}) is below "
+                f"core.pullback_reversal.MIN_BARS_FOR_SCREENER ({MIN_BARS_FOR_SCREENER}); "
+                "every ticker would be silently rejected as insufficient_data. Raise "
+                "bars_lookback_days in config/settings.py."
+            )
+
         tickers = universe_df["Ticker"].tolist()
         sector_lookup = dict(zip(universe_df["Ticker"], universe_df["Sector"]))
 

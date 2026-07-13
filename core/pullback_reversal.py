@@ -68,6 +68,15 @@ MIN_BOUNCE_OFF_LOW_PCT = 3.0
 # "at/below POC" — the latter would have excluded the real EMBJ trade itself.
 VOLUME_PROFILE_WINDOW_DAYS = 60
 
+# Minimum bars this screener needs to run at all — defined here (not duplicated as a
+# magic number by callers) so a future change to either lookback constant can't
+# silently desynchronize from whatever pre-filter a caller applies before invoking
+# this function. agents/market_data_agent.py imports this directly for that reason —
+# a hardcoded `len(df) < 60` here previously (a leftover from core.smartscore's own
+# minimum) silently rejected almost every ticker as "insufficient_data" once this
+# screener's real requirement grew past 60.
+MIN_BARS_FOR_SCREENER = max(EMA200_TREND_LOOKBACK_DAYS, CONSOLIDATION_LOOKBACK_DAYS) + 1
+
 
 def detect_pullback_reversal(df: pd.DataFrame) -> dict:
     """Detects the EMA200 pullback + stabilization/reversal setup for the most
@@ -76,8 +85,7 @@ def detect_pullback_reversal(df: pd.DataFrame) -> dict:
     setup's criteria aren't met; otherwise returns "detected": True plus the raw
     measurements (not a 0-100 score) so callers can rank/filter on whichever
     dimension matters most — this only gates whether the pattern is present."""
-    min_bars = max(EMA200_TREND_LOOKBACK_DAYS, CONSOLIDATION_LOOKBACK_DAYS) + 1
-    if df is None or len(df) < min_bars:
+    if df is None or len(df) < MIN_BARS_FOR_SCREENER:
         return {"detected": False, "reason": "insufficient_data"}
 
     close = df["Close"]
