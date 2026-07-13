@@ -178,7 +178,13 @@ class DecisionAgent:
         max_tokens = min(32000, max(8000, 2000 * num_tickers + 3000))
 
         try:
-            response = self.client.messages.create(
+            # A non-streaming create() call errors out ("Streaming is required for
+            # operations that may take longer than 10 minutes") once max_tokens is large
+            # enough that the SDK estimates the response could take that long — confirmed
+            # live once num_tickers reached 12 (max_tokens=27000). .stream() sidesteps
+            # this while still yielding a normal final Message via get_final_message(),
+            # so nothing below this call needs to change.
+            with self.client.messages.stream(
                 model=MODEL,
                 max_tokens=max_tokens,
                 # SYSTEM_PROMPT is static (~1550 tokens, well over the 1024-token minimum for
@@ -190,7 +196,8 @@ class DecisionAgent:
                 # cached — there'd be nothing to reuse.
                 system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": "user", "content": user_prompt}],
-            )
+            ) as stream:
+                response = stream.get_final_message()
         except Exception as e:
             # The SDK already retries transient errors internally (max_retries=3 above) — this
             # catches whatever's left after those are exhausted (or a non-retryable error) and
