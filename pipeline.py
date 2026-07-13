@@ -107,6 +107,18 @@ def run_pipeline(
     if ranked_df.empty:
         return {"error": "No tickers matched the pullback/reversal screener", "ranked_df_empty": True}
 
+    # Drop the user's existing long-term holds — never swing candidates, and excluded here
+    # (before sector cap/research) so they don't consume a sector-cap slot or an FMP call.
+    if settings.excluded_tickers:
+        excluded_mask = ranked_df["Ticker"].isin(settings.excluded_tickers)
+        if excluded_mask.any():
+            print(f"[pipeline] Excluding long-term holds from screener matches: "
+                  f"{ranked_df.loc[excluded_mask, 'Ticker'].tolist()}", file=sys.stderr)
+        ranked_df = ranked_df[~excluded_mask].reset_index(drop=True)
+
+    if ranked_df.empty:
+        return {"error": "No tickers matched the pullback/reversal screener after excluding long-term holds", "ranked_df_empty": True}
+
     # --- Sector cap ---
     capped_df, sector_excluded_df = apply_sector_cap(ranked_df, settings.sector_cap)
     print(f"[pipeline] After sector cap ({settings.sector_cap}/sector): {len(capped_df)} tickers "
