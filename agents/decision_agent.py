@@ -38,7 +38,7 @@ def _strip_code_fence(text: str) -> str:
 
 MODEL = "claude-sonnet-5"
 MODEL_MAX_OUTPUT_TOKENS = 128_000  # claude-sonnet-5's real max_tokens limit; update if MODEL changes
-FINAL_WATCHLIST_SIZE = 18  # user asked for a top 15-20; picked the midpoint as the target count
+FINAL_WATCHLIST_SIZE = 20  # user asked for a top 15-20; raised to 20 (the max) per explicit request
 
 SYSTEM_PROMPT = f"""You are the research and selection step of a swing-trading screening
 pipeline. You receive tickers that have ALREADY passed core.pullback_reversal's technical
