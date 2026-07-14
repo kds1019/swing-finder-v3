@@ -190,6 +190,11 @@ class DecisionAgent:
             with self.client.messages.stream(
                 model=MODEL,
                 max_tokens=max_tokens,
+                # Minimizes run-to-run variance in the ranking/selection judgment call itself
+                # (e.g. GCT ranking 9th in one run and 1st in another on near-identical inputs).
+                # Not a full determinism guarantee — the API isn't bit-for-bit reproducible even
+                # at temperature=0 — but it removes the main source of the swings seen so far.
+                temperature=0,
                 # SYSTEM_PROMPT is static (~1550 tokens, well over the 1024-token minimum for
                 # prompt caching to apply) and identical on every call — cache_control marks it
                 # as reusable so repeated runs within the cache TTL (~5 min, e.g. iterative
