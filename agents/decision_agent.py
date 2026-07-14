@@ -190,6 +190,10 @@ class DecisionAgent:
             with self.client.messages.stream(
                 model=MODEL,
                 max_tokens=max_tokens,
+                # No temperature override here — claude-sonnet-5 rejects any non-default
+                # sampling parameter (temperature/top_p/top_k) with a 400. There is no lever
+                # to reduce ranking-judgment variance via sampling on this model; see git
+                # history for the reverted attempt and MODEL's real behavior.
                 # SYSTEM_PROMPT is static (~1550 tokens, well over the 1024-token minimum for
                 # prompt caching to apply) and identical on every call — cache_control marks it
                 # as reusable so repeated runs within the cache TTL (~5 min, e.g. iterative
