@@ -33,14 +33,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: |
-          # ubuntu-latest runners have no GPU — installing plain "torch" from PyPI can
-          # pull a much larger CUDA-enabled wheel for no benefit (core.ml_forecast's
-          # sentiment_df feature is optional at runtime, but requirements.txt's torch>=2.0
-          # is still installed every run regardless). Installing the CPU-only build first
-          # from PyTorch's own index satisfies that constraint without the extra weight.
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Restore Webull auth token
         env:
@@ -90,11 +83,6 @@ jobs:
           set -eo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # ml_predictions.csv was the ML-forecast accuracy log — no longer generated
-          # since the ML ensemble was removed from the live pipeline (found no
-          # demonstrated edge, see docs/ml-edge-confidence-research.md); only add it
-          # if it still exists from a prior run, so this doesn't fail under -e.
           git add results/ pick_outcomes.csv
-          [ -f ml_predictions.csv ] && git add ml_predictions.csv
           git diff --cached --quiet && echo "No changes to commit" || git commit -m "Scan results: $(date -u +%Y-%m-%d\ %H:%M)Z"
           git push

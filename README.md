@@ -14,11 +14,7 @@ Portfolio Agent (Webull)      -+
 - **Market Data Agent** — Alpaca bars for the whole universe scan, screened by
   `core/pullback_reversal.py` (a pullback into a rising 200-day EMA that has
   stabilized and shown an early bounce, not extended above its own volume
-  profile's value area). This replaced the original SmartScore system
-  (`core/smartscore.py`'s Breakout/Pullback classification, an ML-edge
-  adjustment, and chart-pattern detection) after walk-forward testing found no
-  demonstrated edge in any of those three — see
-  `docs/ml-edge-confidence-research.md` for the full research trail.
+  profile's value area), calibrated directly against a real trade.
 - **Research Agent** — FMP fundamentals/earnings-beat-miss-history/quarterly
   growth/analyst ratings + 6-12 months of news, called only on the
   post-screener/post-sector-cap candidate pool, never the full universe.
@@ -89,54 +85,14 @@ Actions → New repository secret) — same values as your local `.env`:
 `WEBULL_REGION_ID`/`WEBULL_ENVIRONMENT` aren't secret and are hardcoded in
 the workflow (`us`/`prod`).
 
-## Screening research and the 2026-07-13 rewrite
-
-This pipeline originally scored/ranked tickers with a SmartScore system
-(`core/smartscore.py`'s Breakout/Pullback setup classification, an ML-edge
-adjustment from an ensemble forecast in `core/ml_forecast.py`, a volume-profile
-adjustment, and chart-pattern detection in `core/patterns.py`). An extensive
-walk-forward research effort (`docs/ml-edge-confidence-research.md` — five ML
-feature experiments, three exit/target formulas, and direct audits of the
-setup-classification and chart-pattern logic) found no demonstrated edge in
-any of it except volume profile, which was never tested (untested, not
-disproven).
-
-As a result, the live pipeline was rewritten on 2026-07-13:
-
-- **Removed entirely**: `core/smartscore.py`'s setup classification, the ML
-  ensemble forecast and its accuracy tracking (`core/ml_forecast.py`,
-  `core/ml_tracking.py`, the old `ml_predictions.csv` log), multi-timeframe
-  alignment, relative strength vs. SPY, chart-pattern detection, and
-  `core/deep_discount_filter.py` (which existed only to adjust the
-  now-removed SmartScore). These files still exist in the repo (not deleted,
-  for reference) but nothing in the live pipeline calls them anymore.
-- **Kept and repurposed**: volume profile (`core/volume_profile.py`) — folded
-  into the new technical screener as a confirming condition, not a bonus/
-  penalty on a score that no longer exists.
-- **New**: `core/pullback_reversal.py` — a technical screener for a pullback
-  into a rising 200-day EMA that has stabilized and shown an early bounce,
-  calibrated directly against a real trade rather than a generic pattern.
-  This screener has NOT been walk-forward validated the way the system it
-  replaced was found to have no edge — treat its output as a candidate
-  filter, not a proven signal.
-- **`DecisionAgent`'s role changed**: it used to add research color on top of
-  an already-decided SmartScore ranking; now it reads real fundamentals
-  context (earnings-beat/miss history, quarterly growth trends, 6-12 months
-  of news) and IS the ranking/selection mechanism, picking the final
-  watchlist (`agents/decision_agent.py::FINAL_WATCHLIST_SIZE`) from the
-  technically-screened candidate pool.
-
-`docs/ml-edge-confidence-research.md` has the full research trail if you want
-the details behind any of this.
-
 ## Known gaps
 
 - The technical screener (`core/pullback_reversal.py`) hasn't been
-  walk-forward validated — see above.
-- `core/sector_cap.py` and `core/deep_discount_filter.py`'s stabilization
-  logic were reviewed for correctness but never validated against a
-  confirmed source spec (no prior implementation existed to check against).
-  `deep_discount_filter.py` is currently unused (see above).
+  walk-forward validated — treat its output as a candidate filter, not a
+  proven signal.
+- `core/sector_cap.py`'s stabilization logic was reviewed for correctness
+  but never validated against a confirmed source spec (no prior
+  implementation existed to check against).
 
 ## Verification status
 
