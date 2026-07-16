@@ -47,8 +47,8 @@ Portfolio Agent (Webull)      -+
 ## Running
 
 ```
-python pipeline.py --limit 20 --skip-decision   # fast smoke test — Alpaca only, no FMP/Anthropic
-python pipeline.py --skip-decision               # full universe, still no FMP/Anthropic
+python pipeline.py --limit 20 --skip-decision   # fast smoke test — universe build (FMP) + Alpaca, no research/Anthropic
+python pipeline.py --skip-decision               # full universe, still no research/Anthropic
 python pipeline.py                               # full pipeline, all 4 agents
 ```
 
