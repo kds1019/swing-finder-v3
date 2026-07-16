@@ -14,10 +14,12 @@ avoid exceeding the same response cap.
 
 from __future__ import annotations
 
+import sys
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
+from alpaca.common.exceptions import APIError
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
@@ -51,7 +53,7 @@ class MarketDataAgent:
         self.settings = settings
         self.client = StockHistoricalDataClient(settings.alpaca_api_key, settings.alpaca_secret_key)
 
-    def _fetch_batch(self, symbols: list[str], lookback_days: int) -> pd.DataFrame | None:
+    def _fetch_batch(self, symbols: list[str], lookback_days: int, _allow_retry: bool = True) -> pd.DataFrame | None:
         end = datetime.now(timezone.utc)
         # 2.5x calendar-day buffer so weekends/holidays still yield `lookback_days` trading days.
         start = end - timedelta(days=int(lookback_days * 2.5) + 5)
@@ -73,7 +75,21 @@ class MarketDataAgent:
             # actual tradeable prices, and dividend-adjusting would shift them off of that.
             adjustment=Adjustment.SPLIT,
         )
-        bars = self.client.get_stock_bars(request)
+        try:
+            bars = self.client.get_stock_bars(request)
+        except APIError as e:
+            # Alpaca 400s the *entire* batch if even one symbol is invalid (e.g. the live FMP
+            # universe's hyphenated share-class tickers like "BF-B" vs Alpaca's own "BF.B"
+            # convention — confirmed live via GitHub Actions run #28). Fall back to fetching
+            # this batch one symbol at a time so a single bad symbol doesn't take the rest of
+            # the batch down with it; a symbol that still fails alone is skipped and logged.
+            if not _allow_retry or len(symbols) <= 1:
+                print(f"[market_data_agent] skipping {symbols}: {e}", file=sys.stderr)
+                return None
+            frames = [self._fetch_batch([s], lookback_days, _allow_retry=False) for s in symbols]
+            frames = [f for f in frames if f is not None]
+            return pd.concat(frames) if frames else None
+
         df = bars.df
         return df if df is not None and not df.empty else None
 
