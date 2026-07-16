@@ -31,6 +31,16 @@ from core.pullback_reversal import detect_pullback_reversal, MIN_BARS_FOR_SCREEN
 from core.trade_plan import compute_trade_plan
 
 
+def _to_alpaca_symbol(symbol: str) -> str:
+    """FMP's company-screener returns dash-delimited share classes (e.g. "BF-B",
+    Brown-Forman Class B) but Alpaca's market data API only recognizes the
+    dot-delimited form ("BF.B") — passing the dash form 400s the *entire*
+    multi-symbol bars request it's batched into, not just that one symbol
+    (confirmed live: "invalid symbol: BF-B" aborted a 17-symbol batch after the
+    universe builder switched from a static CSV to the live FMP screener)."""
+    return symbol.replace("-", ".")
+
+
 def compute_market_bias(spy_df: pd.DataFrame | None) -> str | None:
     """SPY EMA20 vs EMA50 — informational context only (logged and included in
     pipeline.py's output). No longer feeds SmartScore classification — see
@@ -100,7 +110,9 @@ class MarketDataAgent:
         result: dict[str, pd.DataFrame] = {}
 
         for batch in batch_tickers(tickers, self.settings.alpaca_batch_size):
-            df = self._fetch_batch(batch, lookback_days)
+            alpaca_batch = [_to_alpaca_symbol(s) for s in batch]
+            original_by_alpaca = dict(zip(alpaca_batch, batch))
+            df = self._fetch_batch(alpaca_batch, lookback_days)
             if df is None:
                 continue
 
@@ -116,7 +128,9 @@ class MarketDataAgent:
                 })
                 sym_df["Date"] = pd.to_datetime(sym_df["Date"]).dt.tz_localize(None)
                 sym_df = sym_df.tail(lookback_days).reset_index(drop=True)
-                result[symbol] = sym_df[["Date", "Open", "High", "Low", "Close", "Volume"]]
+                # Key by the original (FMP/dash-style) ticker so it matches the
+                # universe DataFrame's "Ticker" column downstream.
+                result[original_by_alpaca.get(symbol, symbol)] = sym_df[["Date", "Open", "High", "Low", "Close", "Volume"]]
 
         return result
 
@@ -157,7 +171,7 @@ class MarketDataAgent:
         start = end - timedelta(days=int(lookback_days * 2.5) + 5)
 
         request = NewsRequest(
-            symbols=ticker, start=start, end=end, limit=limit,
+            symbols=_to_alpaca_symbol(ticker), start=start, end=end, limit=limit,
             include_content=False, exclude_contentless=True,
         )
         news_set = news_client.get_news(request)
