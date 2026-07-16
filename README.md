@@ -43,15 +43,12 @@ Portfolio Agent (Webull)      -+
      values already configured for `webull-openapi-mcp` so this project shares
      the existing authenticated token instead of re-triggering 2FA.
    - `ANTHROPIC_API_KEY` (console.anthropic.com)
-4. Export the "SwingFinder Master Universe" Google Sheet to CSV and save it as
-   `data/universe.csv` (columns: Ticker, Company Name, Exchange, Sector, Industry,
-   Price, Market Cap ($M), Volume).
 
 ## Running
 
 ```
-python pipeline.py --limit 20 --skip-decision   # fast smoke test — Alpaca only, no FMP/Anthropic
-python pipeline.py --skip-decision               # full universe, still no FMP/Anthropic
+python pipeline.py --limit 20 --skip-decision   # fast smoke test — universe build (FMP) + Alpaca, no research/Anthropic
+python pipeline.py --skip-decision               # full universe, still no research/Anthropic
 python pipeline.py                               # full pipeline, all 4 agents
 ```
 
@@ -99,6 +96,6 @@ the workflow (`us`/`prod`).
 All four agents have been run live end-to-end (real Alpaca bars, real FMP
 `/stable/` responses, real Webull account, real Anthropic synthesis) against a
 small 5-ticker test universe — not just imported/compiled. Before a full
-945-ticker run, watch API usage/cost: FMP calls scale with candidate-pool size
+run, watch API usage/cost: FMP calls scale with candidate-pool size
 (`pipeline.py::CANDIDATE_POOL_SIZE`, several calls/ticker), and the Decision
 Agent makes one Anthropic call per run (not per ticker).
