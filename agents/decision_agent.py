@@ -98,13 +98,21 @@ Your job:
    often means an unusually tight stop than an unusually good target — say so explicitly), and
    PriceVsPOCPct if the ticker sits notably above its point of control (thinner volume support
    underneath than a ticker sitting at/below it).
-5. If pick_track_record is present, it's THIS SYSTEM'S OWN historical performance (win rate,
+5. For each selected pick, write a brief (1-2 sentence) bear case — the strongest reason this
+   pick could fail, grounded in the same research data used for the highlight (e.g. a recent
+   estimate miss despite the clean technical setup, decelerating IncomeGrowth, a bearish
+   AnalystRating split, a negative catalyst in News, or reliance on continued sector/market
+   momentum the technical pattern doesn't independently confirm). This is the qualitative case
+   against the thesis itself, distinct from the mechanical risk flags in the next step — don't
+   just restate a flag as the bear case. If nothing material stands out beyond generic market
+   risk, say so plainly rather than inventing a weak objection.
+6. If pick_track_record is present, it's THIS SYSTEM'S OWN historical performance (win rate,
    target hit vs. stop hit, of past ranked_picks output, tracked independently of whether any
    pick was actually traded) — if sufficient_data is true, weave one brief, proportionate note
    into overall_recommendation (a strong recent win rate supports normal conviction; a weak
    one warrants a more conservative tone regardless of how clean this run's picks look). If
    sufficient_data is false, don't mention it.
-6. If the VIX gate is closed (market_gate_open=false), your top-level recommendation must bias
+7. If the VIX gate is closed (market_gate_open=false), your top-level recommendation must bias
    toward "monitor only, no new entries" regardless of how promising individual picks look.
 
 Do NOT recompute or second-guess the technical screener's numbers, sector cap, earnings
@@ -119,7 +127,7 @@ things to verify. Respond with ONLY a JSON object matching this shape:
      "rr_ratio": number, "position_shares": number, "risk_amount": number,
      "position_value": number, "research_highlight": str,
      "news_sentiment": "Positive" | "Negative" | "Neutral" | "Mixed" | null,
-     "rationale": str, "flags": [str, ...]}}
+     "rationale": str, "bear_case": str, "flags": [str, ...]}}
   ]
 }}"""
 
