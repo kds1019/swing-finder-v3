@@ -6,8 +6,8 @@ SwingFinder Agents — orchestrator and CLI entrypoint.
     Portfolio Agent (Webull)      -+
 
 Usage:
-    python pipeline.py                          # full 945-ticker run
-    python pipeline.py --limit 20 --skip-decision   # fast smoke test, no FMP/Anthropic calls
+    python pipeline.py                          # full run (universe size is dynamic, built live from FMP)
+    python pipeline.py --limit 20 --skip-decision   # fast smoke test, no research/Anthropic calls
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import sys
 import pandas as pd
 
 from config.settings import load_settings
-from core.universe import load_universe
+from core.universe import build_universe
 from core.sector_cap import apply_sector_cap
 from core.pick_tracking import (
     load_pick_outcomes_log, save_pick_outcomes_log, score_due_picks,
@@ -81,7 +81,7 @@ def run_pipeline(
 ) -> dict:
     settings = load_settings()
 
-    universe = load_universe(settings.universe_csv_path)
+    universe = build_universe(settings)
     if limit:
         # random_sample=True picks limit tickers at random instead of the first limit rows —
         # .head(limit) is whatever order the universe CSV happens to be in (e.g. alphabetical),

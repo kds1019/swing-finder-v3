@@ -32,9 +32,6 @@ class Settings:
     webull_token_dir: str = field(default_factory=lambda: os.environ.get("WEBULL_TOKEN_DIR", ""))
     anthropic_api_key: str = field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", ""))
 
-    # --- Universe ---
-    universe_csv_path: str = field(default_factory=lambda: os.environ.get("UNIVERSE_CSV_PATH", "data/universe.csv"))
-
     # Tickers the user already holds long-term (not swing positions) and never wants
     # re-picked or flagged by this pipeline — excluded right after the screener, before
     # sector cap/research, so they don't consume a sector-cap slot or an FMP call.
@@ -43,6 +40,10 @@ class Settings:
     excluded_tickers: tuple[str, ...] = ("HELP", "CYBN")
 
     # --- Canonical screening parameters (from the tuned sheet) ---
+    # price_min/price_max/min_volume now directly gate live universe construction
+    # (core.universe.build_universe's FMP company-screener call), not just the
+    # technical screener downstream — universe membership and these settings are
+    # the same source of truth, they can no longer silently drift apart.
     vix_gate_ceiling: float = 20.0
     # Raised from the sheet's 2.0 to 3.0 on 2026-07-07: professional swing-trading
     # convention favors >=3:1 given swing trades' longer holds and lower win rates
