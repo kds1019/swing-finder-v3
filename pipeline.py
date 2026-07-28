@@ -184,12 +184,19 @@ def run_pipeline(
     pick_log = record_picks(pick_log, ranked_picks, pd.Timestamp.now().strftime("%Y-%m-%d"))
     save_pick_outcomes_log(pick_log, PICK_OUTCOMES_LOG_PATH)
 
+    earnings_excluded_cols = ["Ticker", "DaysToEarnings", "ExclusionReason", "AnalystRating", "EarningsHistory", "IncomeGrowth"]
+    earnings_excluded = (
+        json.loads(earnings_excluded_df[earnings_excluded_cols].to_json(orient="records"))
+        if not earnings_excluded_df.empty else []
+    )
+
     return {
         "market_bias": market_bias,
         "vix": vix,
         "market_gate_open": market_gate_open,
         "sector_excluded_count": len(sector_excluded_df),
         "earnings_excluded_count": len(earnings_excluded_df),
+        "earnings_excluded": earnings_excluded,
         "decision": result,
         "pick_track_record": pick_track_record,
     }
