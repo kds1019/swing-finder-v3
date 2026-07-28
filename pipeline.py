@@ -43,15 +43,53 @@ PICK_OUTCOMES_LOG_PATH = "pick_outcomes.csv"    # persisted in the repo, like re
 NEWS_LOOKBACK_DAYS = 270  # ~9 months — within the user's requested 6-12 month research window
 
 
+def assess_earnings_expectation(row: pd.Series) -> str:
+    """Forward read on a ticker's upcoming earnings report, for tickers sitting inside the
+    earnings buffer window (see apply_earnings_buffer). EarningsPreviewSignal (Zacks' own
+    beat/no-beat verdict, when ResearchAgent.get_earnings_preview_signal found one) is a hard
+    override when present — it's a genuine forward-looking call, unlike the lagging signals
+    below. Otherwise falls back to a 3-part heuristic over data enrich_shortlist already
+    fetched (no extra API calls): recent EPS beat rate, whether the latest quarter's income
+    growth is holding up, and analyst consensus lean. Majority of those three passing reads
+    "positive"; this is a heuristic read, not a prediction model.
+    """
+    preview = row.get("EarningsPreviewSignal")
+    if preview in ("positive", "negative"):
+        return preview
+
+    history = row.get("EarningsHistory") or []
+    recent = history[:4]
+    beats = sum(
+        1 for r in recent
+        if r.get("epsActual") is not None and r.get("epsEstimated") is not None
+        and r["epsActual"] > r["epsEstimated"]
+    )
+    beat_rate = beats / len(recent) if recent else 0.0
+
+    growth = row.get("IncomeGrowth") or []
+    latest_growth = growth[0] if growth else {}
+    growth_ok = (latest_growth.get("growthNetIncome") or 0) > -0.10
+
+    rating = row.get("AnalystRating") or {}
+    buy = (rating.get("strongBuy") or 0) + (rating.get("buy") or 0)
+    hold = rating.get("hold") or 0
+    sell = (rating.get("sell") or 0) + (rating.get("strongSell") or 0)
+    consensus_ok = buy > (hold + sell)
+
+    score = sum([beat_rate >= 0.5, growth_ok, consensus_ok])
+    return "positive" if score >= 2 else "negative"
+
+
 def apply_earnings_buffer(enriched_df: pd.DataFrame, settings) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Hard-excludes tickers with earnings within `earnings_buffer_hard_days` (14).
-    Within the excluded set, tags whether earnings are "imminent" (within
-    `earnings_buffer_soft_days`, 7) vs merely "upcoming" (8-14 days) — this
-    gives both configured thresholds real meaning without contradiction
-    (a single "days_to_earnings <= N" drop can't use two different N's on the
-    same ticker at once, so the softer threshold becomes a severity tier on
-    the harder one's exclusions instead).
+    Tickers with earnings within `earnings_buffer_hard_days` (14) don't get an automatic pass
+    or an automatic exclusion — assess_earnings_expectation() reads each one's already-fetched
+    research for a forward take on the upcoming report. A positive read keeps the ticker in the
+    ranking pool, tagged EarningsWindowOverride=True so DecisionAgent (and the final output)
+    both know it's carrying real earnings-date risk a normal pick doesn't have. A negative read
+    excludes it same as before. Within the excluded set, ExclusionReason still distinguishes
+    "imminent" (within `earnings_buffer_soft_days`, 7) from merely "upcoming" (8-14 days) for
+    visibility.
     """
     if enriched_df.empty or "DaysToEarnings" not in enriched_df.columns:
         return enriched_df, enriched_df.iloc[0:0].copy()
@@ -65,10 +103,22 @@ def apply_earnings_buffer(enriched_df: pd.DataFrame, settings) -> tuple[pd.DataF
         return "earnings_upcoming"
 
     hard_mask = enriched_df["DaysToEarnings"].apply(is_hard_exclude)
-    excluded = enriched_df[hard_mask].copy()
-    excluded["ExclusionReason"] = excluded["DaysToEarnings"].apply(severity)
-    kept = enriched_df[~hard_mask].copy()
+    clear_of_window = enriched_df[~hard_mask].copy()
+    clear_of_window["EarningsWindowOverride"] = False
 
+    windowed = enriched_df[hard_mask].copy()
+    if windowed.empty:
+        return clear_of_window, windowed
+
+    windowed["EarningsExpectation"] = windowed.apply(assess_earnings_expectation, axis=1)
+    windowed["ExclusionReason"] = windowed["DaysToEarnings"].apply(severity)
+
+    positive_mask = windowed["EarningsExpectation"] == "positive"
+    overridden = windowed[positive_mask].drop(columns=["ExclusionReason"]).copy()
+    overridden["EarningsWindowOverride"] = True
+    excluded = windowed[~positive_mask].copy()
+
+    kept = pd.concat([clear_of_window, overridden], ignore_index=True)
     return kept, excluded
 
 
@@ -184,7 +234,10 @@ def run_pipeline(
     pick_log = record_picks(pick_log, ranked_picks, pd.Timestamp.now().strftime("%Y-%m-%d"))
     save_pick_outcomes_log(pick_log, PICK_OUTCOMES_LOG_PATH)
 
-    earnings_excluded_cols = ["Ticker", "DaysToEarnings", "ExclusionReason", "AnalystRating", "EarningsHistory", "IncomeGrowth"]
+    earnings_excluded_cols = [
+        "Ticker", "DaysToEarnings", "ExclusionReason", "EarningsExpectation", "EarningsPreviewSignal",
+        "AnalystRating", "EarningsHistory", "IncomeGrowth",
+    ]
     earnings_excluded = (
         json.loads(earnings_excluded_df[earnings_excluded_cols].to_json(orient="records"))
         if not earnings_excluded_df.empty else []

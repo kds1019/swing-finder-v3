@@ -193,6 +193,26 @@ class ResearchAgent:
         df["date"] = pd.to_datetime(df["date"])
         return df.sort_values("date").tail(limit).reset_index(drop=True)
 
+    def get_earnings_preview_signal(self, ticker: str) -> Optional[str]:
+        """Only called for tickers sitting inside the earnings buffer window (see
+        pipeline.apply_earnings_buffer) — a handful of extra FMP calls per run, not a scale
+        concern. Zacks' earnings-preview pieces (surfaced through FMP's news/stock feed) use an
+        explicit verdict — "possesses"/"doesn't possess the right combination... for a likely
+        earnings beat" (their Earnings ESP methodology) — a genuine forward-looking read, unlike
+        the lagging beat-history/income-growth signals already in EarningsHistory/IncomeGrowth.
+        Returns "positive"/"negative" when that verdict is found in recent news, else None."""
+        try:
+            articles = self.get_news(ticker, limit=15)
+        except requests.HTTPError as e:
+            print(f"[research_agent] get_earnings_preview_signal({ticker}) failed: {e}", file=sys.stderr)
+            return None
+        text = " ".join(f"{a.get('title', '')} {a.get('text', '')}" for a in articles).lower()
+        if "doesn't possess the right combination" in text:
+            return "negative"
+        if "possesses the right combination" in text or "expected to beat earnings estimates" in text:
+            return "positive"
+        return None
+
     def get_rating_history(self, ticker: str, limit: int = 1000) -> pd.DataFrame:
         """Daily FMP quant rating score (overallScore, from historical-ratings — a
         ratio-based daily score, distinct from the monthly analyst buy/hold/sell
@@ -211,9 +231,14 @@ class ResearchAgent:
         return df.sort_values("Date").reset_index(drop=True)
 
     def enrich_shortlist(self, shortlist_df: pd.DataFrame, market_agent=None, news_lookback_days: int = 270) -> pd.DataFrame:
-        """Adds DaysToEarnings, Fundamentals, AnalystRating, EarningsHistory, IncomeGrowth,
-        and News columns to the post-screener/post-sector-cap shortlist. Never call this on
-        the full universe — it's several FMP calls per ticker.
+        """Adds DaysToEarnings, EarningsPreviewSignal, Fundamentals, AnalystRating,
+        EarningsHistory, IncomeGrowth, and News columns to the post-screener/post-sector-cap
+        shortlist. Never call this on the full universe — it's several FMP calls per ticker.
+
+        EarningsPreviewSignal is only fetched for tickers within settings.earnings_buffer_hard_days
+        of their next report (None otherwise) — see get_earnings_preview_signal and
+        pipeline.apply_earnings_buffer, which uses it to decide whether an earnings-window
+        ticker should still be excluded or is worth keeping in the ranking pool.
 
         News is now a genuine trend window (news_lookback_days, default ~9 months), not a
         5-headline snapshot — DecisionAgent's job changed from "mention News as background
@@ -233,6 +258,15 @@ class ResearchAgent:
 
         enriched = shortlist_df.copy()
         enriched["DaysToEarnings"] = enriched["Ticker"].map(earnings)
+
+        def _preview_signal(days, ticker: str) -> Optional[str]:
+            if days is None or days > self.settings.earnings_buffer_hard_days:
+                return None
+            return self.get_earnings_preview_signal(ticker)
+
+        enriched["EarningsPreviewSignal"] = enriched.apply(
+            lambda r: _preview_signal(r["DaysToEarnings"], r["Ticker"]), axis=1
+        )
         enriched["Fundamentals"] = enriched["Ticker"].apply(lambda t: self.get_fundamentals(t))
         enriched["AnalystRating"] = enriched["Ticker"].apply(lambda t: self.get_analyst_ratings(t))
         enriched["EarningsHistory"] = enriched["Ticker"].apply(lambda t: self.get_earnings_history(t))

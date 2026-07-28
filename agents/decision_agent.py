@@ -60,6 +60,17 @@ guess), and News (headlines spanning roughly the last 6-12 months, not just the 
 few). This research is the PRIMARY basis for your ranking and selection now — it is not
 background color on top of an already-decided score, there is no score to defer to.
 
+A ticker with EarningsWindowOverride=true has an earnings report due within the earnings buffer
+window (DaysToEarnings, <=14 days out) — normally an automatic exclusion, but this one's forward
+earnings read (EarningsExpectation/EarningsPreviewSignal — a Zacks-style beat/no-beat verdict
+when available, else a beat-rate/growth/consensus heuristic) came back positive, so it's still in
+the pool. It genuinely carries earnings-date risk a normal pick doesn't: a swing hold through
+that report can gap through stop or target regardless of how positive the forward read is. If
+you select one, its flags must name this plainly (days to earnings + "positive forward read, but
+still holding through an earnings print") rather than folding it into a generic "earnings X days
+out" note, and your rationale should reflect that the entry itself is a binary-event bet the
+technical setup doesn't otherwise carry.
+
 Your job:
 
 1. For every ticker provided, write a short (1-3 sentence) research highlight covering: is
