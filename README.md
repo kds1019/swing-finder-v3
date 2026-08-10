@@ -17,15 +17,32 @@ Portfolio Agent (Webull)      -+
   profile's value area), calibrated directly against a real trade.
 - **Research Agent** — FMP fundamentals/earnings-beat-miss-history/quarterly
   growth/analyst ratings + 6-12 months of news, called only on the
-  post-screener/post-sector-cap candidate pool, never the full universe.
+  post-screener/post-pool-sector-cap candidate pool, never the full universe.
 - **Portfolio Agent** — Webull SDK positions/balance/orders. `place_order()`
   defaults to `dry_run=True`; flipping to live execution is a deliberate,
   separate decision.
 - **Decision Agent** — Anthropic API. Reads the Research Agent's fundamentals/
-  news context and IS the ranking/selection step — it picks the final watchlist
-  from the candidate pool, it doesn't just polish an already-decided score
-  (there is no score anymore). Never recomputes the technical screener's
-  numbers, sector cap, or trade-plan stop/target.
+  news context and IS the ranking step — it ranks every candidate in the pool
+  using that research, it doesn't just polish an already-decided score (there
+  is no score anymore). Never recomputes the technical screener's numbers or
+  trade-plan stop/target.
+
+### Sector cap — two stages
+
+Sector cap (`core/sector_cap.py`, `config/settings.py::sector_cap = 3`) now runs
+in two stages so the final per-sector winners are chosen by research quality,
+not by whichever ticker had the highest raw screener bounce metric:
+
+1. **Pool stage** (`pipeline.py`, before research) — a wide cap (3x the real
+   cap) applied to the screener's own `BounceOffLowPct` order, just to stop one
+   hot sector from consuming the whole `CANDIDATE_POOL_SIZE` before other
+   sectors get a fair shot at research at all.
+2. **Final stage** (`pipeline.py`, after the Decision Agent) — the real cap
+   (3/sector), applied to the Decision Agent's research-informed ranking
+   instead of the raw screener order, then truncated to
+   `FINAL_WATCHLIST_SIZE`. The Decision Agent itself never applies or
+   second-guesses the cap — it just ranks every candidate it's given; `pipeline.py`
+   enforces the cap deterministically against that ranking.
 
 ## Setup
 

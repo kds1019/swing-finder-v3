@@ -29,14 +29,22 @@ from core.pick_tracking import (
 from agents.market_data_agent import MarketDataAgent, compute_market_bias
 from agents.research_agent import ResearchAgent
 from agents.portfolio_agent import PortfolioAgent
-from agents.decision_agent import DecisionAgent
+from agents.decision_agent import DecisionAgent, FINAL_WATCHLIST_SIZE
 
-# Max tickers (after the technical screener + sector cap) carried into the research/decision
-# step — wider than the old SHORTLIST_SIZE=20, since DecisionAgent's job is now to SELECT the
-# final ~20 (see agents.decision_agent.FINAL_WATCHLIST_SIZE) from this candidate pool using
+# Max tickers (after the technical screener + pool-stage sector cap) carried into the
+# research/decision step — wider than the old SHORTLIST_SIZE=20, since DecisionAgent's job is
+# now to RANK the full pool (see agents.decision_agent.FINAL_WATCHLIST_SIZE) using
 # fundamentals/news, not just polish an already-fixed list. Ordered by BounceOffLowPct
 # (core.pullback_reversal's own sort) if more candidates pass than this cap.
 CANDIDATE_POOL_SIZE = 40
+
+# The pool-stage sector cap (applied before research) is deliberately wider than the real,
+# final sector cap (settings.sector_cap) — it only exists to stop one hot sector from
+# consuming the entire CANDIDATE_POOL_SIZE before other sectors get a fair shot at research at
+# all. The REAL cap is enforced after the Decision Agent ranks the pool (see the final sector
+# cap block below), so which 3-per-sector actually survive is a research-informed judgment call
+# instead of whichever ticker had the highest raw screener BounceOffLowPct.
+SECTOR_POOL_CAP_MULTIPLIER = 3
 
 PICK_OUTCOMES_LOG_PATH = "pick_outcomes.csv"    # persisted in the repo, like results/
 
@@ -119,19 +127,21 @@ def run_pipeline(
     if ranked_df.empty:
         return {"error": "No tickers matched the pullback/reversal screener after excluding long-term holds", "ranked_df_empty": True}
 
-    # --- Sector cap ---
-    capped_df, sector_excluded_df = apply_sector_cap(ranked_df, settings.sector_cap)
-    print(f"[pipeline] After sector cap ({settings.sector_cap}/sector): {len(capped_df)} tickers "
-          f"({len(sector_excluded_df)} excluded)", file=sys.stderr)
+    # --- Sector cap (pool stage) — wide, just to bound how many same-sector candidates reach
+    # research/decision at all. The real cap is enforced below, after the Decision Agent ranks.
+    pool_sector_cap = settings.sector_cap * SECTOR_POOL_CAP_MULTIPLIER
+    pool_df, pool_sector_excluded_df = apply_sector_cap(ranked_df, pool_sector_cap)
+    print(f"[pipeline] After pool-stage sector cap ({pool_sector_cap}/sector): {len(pool_df)} tickers "
+          f"({len(pool_sector_excluded_df)} excluded)", file=sys.stderr)
 
-    # Candidate pool for the research/decision step — DecisionAgent selects the final
-    # watchlist from this, it isn't already a fixed-size shortlist (see CANDIDATE_POOL_SIZE).
-    shortlist_df = capped_df.head(candidate_pool_size).reset_index(drop=True)
+    # Candidate pool for the research/decision step — DecisionAgent ranks every ticker in this
+    # pool, it isn't already a fixed-size shortlist (see CANDIDATE_POOL_SIZE).
+    shortlist_df = pool_df.head(candidate_pool_size).reset_index(drop=True)
 
     if skip_decision:
         return {
             "shortlist": json.loads(shortlist_df.to_json(orient="records")),
-            "sector_excluded": json.loads(sector_excluded_df.to_json(orient="records")),
+            "pool_sector_excluded": json.loads(pool_sector_excluded_df.to_json(orient="records")),
             "market_bias": market_bias,
             "skipped_decision": True,
         }
@@ -173,11 +183,29 @@ def run_pipeline(
     pick_track_record = compute_pick_accuracy_summary(pick_log)
     print(f"[pipeline] Pick track record: {pick_track_record}", file=sys.stderr)
 
-    # --- Decision Agent: research-driven selection of the final watchlist ---
+    # --- Decision Agent: research-driven ranking of the full candidate pool ---
     decision_agent = DecisionAgent(settings)
     result = decision_agent.synthesize(
         final_df, portfolio_context, market_gate_open, pick_track_record, settings.risk_per_trade_pct,
     )
+
+    # --- Final sector cap: enforced here, against the Decision Agent's research-informed
+    # ranking, not the raw screener order the pool-stage cap above used. apply_sector_cap()
+    # itself is unchanged/deterministic (still a mechanical "keep the first N per sector" walk)
+    # — only the sort order feeding it changed, from BounceOffLowPct to Claude's rank. Sector is
+    # looked up from final_df (the research-enriched pool) rather than trusted from the model's
+    # own output, consistent with never letting the Decision Agent originate "objective" facts. ---
+    final_sector_excluded_df = pd.DataFrame()
+    if isinstance(result, dict) and result.get("ranked_picks"):
+        picks_df = pd.DataFrame(result["ranked_picks"]).sort_values("rank").reset_index(drop=True)
+        sector_by_ticker = dict(zip(final_df["Ticker"], final_df["Sector"]))
+        picks_df["Sector"] = picks_df["ticker"].map(sector_by_ticker)
+        capped_picks_df, final_sector_excluded_df = apply_sector_cap(picks_df, settings.sector_cap)
+        capped_picks_df = capped_picks_df.head(FINAL_WATCHLIST_SIZE).reset_index(drop=True)
+        capped_picks_df["rank"] = range(1, len(capped_picks_df) + 1)
+        result["ranked_picks"] = json.loads(capped_picks_df.drop(columns="Sector").to_json(orient="records"))
+        print(f"[pipeline] After final sector cap ({settings.sector_cap}/sector) on Claude's ranking: "
+              f"{len(result['ranked_picks'])} tickers ({len(final_sector_excluded_df)} excluded)", file=sys.stderr)
 
     # --- Pick outcome tracking (part 2): log this run's new picks for future scoring. ---
     ranked_picks = result.get("ranked_picks", []) if isinstance(result, dict) else []
@@ -188,7 +216,8 @@ def run_pipeline(
         "market_bias": market_bias,
         "vix": vix,
         "market_gate_open": market_gate_open,
-        "sector_excluded_count": len(sector_excluded_df),
+        "pool_sector_excluded_count": len(pool_sector_excluded_df),
+        "final_sector_excluded_count": len(final_sector_excluded_df),
         "earnings_excluded_count": len(earnings_excluded_df),
         "decision": result,
         "pick_track_record": pick_track_record,
