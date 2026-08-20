@@ -234,14 +234,18 @@ class DecisionAgent:
         # Scaled to candidate-pool size (every technically-screened ticker passed in here, not
         # just the final watchlist — this agent does the narrowing, so the prompt covers however
         # many candidates survived sector cap, which can be more than FINAL_WATCHLIST_SIZE).
-        # 2000/ticker + 3000 overhead is the per-ticker budget prior prompt growth settled on
+        # 4000/ticker + 4000 overhead is the per-ticker budget prior prompt growth settled on
         # (see git history) once FMP research, position sizing, and open-order checks were all
         # in the prompt. Ceiling raised from an earlier, too-low 32000 to MODEL_MAX_OUTPUT_TOKENS
         # after a real 24-candidate run got cut off mid-JSON at 32000 tokens ("truncated": true,
-        # stop_reason="max_tokens") — CANDIDATE_POOL_SIZE=40's worst case (2000*40+3000=83000)
-        # fits comfortably under this.
+        # stop_reason="max_tokens") — CANDIDATE_POOL_SIZE=40's worst case (4000*40+4000=164000)
+        # is capped down to the ceiling below, which is fine since the ceiling is the real limit.
+        # Floor raised from 8000 to 16000 after a live 2-candidate run still hit the old floor
+        # exactly (output=8000, stop_reason="max_tokens") and produced unparseable truncated
+        # JSON — 2000/ticker was too low even accounting for the fixed overhead once
+        # research_highlight/rationale/bear_case/flags are all populated per ticker.
         num_tickers = len(research_data)
-        max_tokens = min(MODEL_MAX_OUTPUT_TOKENS, max(8000, 2000 * num_tickers + 3000))
+        max_tokens = min(MODEL_MAX_OUTPUT_TOKENS, max(16000, 4000 * num_tickers + 4000))
 
         try:
             # A non-streaming create() call errors out ("Streaming is required for
