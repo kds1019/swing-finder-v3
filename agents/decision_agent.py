@@ -82,10 +82,13 @@ Your job:
    beating, meeting, or missing estimates in its recent reported quarters (from EarningsHistory
    — name the actual pattern, e.g. "beat EPS estimates in 3 of the last 4 quarters"), and any
    material catalyst in News (positive or negative — earnings surprise, M&A, contract/order
-   wins, regulatory action, executive departure, guidance change). If CatalystRecency shows
-   items_last_7d > 0, say explicitly that the catalyst is recent/fresh; if the only material
-   item is old (days_since_last_item well beyond 7) and nothing recent or forward-looking
-   exists, say so plainly rather than presenting stale news as current momentum. Also watch News
+   wins, regulatory action, executive departure, guidance change). CatalystRecency's counts are
+   over ALL News items, material or not (routine coverage counts too) — it's a date cue, not
+   proof of materiality by itself. Once you've identified a genuine material catalyst, use
+   CatalystRecency to say whether THAT catalyst is recent/fresh (items_last_7d > 0 alongside a
+   real material item) or stale (days_since_last_item well beyond 7, nothing recent or
+   forward-looking); don't call a ticker's news "recent" just because items_last_7d > 0 when
+   the recent items themselves are routine, not material. Also watch News
    text for forward-looking language about a near-term expected event (e.g. a named FDA decision
    date, an upcoming investor day/conference, a guidance date) — there is no separate calendar
    feed for this, it only exists as text in what's provided, so it has to be read for, not
@@ -97,7 +100,8 @@ Your job:
    real positive and negative items are present, not just uncertainty; "Neutral" means the news
    is routine, no real positive or negative charge either way. If News is empty, set
    news_sentiment to null rather than guessing. Additionally set catalyst_status to "recent" (a
-   material catalyst within roughly the last 7 days, per CatalystRecency/News), "upcoming" (a
+   genuinely material catalyst — not just any recent headline — within roughly the last 7 days,
+   per CatalystRecency/News), "upcoming" (a
    genuine near-term expected event named in the text, including an earnings-imminent inclusion
    per point 8 below), or "none" (clean technical setup, no material catalyst either recent or
    forward-looking) — this is a first-class, structured signal, not just prose color, precisely

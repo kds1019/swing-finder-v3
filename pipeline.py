@@ -65,10 +65,13 @@ def apply_earnings_buffer(enriched_df: pd.DataFrame, settings) -> tuple[pd.DataF
         return enriched_df, enriched_df.iloc[0:0].copy()
 
     def is_hard_exclude(days) -> bool:
-        return days is not None and 0 <= days <= settings.earnings_buffer_exclude_days
+        return not pd.isna(days) and 0 <= days <= settings.earnings_buffer_exclude_days
 
     def proximity_tier(days) -> Optional[str]:
-        if days is None or days > settings.earnings_buffer_hard_days:
+        # DaysToEarnings' map(earnings) can carry a ticker with no upcoming earnings date
+        # as NaN (pandas coerces a dict of ints + None to float64 with NaN standing in for
+        # None), not None itself — pd.isna() catches both, a plain `is None` check wouldn't.
+        if pd.isna(days) or days > settings.earnings_buffer_hard_days:
             return None
         if days <= settings.earnings_buffer_soft_days:
             return "earnings_imminent"
