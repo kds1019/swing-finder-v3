@@ -63,13 +63,11 @@ Each ticker also carries real research context, not a one-time snapshot: Fundame
 company profile), AnalystRating (rating + buy/hold/sell consensus), EarningsHistory (trailing
 reported quarters' actual vs. estimated EPS/revenue — this is the real beat/met/missed record),
 IncomeGrowth (trailing quarters' revenue/net-income/EPS growth rates — the actual trend, not a
-guess), News (headlines spanning roughly the last 6-12 months, not just the most recent few),
-PressReleases (company-issued releases over the same window — often a cleaner signal for a
-concrete, company-specific catalyst — contract wins, partnerships, guidance updates — than
-general News aggregation), and CatalystRecency (days_since_last_item, items_last_3d,
-items_last_7d — computed across News+PressReleases combined). This research is the PRIMARY
-basis for your ranking and selection now — it is not background color on top of an
-already-decided score, there is no score to defer to.
+guess), News (headlines spanning roughly the last 6-12 months, not just the most recent few —
+sourced from Alpaca/Benzinga, which includes official press-release-style items, not just
+aggregated commentary), and CatalystRecency (days_since_last_item, items_last_3d, items_last_7d
+— computed across News). This research is the PRIMARY basis for your ranking and selection now
+— it is not background color on top of an already-decided score, there is no score to defer to.
 
 A clean technical setup with no real catalyst behind it is a known weak spot of this system —
 CatalystRecency exists specifically so a stale-news ticker (technically clean, nothing has
@@ -83,29 +81,28 @@ Your job:
    revenue/earnings/EPS trending up or down recently (from IncomeGrowth), has the company been
    beating, meeting, or missing estimates in its recent reported quarters (from EarningsHistory
    — name the actual pattern, e.g. "beat EPS estimates in 3 of the last 4 quarters"), and any
-   material catalyst in News or PressReleases (positive or negative — earnings surprise, M&A,
-   contract/order wins, regulatory action, executive departure, guidance change). If
-   CatalystRecency shows items_last_7d > 0, say explicitly that the catalyst is recent/fresh;
-   if the only material item is old (days_since_last_item well beyond 7) and nothing recent or
-   forward-looking exists, say so plainly rather than presenting stale news as current momentum.
-   Also watch News/PressReleases text for forward-looking language about a near-term expected
-   event (e.g. a named FDA decision date, an upcoming investor day/conference, a guidance date)
-   — there is no separate calendar feed for this, it only exists as text in what's provided, so
-   it has to be read for, not looked up. Reference concrete numbers from the input, don't invent
-   facts not present in it. Mention AnalystRating only if it's notably bullish/bearish or
-   conflicts with the fundamentals picture. Also classify news_sentiment as one of
-   "Positive"/"Negative"/"Neutral"/"Mixed" — your own read of whether that ticker's actual
-   headlines/summaries in News/PressReleases skew positive or negative overall, not a
-   restatement of the fundamentals numbers. "Mixed" means genuinely both real positive and
-   negative items are present, not just uncertainty; "Neutral" means the news is routine, no
-   real positive or negative charge either way. If both News and PressReleases are empty, set
-   news_sentiment to null rather than guessing. Additionally set catalyst_status to "recent"
-   (a material catalyst within roughly the last 7 days, per CatalystRecency/News/PressReleases),
-   "upcoming" (a genuine near-term expected event named in the text, including an
-   earnings-imminent inclusion per point 8 below), or "none" (clean technical setup, no material
-   catalyst either recent or forward-looking) — this is a first-class, structured signal, not
-   just prose color, precisely so a "none" ticker is visibly flagged as such rather than
-   reading the same as a ticker with genuine fresh news.
+   material catalyst in News (positive or negative — earnings surprise, M&A, contract/order
+   wins, regulatory action, executive departure, guidance change). If CatalystRecency shows
+   items_last_7d > 0, say explicitly that the catalyst is recent/fresh; if the only material
+   item is old (days_since_last_item well beyond 7) and nothing recent or forward-looking
+   exists, say so plainly rather than presenting stale news as current momentum. Also watch News
+   text for forward-looking language about a near-term expected event (e.g. a named FDA decision
+   date, an upcoming investor day/conference, a guidance date) — there is no separate calendar
+   feed for this, it only exists as text in what's provided, so it has to be read for, not
+   looked up. Reference concrete numbers from the input, don't invent facts not present in it.
+   Mention AnalystRating only if it's notably bullish/bearish or conflicts with the fundamentals
+   picture. Also classify news_sentiment as one of "Positive"/"Negative"/"Neutral"/"Mixed" —
+   your own read of whether that ticker's actual headlines/summaries in News skew positive or
+   negative overall, not a restatement of the fundamentals numbers. "Mixed" means genuinely both
+   real positive and negative items are present, not just uncertainty; "Neutral" means the news
+   is routine, no real positive or negative charge either way. If News is empty, set
+   news_sentiment to null rather than guessing. Additionally set catalyst_status to "recent" (a
+   material catalyst within roughly the last 7 days, per CatalystRecency/News), "upcoming" (a
+   genuine near-term expected event named in the text, including an earnings-imminent inclusion
+   per point 8 below), or "none" (clean technical setup, no material catalyst either recent or
+   forward-looking) — this is a first-class, structured signal, not just prose color, precisely
+   so a "none" ticker is visibly flagged as such rather than reading the same as a ticker with
+   genuine fresh news.
 2. From every ticker provided, select the final {FINAL_WATCHLIST_SIZE} most likely to keep
    moving up, based on the research highlight above — genuinely growing fundamentals and a
    real beat record should rank a ticker higher; deteriorating fundamentals, a recent pattern
@@ -138,7 +135,7 @@ Your job:
 5. For each selected pick, write a brief (1-2 sentence) bear case — the strongest reason this
    pick could fail, grounded in the same research data used for the highlight (e.g. a recent
    estimate miss despite the clean technical setup, decelerating IncomeGrowth, a bearish
-   AnalystRating split, a negative catalyst in News/PressReleases, or reliance on continued
+   AnalystRating split, a negative catalyst in News, or reliance on continued
    sector/market momentum the technical pattern doesn't independently confirm). This is the
    qualitative case against the thesis itself, distinct from the mechanical risk flags in the
    next step — don't just restate a flag as the bear case. If nothing material stands out

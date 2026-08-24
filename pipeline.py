@@ -148,8 +148,8 @@ def run_pipeline(
         }
 
     # --- Research Agent: VIX gate + shortlist enrichment (fundamentals, analyst ratings,
-    # earnings-beat/miss history, quarterly growth trend, 6-12mo news/press releases, and a
-    # derived catalyst-recency signal) ---
+    # earnings-beat/miss history, quarterly growth trend, 6-12mo news, and a derived
+    # catalyst-recency signal) ---
     research_agent = ResearchAgent(settings)
     vix = research_agent.get_vix_level()
     market_gate_open = vix is not None and vix <= settings.vix_gate_ceiling
