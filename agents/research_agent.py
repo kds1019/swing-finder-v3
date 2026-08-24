@@ -28,6 +28,40 @@ import requests
 
 FMP_BASE_URL = "https://financialmodelingprep.com/stable"
 
+_ITEM_DATE_KEYS = ("Date", "date", "publishedDate")
+
+
+def _extract_item_date(item: dict) -> Optional[pd.Timestamp]:
+    """Tolerant date extraction across the two News shapes enrich_shortlist can produce
+    (Alpaca's "Date" vs FMP's "date"/"publishedDate") plus PressReleases' own FMP shape,
+    rather than assuming one fixed key across all three sources."""
+    for key in _ITEM_DATE_KEYS:
+        value = item.get(key)
+        if value:
+            try:
+                return pd.to_datetime(value, utc=True)
+            except (ValueError, TypeError):
+                continue
+    return None
+
+
+def _catalyst_recency(news_items: list[dict], press_items: list[dict]) -> dict:
+    """Cheap recency signal derived entirely from data already fetched (no extra API
+    calls) — News/PressReleases carry ~6-12 months of history, so this surfaces "how
+    fresh is the most recent item" as an explicit, structured field instead of leaving
+    the Decision Agent to spot a handful of recent dates buried in a large chronological
+    blob on its own."""
+    now = pd.Timestamp.now(tz="UTC")
+    dates = [d for d in (_extract_item_date(item) for item in news_items + press_items) if d is not None]
+    if not dates:
+        return {"days_since_last_item": None, "items_last_3d": 0, "items_last_7d": 0}
+    most_recent = max(dates)
+    return {
+        "days_since_last_item": int((now - most_recent).days),
+        "items_last_3d": sum(1 for d in dates if (now - d).days <= 3),
+        "items_last_7d": sum(1 for d in dates if (now - d).days <= 7),
+    }
+
 
 class ResearchAgent:
     def __init__(self, settings):
@@ -139,6 +173,23 @@ class ResearchAgent:
         data = self._get("news/stock", params={"symbols": ticker, "limit": limit})
         return data if isinstance(data, list) else []
 
+    def get_press_releases(self, ticker: str, limit: int = 10) -> list[dict]:
+        """Company-issued press releases (FMP's news/press-releases, filtered to one
+        ticker via symbols — same query-param convention as get_news's news/stock),
+        distinct from get_news's aggregated market news: press releases are the primary
+        channel a company itself uses for concrete, company-specific catalysts (contract
+        wins, partnerships, guidance updates, regulatory filings), so this is a cleaner
+        recent-catalyst signal than general news aggregation, which mixes in unrelated
+        market commentary. Not independently verified live against the real endpoint the
+        way get_insider_trades/get_grade_history's docstrings note they were — smoke-test
+        against a real ticker before relying on this in production."""
+        try:
+            data = self._get("news/press-releases", params={"symbols": ticker, "limit": limit})
+        except requests.HTTPError as e:
+            print(f"[research_agent] get_press_releases({ticker}) failed: {e}", file=sys.stderr)
+            data = []
+        return data if isinstance(data, list) else []
+
     def get_insider_trades(self, ticker: str, limit: int = 1000) -> pd.DataFrame:
         """Form 4 insider transactions — filingDate/transactionType/acquisitionOrDisposition/
         securitiesTransacted/price. Feeds core.ml_forecast.prepare_features' insider_df
@@ -212,8 +263,8 @@ class ResearchAgent:
 
     def enrich_shortlist(self, shortlist_df: pd.DataFrame, market_agent=None, news_lookback_days: int = 270) -> pd.DataFrame:
         """Adds DaysToEarnings, Fundamentals, AnalystRating, EarningsHistory, IncomeGrowth,
-        and News columns to the post-screener/post-sector-cap shortlist. Never call this on
-        the full universe — it's several FMP calls per ticker.
+        News, PressReleases, and CatalystRecency columns to the post-screener/post-sector-cap
+        shortlist. Never call this on the full universe — it's several FMP calls per ticker.
 
         News is now a genuine trend window (news_lookback_days, default ~9 months), not a
         5-headline snapshot — DecisionAgent's job changed from "mention News as background
@@ -249,5 +300,11 @@ class ResearchAgent:
             enriched["News"] = enriched["Ticker"].apply(_fetch_news)
         else:
             enriched["News"] = enriched["Ticker"].apply(lambda t: self.get_news(t, limit=5))
+
+        enriched["PressReleases"] = enriched["Ticker"].apply(lambda t: self.get_press_releases(t))
+        enriched["CatalystRecency"] = [
+            _catalyst_recency(news, press)
+            for news, press in zip(enriched["News"], enriched["PressReleases"])
+        ]
 
         return enriched

@@ -16,6 +16,7 @@ import argparse
 import json
 import os
 import sys
+from typing import Optional
 
 import pandas as pd
 
@@ -45,29 +46,39 @@ NEWS_LOOKBACK_DAYS = 270  # ~9 months — within the user's requested 6-12 month
 
 def apply_earnings_buffer(enriched_df: pd.DataFrame, settings) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Hard-excludes tickers with earnings within `earnings_buffer_hard_days` (14).
-    Within the excluded set, tags whether earnings are "imminent" (within
-    `earnings_buffer_soft_days`, 7) vs merely "upcoming" (8-14 days) — this
-    gives both configured thresholds real meaning without contradiction
-    (a single "days_to_earnings <= N" drop can't use two different N's on the
-    same ticker at once, so the softer threshold becomes a severity tier on
-    the harder one's exclusions instead).
+    Hard-excludes only tickers reporting earnings the same day or next day
+    (`earnings_buffer_exclude_days`, 1) — no stop can protect against an overnight
+    gap through a print that close, so no qualitative case is strong enough to
+    override it.
+
+    Tickers reporting further out, up to `earnings_buffer_hard_days` (14), used to
+    be dropped here unconditionally too; they're now kept and tagged with
+    EarningsProximityTier ("earnings_imminent" within `earnings_buffer_soft_days`
+    (7), else "earnings_upcoming") so the Decision Agent — which already has each
+    ticker's EarningsHistory/IncomeGrowth/AnalystRating by this point — can make a
+    real, deliberate call: a genuinely strong earnings setup (real beat streak,
+    accelerating growth, bullish analyst consensus) can be picked as an explicit
+    earnings-catalyst play instead of every near-term-earnings ticker being
+    mechanically dropped regardless of how it actually looks.
     """
     if enriched_df.empty or "DaysToEarnings" not in enriched_df.columns:
         return enriched_df, enriched_df.iloc[0:0].copy()
 
     def is_hard_exclude(days) -> bool:
-        return days is not None and 0 <= days <= settings.earnings_buffer_hard_days
+        return days is not None and 0 <= days <= settings.earnings_buffer_exclude_days
 
-    def severity(days) -> str:
-        if days is not None and days <= settings.earnings_buffer_soft_days:
+    def proximity_tier(days) -> Optional[str]:
+        if days is None or days > settings.earnings_buffer_hard_days:
+            return None
+        if days <= settings.earnings_buffer_soft_days:
             return "earnings_imminent"
         return "earnings_upcoming"
 
     hard_mask = enriched_df["DaysToEarnings"].apply(is_hard_exclude)
     excluded = enriched_df[hard_mask].copy()
-    excluded["ExclusionReason"] = excluded["DaysToEarnings"].apply(severity)
+    excluded["ExclusionReason"] = "earnings_same_day_or_next_day"
     kept = enriched_df[~hard_mask].copy()
+    kept["EarningsProximityTier"] = kept["DaysToEarnings"].apply(proximity_tier)
 
     return kept, excluded
 
@@ -137,7 +148,8 @@ def run_pipeline(
         }
 
     # --- Research Agent: VIX gate + shortlist enrichment (fundamentals, analyst ratings,
-    # earnings-beat/miss history, quarterly growth trend, and 6-12mo news) ---
+    # earnings-beat/miss history, quarterly growth trend, 6-12mo news/press releases, and a
+    # derived catalyst-recency signal) ---
     research_agent = ResearchAgent(settings)
     vix = research_agent.get_vix_level()
     market_gate_open = vix is not None and vix <= settings.vix_gate_ceiling
