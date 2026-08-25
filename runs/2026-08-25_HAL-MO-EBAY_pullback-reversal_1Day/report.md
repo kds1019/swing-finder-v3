@@ -4,16 +4,16 @@
 
 | Symbol | Total Return | Strategy Sharpe | Strategy Max DD | Benchmark Return | Benchmark Sharpe | Benchmark Max DD | Round Trips |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| HAL | -0.40% | 0.089 | -22.07% | 88.17% | 0.668 | -45.76% | 17 |
-| MO | -14.38% | -0.995 | -15.31% | 17.51% | 0.331 | -30.65% | 5 |
-| EBAY | -10.23% | -0.543 | -15.36% | -7.16% | 0.102 | -54.33% | 5 |
+| HAL | -4.43% | 0.027 | -22.74% | 92.37% | 0.507 | -55.47% | 18 |
+| MO | 50.28% | 0.389 | -18.95% | 61.08% | 0.502 | -30.65% | 12 |
+| EBAY | 3.72% | 0.123 | -22.17% | 80.79% | 0.493 | -54.33% | 10 |
 
 ## Aggregate pattern metrics (all symbols combined)
 
-- Round trips: 27
-- Hit rate: 0.2222
-- Profit factor: 0.7150854518514804
-- Average R-multiple: -0.174
+- Round trips: 40
+- Hit rate: 0.35
+- Profit factor: 1.4733018207617163
+- Average R-multiple: 0.384
 
 ## Strategy configuration
 
@@ -26,7 +26,7 @@
 ## First and last trade
 
 - First: HAL entered 2021-07-27 04:00:00 @ 20.4102, exited 2021-08-03 04:00:00 @ 19.93 (stop_hit)
-- Last: EBAY entered 2022-02-07 05:00:00 @ 59.2196, exited 2022-02-17 05:00:00 @ 56.7116 (stop_hit)
+- Last: EBAY entered 2026-02-26 05:00:00 @ 85.9129, exited 2026-04-10 04:00:00 @ 95.3723 (expired_unresolved)
 
 ## Assumptions
 
@@ -38,9 +38,9 @@
 
 ## Data fingerprint
 
-- HAL: 1000 bars, 2020-07-27 04:00:00 to 2024-07-22 04:00:00, feed=iex, adjustment=split, close_sum=29663.58
-- MO: 1000 bars, 2020-07-27 04:00:00 to 2024-07-22 04:00:00, feed=iex, adjustment=split, close_sum=45347.00
-- EBAY: 1000 bars, 2020-07-27 04:00:00 to 2024-07-17 04:00:00, feed=iex, adjustment=split, close_sum=52268.79
+- HAL: 1525 bars, 2020-07-27 04:00:00 to 2026-08-25 04:00:00, feed=iex, adjustment=split, close_sum=44867.78
+- MO: 1525 bars, 2020-07-27 04:00:00 to 2026-08-25 04:00:00, feed=iex, adjustment=split, close_sum=77086.91
+- EBAY: 1528 bars, 2020-07-27 04:00:00 to 2026-08-25 04:00:00, feed=iex, adjustment=split, close_sum=95364.45
 
 ## Caveats (see notes.md for full detail)
 
