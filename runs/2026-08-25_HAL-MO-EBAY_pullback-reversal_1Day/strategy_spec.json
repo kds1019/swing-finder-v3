@@ -4,7 +4,7 @@
   "asset_class": "stocks",
   "symbols": ["HAL", "MO", "EBAY"],
   "timeframe": "1Day",
-  "feed": "sip",
+  "feed": "iex",
   "adjustment": "split",
   "start": "2016-01-01",
   "end": "2026-08-25",
