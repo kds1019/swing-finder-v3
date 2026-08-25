@@ -1,29 +1,40 @@
-# Backtest notes — core.pullback_reversal + core.trade_plan (20-symbol variant)
+# Backtest notes — core.pullback_reversal + core.trade_plan (watchlist variant)
 
 ## Run lineage
 
 Variant of `runs/2026-08-25_HAL-MO-EBAY_pullback-reversal_1Day/`. What changed:
-**universe expanded from 3 hand-picked long-history tickers (HAL, MO, EBAY) to the 20
-tickers from the live pipeline's own 2026-08-24 23:23Z ranked-picks output**
-(`results/2026-08-24_2323Z.json`) — same tickers already added to the user's "Claude"
-Webull watchlist. Everything else (entry/exit rules, fill model, sizing, fees) is
-identical to the 3-symbol run. `run.py` is copied unchanged; only `config.json`'s
-`symbols` list differs.
+**universe expanded from 3 hand-picked long-history tickers (HAL, MO, EBAY) to 19 of
+the 20 tickers from the live pipeline's own 2026-08-24 23:23Z ranked-picks output**
+(`results/2026-08-24_2323Z.json`), synced to the user's Webull "Claude" watchlist.
+Everything else (entry/exit rules, fill model, sizing, fees) is identical to the
+3-symbol run. `run.py` is copied unchanged; only `config.json`'s `symbols` list
+differs.
 
-Full symbol list: CTVA, HAL, SUPN, DOW, RIOT, EBAY, BG, MUR, VNOM, MIAX, AKR, HASI,
+**EBAY was dropped before this run.** The original 20 ranked picks (and this run's
+first draft) included EBAY, matching what was added to the watchlist at the time. Before
+actually running the backtest, the watchlist was re-checked against `config.json` and
+found out of sync: EBAY is no longer in the live "Claude" watchlist (removed by the
+user sometime after 2026-08-24 23:27Z). Per explicit instruction to make sure this
+run matches the actual watchlist, EBAY was removed from `config.json`/`strategy_spec.json`
+here — this run tracks the live watchlist's current contents, not the static
+2026-08-24 scan-output file.
+
+Full symbol list (19): CTVA, HAL, SUPN, DOW, RIOT, BG, MUR, VNOM, MIAX, AKR, HASI,
 HLF, MO, CELC, DAN, COLM, CWEN, POR, LXU.
 
 ## Why this set, and what it actually tests
 
-The user's Webull "Claude" watchlist has 25 tickers total; only these 20 came from
-yesterday's scan (the other 5 — XPEV, BILI, IREN, AFRM, PDD — predate that scan and
-were never evaluated by `core.pullback_reversal`, so they're excluded here).
+The user's Webull "Claude" watchlist has 24 tickers total (25 minus the since-removed
+EBAY); 19 of those came from the 2026-08-24 scan (the other 5 — XPEV, BILI, IREN,
+AFRM, PDD — predate that scan and were never evaluated by `core.pullback_reversal`,
+so they're excluded here).
 
-**Important scope caveat**: these 20 are not "every ticker that matched the raw
+**Important scope caveat**: these 19 are not "every ticker that matched the raw
 technical screener." The live pipeline's 2026-08-24 run reviewed 26 candidates that
 passed the screener + sector cap + earnings buffer, and the Decision Agent (Claude,
 using fundamentals/news/catalyst research) selected 20 of those 26 as its final
-ranked picks. So this backtest tests **the technical pattern plus that downstream
+ranked picks (this run additionally drops EBAY per the watchlist-sync note above,
+leaving 19). So this backtest tests **the technical pattern plus that downstream
 curation** — closer to "would trading what the live system actually recommends have
 worked" than a pure test of the technical pattern alone. That's arguably the more
 useful question to answer first (it's what you'd actually trade), but it's a
@@ -59,7 +70,7 @@ canonical EMA/ATR seeding. Summary:
   `config/settings.py::risk_per_trade_pct`), independent $100,000 account per symbol
 - **Benchmark**: buy-and-hold of the same symbol, same assumptions
 
-## Additional known limitations for this 20-symbol set
+## Additional known limitations for this 19-symbol set
 
 - **Short-history tickers**: MIAX IPO'd August 2025 (~1 year of data); CTVA and DOW
   are 2019 DowDuPont spinoffs (~7 years). The CLI fetch returns whatever history
@@ -75,15 +86,23 @@ canonical EMA/ATR seeding. Summary:
 
 ## How to actually run this
 
-Not yet executed — needs real Alpaca credentials this sandbox doesn't have.
+Preferred: `.github/workflows/backtest.yml`, `run_dir=2026-08-25_watchlist20_pullback-reversal_1Day`
+— it already handles pagination correctly (a single un-paginated `alpaca data bars`
+call only returns a 1000-bar page; confirmed live in the 3-symbol run's own history,
+see that run's notes.md) and reads this folder's `config.json` directly, so it always
+matches whatever symbol list is actually here.
+
+Manual equivalent, if run outside that workflow (remember to paginate on
+`next_page_token` — the CLI's default page is 1000 bars, well short of a 2016-2026
+range):
 
 ```bash
 export ALPACA_API_KEY=...
 export ALPACA_SECRET_KEY=...
 export ALPACA_QUIET=1
-alpaca doctor   # confirm auth before fetching
+alpaca doctor   # informational only -- ignore a Trading API 401 here, this only needs Data API access
 
-for SYMBOL in CTVA HAL SUPN DOW RIOT EBAY BG MUR VNOM MIAX AKR HASI HLF MO CELC DAN COLM CWEN POR LXU; do
+for SYMBOL in CTVA HAL SUPN DOW RIOT BG MUR VNOM MIAX AKR HASI HLF MO CELC DAN COLM CWEN POR LXU; do
   alpaca data bars \
     --symbol "$SYMBOL" \
     --start 2016-01-01 \
@@ -91,7 +110,9 @@ for SYMBOL in CTVA HAL SUPN DOW RIOT EBAY BG MUR VNOM MIAX AKR HASI HLF MO CELC 
     --timeframe 1Day \
     --feed iex \
     --adjustment split \
+    --limit 10000 \
     --quiet > "raw/bars_${SYMBOL}.json"
+  # paginate on the resulting .next_page_token if non-null (see backtest.yml)
 done
 
 python run.py

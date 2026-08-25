@@ -1,5 +1,5 @@
 {
-  "symbols": ["CTVA", "HAL", "SUPN", "DOW", "RIOT", "EBAY", "BG", "MUR", "VNOM", "MIAX", "AKR", "HASI", "HLF", "MO", "CELC", "DAN", "COLM", "CWEN", "POR", "LXU"],
+  "symbols": ["CTVA", "HAL", "SUPN", "DOW", "RIOT", "BG", "MUR", "VNOM", "MIAX", "AKR", "HASI", "HLF", "MO", "CELC", "DAN", "COLM", "CWEN", "POR", "LXU"],
   "start": "2016-01-01",
   "end": "2026-08-25",
   "timeframe": "1Day",

@@ -2,7 +2,7 @@
   "strategy_name": "core.pullback_reversal + core.trade_plan (SwingFinder live scanner)",
   "source": "kds1019/swing-finder-v3, core/pullback_reversal.py + core/trade_plan.py, imported directly (not re-implemented)",
   "asset_class": "stocks",
-  "symbols": ["CTVA", "HAL", "SUPN", "DOW", "RIOT", "EBAY", "BG", "MUR", "VNOM", "MIAX", "AKR", "HASI", "HLF", "MO", "CELC", "DAN", "COLM", "CWEN", "POR", "LXU"],
+  "symbols": ["CTVA", "HAL", "SUPN", "DOW", "RIOT", "BG", "MUR", "VNOM", "MIAX", "AKR", "HASI", "HLF", "MO", "CELC", "DAN", "COLM", "CWEN", "POR", "LXU"],
   "timeframe": "1Day",
   "feed": "iex",
   "adjustment": "split",
@@ -51,13 +51,13 @@
   },
   "run_lineage": {
     "variant_of": "2026-08-25_HAL-MO-EBAY_pullback-reversal_1Day",
-    "changed": "universe expanded from 3 hand-picked long-history tickers (HAL, MO, EBAY) to the 20 tickers from the live pipeline's 2026-08-24 23:23Z ranked-picks output (results/2026-08-24_2323Z.json) -- same rules, same run.py, unchanged"
+    "changed": "universe expanded from 3 hand-picked long-history tickers (HAL, MO, EBAY) to 19 of the 20 tickers from the live pipeline's 2026-08-24 23:23Z ranked-picks output (results/2026-08-24_2323Z.json) -- same rules, same run.py, unchanged. EBAY was originally included (matching the 20 ranked picks exactly) but was dropped before this run to match the actual Webull 'Claude' watchlist's current contents, which no longer has it (removed by the user sometime after it was added) -- symbols here are synced to the live watchlist, not the static scan-output file."
   },
   "known_deviations_from_skill_canonical_formulas": [
     "EMA/ATR use pandas .ewm(adjust=False) (first-value-seeded) instead of this skill's SMA-seeded/Wilder-seeded canonical formulas, matching this project's actual core/indicators.py implementation. Converges to the canonical value within a few multiples of the span/period; not bit-identical near series start."
   ],
   "known_limitations": [
-    "These 20 tickers are not 'everything that matched the raw technical screener' -- they are the subset the Decision Agent additionally selected for catalysts/fundamentals (26 candidates were reviewed, 20 were kept). This backtest tests the technical pattern PLUS that curation, not the technical pattern in isolation.",
+    "These 19 tickers are not 'everything that matched the raw technical screener' -- they are the subset the Decision Agent additionally selected for catalysts/fundamentals (26 candidates were reviewed, 20 were kept, and EBAY was subsequently removed from the watchlist this run tracks). This backtest tests the technical pattern PLUS that curation, not the technical pattern in isolation.",
     "Universe/survivorship bias: symbols are today's live scan output replayed over history, not a point-in-time historical universe reconstruction.",
     "Several symbols have short trading histories relative to the 2016 start date (e.g. MIAX IPO'd August 2025, CTVA/DOW spun off in 2019) -- the CLI fetch will simply return whatever history actually exists per symbol, and those symbols will contribute few or zero signal occurrences. Not a bug.",
     "Equity curve steps at trade open/close, not full daily mark-to-market of open positions -- Sharpe/max-drawdown are approximate. Hit rate/profit-factor/avg-R from round_trips.csv are not affected.",
