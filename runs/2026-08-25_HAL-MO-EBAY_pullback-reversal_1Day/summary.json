@@ -12,21 +12,21 @@
   "fill_model": "next_open",
   "slippage_bps": 5,
   "metrics": {
-    "num_round_trips": 40,
-    "hit_rate": 0.35,
-    "profit_factor": 1.4733018207617163,
-    "avg_r_multiple": 0.384
+    "num_round_trips": 43,
+    "hit_rate": 0.3953,
+    "profit_factor": 1.1406326094560062,
+    "avg_r_multiple": 0.12
   },
   "per_symbol": {
     "HAL": {
-      "final_equity": 95574.25,
-      "total_return": -0.0443,
+      "final_equity": 89164.69,
+      "total_return": -0.1084,
       "benchmark_total_return": 0.9237,
-      "sharpe": 0.027,
+      "sharpe": -0.097,
       "benchmark_sharpe": 0.507,
       "max_drawdown": -0.2274,
       "benchmark_max_drawdown": -0.5547,
-      "num_round_trips": 18,
+      "num_round_trips": 19,
       "data_fingerprint": {
         "provider": "alpaca",
         "access_method": "alpaca_cli",
@@ -43,14 +43,14 @@
       }
     },
     "MO": {
-      "final_equity": 150281.55,
-      "total_return": 0.5028,
+      "final_equity": 121477.22,
+      "total_return": 0.2148,
       "benchmark_total_return": 0.6108,
-      "sharpe": 0.389,
+      "sharpe": 0.381,
       "benchmark_sharpe": 0.502,
       "max_drawdown": -0.1895,
       "benchmark_max_drawdown": -0.3065,
-      "num_round_trips": 12,
+      "num_round_trips": 14,
       "data_fingerprint": {
         "provider": "alpaca",
         "access_method": "alpaca_cli",

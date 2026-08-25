@@ -4,16 +4,16 @@
 
 | Symbol | Total Return | Strategy Sharpe | Strategy Max DD | Benchmark Return | Benchmark Sharpe | Benchmark Max DD | Round Trips |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| HAL | -4.43% | 0.027 | -22.74% | 92.37% | 0.507 | -55.47% | 18 |
-| MO | 50.28% | 0.389 | -18.95% | 61.08% | 0.502 | -30.65% | 12 |
+| HAL | -10.84% | -0.097 | -22.74% | 92.37% | 0.507 | -55.47% | 19 |
+| MO | 21.48% | 0.381 | -18.95% | 61.08% | 0.502 | -30.65% | 14 |
 | EBAY | 3.72% | 0.123 | -22.17% | 80.79% | 0.493 | -54.33% | 10 |
 
 ## Aggregate pattern metrics (all symbols combined)
 
-- Round trips: 40
-- Hit rate: 0.35
-- Profit factor: 1.4733018207617163
-- Average R-multiple: 0.384
+- Round trips: 43
+- Hit rate: 0.3953
+- Profit factor: 1.1406326094560062
+- Average R-multiple: 0.12
 
 ## Strategy configuration
 

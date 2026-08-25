@@ -12,8 +12,9 @@ Stop: swing-low/EMA-anchored, not a flat ATR multiple.
     then tightened to nearest support cluster if one exists within 3*ATR
 Target: Fibonacci 1.618 extension of the most recent 20-bar swing, floored
     at `min_rr_ratio` (settings.min_risk_reward) if the raw extension doesn't
-    clear it; refined to the nearest resistance cluster if that's both closer
-    and still clears the R:R floor.
+    clear it, and capped at MAX_RISK_REWARD_RATIO if it overshoots (see that
+    constant for why); refined to the nearest resistance cluster if that's
+    both closer and still clears the R:R floor.
 
 Fix vs the reference: `find_support_resistance()`'s nearest-support pick used
 index [-1] on a descending-sorted list, i.e. the *farthest* of the top
@@ -29,6 +30,23 @@ import pandas as pd
 # an unusually tight stop than an unusually good target — surfaced as a flag
 # rather than acted on automatically.
 STOP_SANITY_RR_THRESHOLD = 15.0
+
+# Ceiling on the Fibonacci extension target. Backed by two independent, real
+# datasets (2026-08-25): the 251-trade historical backtest of this exact
+# module (2016-2026) and the live pick_outcomes.csv track record (227 real
+# Decision Agent picks, 2026-07-09 to 2026-08-24) both show the same pattern --
+# realized R:R is NOT "more is better":
+#   historical backtest: 3-3.5 R:R -> 18.2% hit rate, PF 1.98
+#                         8+ R:R   ->  3.0% hit rate, PF 0.99
+#   live picks:           3-3.5 R:R -> 35.7% win rate, avg return +6.54%
+#                         5-8 R:R   ->  9.4% win rate, avg return -4.75%
+#                         8+ R:R    ->  1.6% win rate, avg return -2.72% (47% of all live picks!)
+# A very large Fibonacci extension is far more often an unrealistic target than
+# a genuinely bigger opportunity, in both the backtest and live reality. Capped
+# at 5.0 rather than right at the 3.0 floor so real, moderate extensions still
+# get through -- the 3.5-5 bucket is mediocre but not collapsed in either
+# dataset, while 5+ is where both datasets turn decisively bad.
+MAX_RISK_REWARD_RATIO = 5.0
 
 
 def find_support_resistance(df: pd.DataFrame, window: int = 10, num_levels: int = 2) -> dict:
@@ -95,10 +113,11 @@ def calculate_fibonacci_target(
     stop_loss: float,
     lookback_bars: int = 20,
     min_rr_ratio: float = 3.0,
+    max_rr_ratio: float = MAX_RISK_REWARD_RATIO,
 ) -> dict:
     """Fibonacci 1.618 extension of the most recent `lookback_bars`-bar swing,
-    floored at `min_rr_ratio` if the raw extension falls short. No ceiling —
-    a strong extension is allowed to run."""
+    floored at `min_rr_ratio` if the raw extension falls short and capped at
+    `max_rr_ratio` if it overshoots (see MAX_RISK_REWARD_RATIO for why)."""
     window = df.tail(max(lookback_bars, min(15, len(df))))
     swing_high = float(window["High"].max())
     swing_low = float(window["Low"].min())
@@ -109,10 +128,14 @@ def calculate_fibonacci_target(
     fib_reward = abs(fib_target - entry_price)
     fib_rr = fib_reward / risk if risk > 0 else 0.0
     min_target = entry_price + (min_rr_ratio * risk)
+    max_target = entry_price + (max_rr_ratio * risk)
 
     if fib_rr < min_rr_ratio:
         final_target, final_rr = min_target, min_rr_ratio
         warning = f"Fib extension only {fib_rr:.1f}:1 - using {min_rr_ratio:.0f}:1 floor"
+    elif fib_rr > max_rr_ratio:
+        final_target, final_rr = max_target, max_rr_ratio
+        warning = f"Fib extension {fib_rr:.1f}:1 exceeds {max_rr_ratio:.0f}:1 ceiling - capped"
     else:
         final_target, final_rr, warning = fib_target, fib_rr, ""
 
@@ -200,7 +223,19 @@ def compute_trade_plan(df: pd.DataFrame, settings) -> dict:
 
     actual_reward = abs(actual_target - px)
     if actual_risk > 0:
-        rr_ratio = round(actual_reward / actual_risk, 2)
+        rr_ratio = actual_reward / actual_risk
+        # The fib-level cap in calculate_fibonacci_target() is computed against the
+        # ORIGINAL stop, but actual_stop can be tightened by the support refinement
+        # just above -- shrinking actual_risk without touching actual_target, which
+        # can push the realized ratio back past the intended ceiling. Enforce it here
+        # too, against the final numbers, so MAX_RISK_REWARD_RATIO is a real guarantee
+        # on what's actually reported/traded, not just on an intermediate value.
+        if rr_ratio > MAX_RISK_REWARD_RATIO:
+            direction = 1 if actual_target >= px else -1
+            actual_target = px + direction * MAX_RISK_REWARD_RATIO * actual_risk
+            actual_reward = abs(actual_target - px)
+            rr_ratio = MAX_RISK_REWARD_RATIO
+        rr_ratio = round(rr_ratio, 2)
         weak_rr = rr_ratio < settings.min_risk_reward
     else:
         rr_ratio = 0.0
