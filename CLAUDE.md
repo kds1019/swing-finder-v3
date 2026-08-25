@@ -29,11 +29,16 @@ Actions run), present **every** ranked pick returned (up to `FINAL_WATCHLIST_SIZ
 top-N subset or a condensed table. For each pick, show the full detail:
 
 ```
-**N. TICKER** — Entry $X / Stop $X / Target $X / R:R X.XX | N sh, risk $X, value $X | Sentiment: X
+**N. TICKER** — Entry $X / Stop $X / Target $X / R:R X.XX | N sh, risk $X, value $X | Sentiment: X | Catalyst: X
 Highlight: <research_highlight>
 Rationale: <rationale>
+Bear case: <bear_case>
 Flags: <flags, semicolon-separated>
 ```
+
+`Catalyst:` is the Decision Agent's `catalyst_status` field (`recent` / `upcoming` / `none`) — always
+show it, don't drop it for "recent"-only picks. A `none` catalyst on an otherwise-clean technical
+setup is exactly the kind of thing the user wants visible, not smoothed over.
 
 Also surface, before the per-ticker list: market bias, VIX/gate status, and — if present in the
 output — `pick_track_record` (the system's own historical win rate) and any account-balance /

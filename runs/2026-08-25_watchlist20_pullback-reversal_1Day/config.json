@@ -1,0 +1,14 @@
+{
+  "symbols": ["CTVA", "HAL", "SUPN", "DOW", "RIOT", "EBAY", "BG", "MUR", "VNOM", "MIAX", "AKR", "HASI", "HLF", "MO", "CELC", "DAN", "COLM", "CWEN", "POR", "LXU"],
+  "start": "2016-01-01",
+  "end": "2026-08-25",
+  "timeframe": "1Day",
+  "feed": "sip",
+  "adjustment": "split",
+  "initial_cash": 100000,
+  "risk_per_trade_pct": 4.0,
+  "min_risk_reward": 3.0,
+  "max_hold_days": 30,
+  "slippage_bps": 5,
+  "fill_model": "next_open"
+}

@@ -1,0 +1,90 @@
+name: SwingFinder Backtest
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_dir:
+        description: "Which runs/ folder to execute"
+        required: true
+        type: choice
+        options:
+          - "2026-08-25_HAL-MO-EBAY_pullback-reversal_1Day"
+          - "2026-08-25_watchlist20_pullback-reversal_1Day"
+
+permissions:
+  contents: write
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Alpaca CLI
+        run: |
+          set -eo pipefail
+          go install github.com/alpacahq/cli/cmd/alpaca@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Check Alpaca auth
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          ALPACA_QUIET: "1"
+        run: alpaca doctor
+
+      - name: Fetch historical bars
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          ALPACA_QUIET: "1"
+        run: |
+          set -eo pipefail
+          cd "runs/${{ inputs.run_dir }}"
+          mkdir -p raw normalized
+
+          START=$(jq -r '.start' config.json)
+          END=$(jq -r '.end' config.json)
+          TIMEFRAME=$(jq -r '.timeframe' config.json)
+          FEED=$(jq -r '.feed' config.json)
+          ADJUSTMENT=$(jq -r '.adjustment' config.json)
+
+          for SYMBOL in $(jq -r '.symbols[]' config.json); do
+            echo "Fetching $SYMBOL ($START to $END, $TIMEFRAME, feed=$FEED, adjustment=$ADJUSTMENT)"
+            alpaca data bars \
+              --symbol "$SYMBOL" \
+              --start "$START" \
+              --end "$END" \
+              --timeframe "$TIMEFRAME" \
+              --feed "$FEED" \
+              --adjustment "$ADJUSTMENT" \
+              --quiet > "raw/bars_${SYMBOL}.json"
+          done
+
+      - name: Run backtest
+        run: |
+          set -eo pipefail
+          cd "runs/${{ inputs.run_dir }}"
+          python run.py
+
+      - name: Commit results
+        run: |
+          set -eo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "runs/${{ inputs.run_dir }}/"
+          git diff --cached --quiet && echo "No changes to commit" || \
+            git commit -m "Backtest results: ${{ inputs.run_dir }} ($(date -u +%Y-%m-%d\ %H:%M)Z)"
+          git push

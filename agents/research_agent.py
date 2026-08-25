@@ -28,6 +28,44 @@ import requests
 
 FMP_BASE_URL = "https://financialmodelingprep.com/stable"
 
+_ITEM_DATE_KEYS = ("Date", "date", "publishedDate")
+
+
+def _extract_item_date(item: dict) -> Optional[pd.Timestamp]:
+    """Tolerant date extraction across the two News shapes enrich_shortlist can produce
+    (Alpaca's "Date" vs FMP's "date"/"publishedDate" fallback), rather than assuming one
+    fixed key."""
+    for key in _ITEM_DATE_KEYS:
+        value = item.get(key)
+        if value:
+            try:
+                return pd.to_datetime(value, utc=True)
+            except (ValueError, TypeError):
+                continue
+    return None
+
+
+def _catalyst_recency(news_items: list[dict]) -> dict:
+    """Cheap recency signal derived entirely from News data already fetched (no extra
+    API calls) — News carries ~6-12 months of history, so this surfaces "how fresh is
+    the most recent item" as an explicit, structured field instead of leaving the
+    Decision Agent to spot a handful of recent dates buried in a large chronological
+    blob on its own. (An earlier version of this also folded in a separate FMP
+    press-releases fetch, but that endpoint 403s under the Starter-tier FMP plan this
+    project runs on — confirmed live, not assumed — and there's no working substitute,
+    so it was dropped; production already sources News from Alpaca/Benzinga, which
+    already carries official press-release-style items, not just aggregated commentary.)"""
+    now = pd.Timestamp.now(tz="UTC")
+    dates = [d for d in (_extract_item_date(item) for item in news_items) if d is not None]
+    if not dates:
+        return {"days_since_last_item": None, "items_last_3d": 0, "items_last_7d": 0}
+    most_recent = max(dates)
+    return {
+        "days_since_last_item": int((now - most_recent).days),
+        "items_last_3d": sum(1 for d in dates if (now - d).days <= 3),
+        "items_last_7d": sum(1 for d in dates if (now - d).days <= 7),
+    }
+
 
 class ResearchAgent:
     def __init__(self, settings):
@@ -212,8 +250,8 @@ class ResearchAgent:
 
     def enrich_shortlist(self, shortlist_df: pd.DataFrame, market_agent=None, news_lookback_days: int = 270) -> pd.DataFrame:
         """Adds DaysToEarnings, Fundamentals, AnalystRating, EarningsHistory, IncomeGrowth,
-        and News columns to the post-screener/post-sector-cap shortlist. Never call this on
-        the full universe — it's several FMP calls per ticker.
+        News, and CatalystRecency columns to the post-screener/post-sector-cap shortlist.
+        Never call this on the full universe — it's several FMP calls per ticker.
 
         News is now a genuine trend window (news_lookback_days, default ~9 months), not a
         5-headline snapshot — DecisionAgent's job changed from "mention News as background
@@ -249,5 +287,7 @@ class ResearchAgent:
             enriched["News"] = enriched["Ticker"].apply(_fetch_news)
         else:
             enriched["News"] = enriched["Ticker"].apply(lambda t: self.get_news(t, limit=5))
+
+        enriched["CatalystRecency"] = enriched["News"].apply(_catalyst_recency)
 
         return enriched

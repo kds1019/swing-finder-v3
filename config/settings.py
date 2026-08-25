@@ -54,8 +54,17 @@ class Settings:
     price_max: float = 150.0
     min_volume: int = 500_000
     sector_cap: int = 3
-    earnings_buffer_soft_days: int = 7   # scanner: soft exclude/flag
-    earnings_buffer_hard_days: int = 14  # base scanner: hard exclude
+    # earnings_buffer_exclude_days: absolute floor — earnings the same day or next day is
+    # always hard-excluded (see pipeline.py::apply_earnings_buffer), no override possible,
+    # since a stop can't protect against an overnight gap through a print that close.
+    # earnings_buffer_soft_days/hard_days: no longer exclusion cutoffs on their own past the
+    # floor above — tickers reporting within earnings_buffer_hard_days (but beyond the floor)
+    # are tagged "earnings_imminent" (<= soft_days) or "earnings_upcoming" and passed to the
+    # Decision Agent, which decides per-ticker whether the fundamentals genuinely support an
+    # earnings-catalyst pick rather than mechanically dropping every one of them.
+    earnings_buffer_exclude_days: int = 1
+    earnings_buffer_soft_days: int = 7
+    earnings_buffer_hard_days: int = 14
     smartscore_baseline: int = 50
     # Max % of account net liquidation value to risk on a single trade (position size =
     # this dollar amount / abs(entry - stop)). Used by DecisionAgent to size each ranked pick.

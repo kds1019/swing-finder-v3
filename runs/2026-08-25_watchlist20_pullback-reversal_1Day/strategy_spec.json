@@ -1,0 +1,66 @@
+{
+  "strategy_name": "core.pullback_reversal + core.trade_plan (SwingFinder live scanner)",
+  "source": "kds1019/swing-finder-v3, core/pullback_reversal.py + core/trade_plan.py, imported directly (not re-implemented)",
+  "asset_class": "stocks",
+  "symbols": ["CTVA", "HAL", "SUPN", "DOW", "RIOT", "EBAY", "BG", "MUR", "VNOM", "MIAX", "AKR", "HASI", "HLF", "MO", "CELC", "DAN", "COLM", "CWEN", "POR", "LXU"],
+  "timeframe": "1Day",
+  "feed": "sip",
+  "adjustment": "split",
+  "start": "2016-01-01",
+  "end": "2026-08-25",
+  "warmup_bars": 127,
+  "entry_rules": {
+    "ema200_uptrend_lookback_days": 126,
+    "ema200_min_uptrend_pct": 5.0,
+    "price_vs_ema200_min_pct": -12.0,
+    "price_vs_ema200_max_pct": 8.0,
+    "consolidation_lookback_days": 15,
+    "consolidation_max_range_pct": 15.0,
+    "min_bounce_off_low_pct": 3.0,
+    "volume_profile_window_days": 60,
+    "volume_profile_bins": 20,
+    "value_area_pct": 0.70,
+    "condition": "not extended above value area (Close[T] <= value_area_high)"
+  },
+  "exit_rules": {
+    "stop": "min(10-day swing low, EMA20[T] - 1.3*ATR14[T]), refined to nearest support cluster (window=10) if within 3*ATR14",
+    "target": "Fibonacci 1.618 extension of last 20 bars, floored at min_rr_ratio, refined to nearest resistance cluster if tighter and still clears floor",
+    "min_rr_ratio": 3.0,
+    "max_hold_days": 30,
+    "same_bar_conflict_policy": "conservative (stop checked before target)"
+  },
+  "fill_model": {
+    "type": "next_open",
+    "signal_bar": "T (close)",
+    "fill_bar": "T+1 (open)",
+    "slippage_bps": 5,
+    "quote_based": false
+  },
+  "position_sizing": {
+    "type": "equity_fraction",
+    "risk_per_trade_pct": 4.0,
+    "rounding": "floor",
+    "shares_formula": "floor(equity * 0.04 / abs(entry_fill - stop))",
+    "capital_model": "independent $100,000 account per symbol, no cross-symbol capital sharing"
+  },
+  "initial_cash": 100000,
+  "benchmark": "buy-and-hold of the same symbol, same warmup boundary/feed/adjustment/friction",
+  "fees": {
+    "commissions": 0,
+    "trading_activity_fees_modeled": false
+  },
+  "run_lineage": {
+    "variant_of": "2026-08-25_HAL-MO-EBAY_pullback-reversal_1Day",
+    "changed": "universe expanded from 3 hand-picked long-history tickers (HAL, MO, EBAY) to the 20 tickers from the live pipeline's 2026-08-24 23:23Z ranked-picks output (results/2026-08-24_2323Z.json) -- same rules, same run.py, unchanged"
+  },
+  "known_deviations_from_skill_canonical_formulas": [
+    "EMA/ATR use pandas .ewm(adjust=False) (first-value-seeded) instead of this skill's SMA-seeded/Wilder-seeded canonical formulas, matching this project's actual core/indicators.py implementation. Converges to the canonical value within a few multiples of the span/period; not bit-identical near series start."
+  ],
+  "known_limitations": [
+    "These 20 tickers are not 'everything that matched the raw technical screener' -- they are the subset the Decision Agent additionally selected for catalysts/fundamentals (26 candidates were reviewed, 20 were kept). This backtest tests the technical pattern PLUS that curation, not the technical pattern in isolation.",
+    "Universe/survivorship bias: symbols are today's live scan output replayed over history, not a point-in-time historical universe reconstruction.",
+    "Several symbols have short trading histories relative to the 2016 start date (e.g. MIAX IPO'd August 2025, CTVA/DOW spun off in 2019) -- the CLI fetch will simply return whatever history actually exists per symbol, and those symbols will contribute few or zero signal occurrences. Not a bug.",
+    "Equity curve steps at trade open/close, not full daily mark-to-market of open positions -- Sharpe/max-drawdown are approximate. Hit rate/profit-factor/avg-R from round_trips.csv are not affected.",
+    "Trading-activity fees excluded (commissions-only friction modeled via slippage_bps)."
+  ]
+}
