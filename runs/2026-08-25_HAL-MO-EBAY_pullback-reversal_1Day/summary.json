@@ -1,0 +1,117 @@
+{
+  "strategy_name": "core.pullback_reversal + core.trade_plan (SwingFinder live scanner)",
+  "start": "2016-01-01",
+  "end": "2026-08-25",
+  "symbols": [
+    "HAL",
+    "MO",
+    "EBAY"
+  ],
+  "timeframe": "1Day",
+  "initial_cash": 100000,
+  "fill_model": "next_open",
+  "slippage_bps": 5,
+  "metrics": {
+    "num_round_trips": 27,
+    "hit_rate": 0.2222,
+    "profit_factor": 0.7150854518514804,
+    "avg_r_multiple": -0.174
+  },
+  "per_symbol": {
+    "HAL": {
+      "final_equity": 99598.44,
+      "total_return": -0.004,
+      "benchmark_total_return": 0.8817,
+      "sharpe": 0.089,
+      "benchmark_sharpe": 0.668,
+      "max_drawdown": -0.2207,
+      "benchmark_max_drawdown": -0.4576,
+      "num_round_trips": 17,
+      "data_fingerprint": {
+        "provider": "alpaca",
+        "access_method": "alpaca_cli",
+        "feed": "iex",
+        "adjustment": "split",
+        "timeframe": "1Day",
+        "extended_hours": false,
+        "total_bars_fetched": 1000,
+        "bars_after_filter": 1000,
+        "first_bar_ts": "2020-07-27 04:00:00",
+        "last_bar_ts": "2024-07-22 04:00:00",
+        "close_sum": 29663.585,
+        "volume_sum": 292793707.0
+      }
+    },
+    "MO": {
+      "final_equity": 85622.27,
+      "total_return": -0.1438,
+      "benchmark_total_return": 0.1751,
+      "sharpe": -0.995,
+      "benchmark_sharpe": 0.331,
+      "max_drawdown": -0.1531,
+      "benchmark_max_drawdown": -0.3065,
+      "num_round_trips": 5,
+      "data_fingerprint": {
+        "provider": "alpaca",
+        "access_method": "alpaca_cli",
+        "feed": "iex",
+        "adjustment": "split",
+        "timeframe": "1Day",
+        "extended_hours": false,
+        "total_bars_fetched": 1000,
+        "bars_after_filter": 1000,
+        "first_bar_ts": "2020-07-27 04:00:00",
+        "last_bar_ts": "2024-07-22 04:00:00",
+        "close_sum": 45347.005,
+        "volume_sum": 222186573.0
+      }
+    },
+    "EBAY": {
+      "final_equity": 89771.87,
+      "total_return": -0.1023,
+      "benchmark_total_return": -0.0716,
+      "sharpe": -0.543,
+      "benchmark_sharpe": 0.102,
+      "max_drawdown": -0.1536,
+      "benchmark_max_drawdown": -0.5433,
+      "num_round_trips": 5,
+      "data_fingerprint": {
+        "provider": "alpaca",
+        "access_method": "alpaca_cli",
+        "feed": "iex",
+        "adjustment": "split",
+        "timeframe": "1Day",
+        "extended_hours": false,
+        "total_bars_fetched": 1000,
+        "bars_after_filter": 1000,
+        "first_bar_ts": "2020-07-27 04:00:00",
+        "last_bar_ts": "2024-07-17 04:00:00",
+        "close_sum": 52268.785,
+        "volume_sum": 250780306.0
+      }
+    }
+  },
+  "assumptions": [
+    "next_open fill model (signal on bar T close, fill at bar T+1 open) -- no look-ahead bias",
+    "5 bps slippage on entry and exit fills; $0 commissions",
+    "4% of current equity risked per trade, independent $100,000 account per symbol",
+    "one open position per symbol at a time",
+    "symbols are today's live scan universe replayed over history (survivorship bias, disclosed in notes.md)"
+  ],
+  "warnings": [],
+  "artifacts": {
+    "trades": "trades.csv",
+    "round_trips": "round_trips.csv",
+    "equity": [
+      "equity_HAL.csv",
+      "equity_MO.csv",
+      "equity_EBAY.csv"
+    ],
+    "benchmark_equity": [
+      "benchmark_equity_HAL.csv",
+      "benchmark_equity_MO.csv",
+      "benchmark_equity_EBAY.csv"
+    ],
+    "report": "report.md"
+  }
+}
