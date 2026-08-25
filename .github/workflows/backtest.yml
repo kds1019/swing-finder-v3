@@ -39,6 +39,15 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Check Alpaca auth
+        # Informational only, not gating: `alpaca doctor` also checks the Trading API,
+        # which this backtest never calls (it only fetches historical bars via the
+        # Data API) -- this project's ALPACA_API_KEY/SECRET authenticate the Data API
+        # fine but 401 against the Trading API (confirmed live in run #1 of this
+        # workflow: "data API: connected", "trading API: ... 401"), which would
+        # otherwise fail this step on something irrelevant to what this job does. The
+        # real, meaningful check is the "Fetch historical bars" step below actually
+        # succeeding.
+        continue-on-error: true
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
