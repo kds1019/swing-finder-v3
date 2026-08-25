@@ -18,8 +18,11 @@ actually backtested `core/pullback_reversal.py`. This is that first test.
   live universe (price 10-150, volume >=500k), long trading histories (decades),
   three different sectors. This is a single-symbol-style first pass (per explicit
   user choice), not the full multi-symbol portfolio simulation.
-- **Timeframe**: 1Day bars, feed=sip, adjustment=split (matches production's Alpaca
-  usage in `agents/market_data_agent.py`).
+- **Timeframe**: 1Day bars, feed=iex, adjustment=split. `agents/market_data_agent.py`
+  already documents why: "This account only has IEX (free-tier) market data access —
+  SIP (all-exchange, paid) returns 'subscription does not permit querying recent SIP
+  data.'" (confirmed again live here: the first real run of this backtest 403'd on
+  `feed=sip` before this was corrected to match production's actual feed).
 - **Date range**: 2016-01-01 through 2026-08-25. The first ~427 bars
   (300-bar warmup convention from `config/settings.py::bars_lookback_days`, plus the
   screener's own 126-bar EMA200-trend lookback) are warmup only — not eligible for
@@ -127,7 +130,7 @@ for SYMBOL in HAL MO EBAY; do
     --start 2016-01-01 \
     --end 2026-08-25 \
     --timeframe 1Day \
-    --feed sip \
+    --feed iex \
     --adjustment split \
     --quiet > "raw/bars_${SYMBOL}.json"
 done

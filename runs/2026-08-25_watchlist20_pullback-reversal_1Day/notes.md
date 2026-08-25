@@ -37,7 +37,11 @@ Identical to the 3-symbol run — see
 rule derivation, indicator formulas, and disclosed deviations from this skill's
 canonical EMA/ATR seeding. Summary:
 
-- **Timeframe**: 1Day bars, feed=sip, adjustment=split
+- **Timeframe**: 1Day bars, feed=iex, adjustment=split. `agents/market_data_agent.py`
+  already documents why: this account only has IEX (free-tier) market data access —
+  SIP (all-exchange, paid) returns a 403 ("subscription does not permit querying
+  recent SIP data"), confirmed again live in this run's own first attempt before
+  being corrected here.
 - **Date range**: 2016-01-01 through 2026-08-25 (warmup: first 127 bars per symbol,
   per `core/pullback_reversal.py::MIN_BARS_FOR_SCREENER`)
 - **Entry**: `core.pullback_reversal.detect_pullback_reversal` — EMA200 uptrend >=5%
@@ -85,7 +89,7 @@ for SYMBOL in CTVA HAL SUPN DOW RIOT EBAY BG MUR VNOM MIAX AKR HASI HLF MO CELC 
     --start 2016-01-01 \
     --end 2026-08-25 \
     --timeframe 1Day \
-    --feed sip \
+    --feed iex \
     --adjustment split \
     --quiet > "raw/bars_${SYMBOL}.json"
 done

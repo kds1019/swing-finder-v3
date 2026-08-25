@@ -3,7 +3,7 @@
   "start": "2016-01-01",
   "end": "2026-08-25",
   "timeframe": "1Day",
-  "feed": "sip",
+  "feed": "iex",
   "adjustment": "split",
   "initial_cash": 100000,
   "risk_per_trade_pct": 4.0,
