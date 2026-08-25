@@ -1,0 +1,14 @@
+{
+  "url": "https://files.alpaca.markets/disclosures/library/BrokFeeSched.pdf",
+  "revision_date": null,
+  "extracted_at": null,
+  "modeled_categories": [],
+  "excluded_categories": [
+    "SEC",
+    "FINRA_TAF",
+    "FINRA_CAT",
+    "ORF",
+    "OCC",
+    "commissions"
+  ]
+}
