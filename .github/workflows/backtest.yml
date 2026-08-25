@@ -70,16 +70,39 @@ jobs:
           FEED=$(jq -r '.feed' config.json)
           ADJUSTMENT=$(jq -r '.adjustment' config.json)
 
+          # alpaca data bars pages at 1000 bars/request by default -- confirmed live
+          # (run #3 of this workflow silently truncated to page 1's 1000 bars,
+          # 2020-07 to 2024-07, instead of the full requested 2016-2026 range) that a
+          # single un-paginated call is not enough for a multi-year daily-bar fetch.
+          # Loops on next_page_token, merging all pages' bars into one array, with a
+          # hard cap (should never be hit for a ~10 year daily-bar range) so a runaway
+          # token chain fails loudly instead of looping forever.
+          MAX_PAGES=20
           for SYMBOL in $(jq -r '.symbols[]' config.json); do
             echo "Fetching $SYMBOL ($START to $END, $TIMEFRAME, feed=$FEED, adjustment=$ADJUSTMENT)"
-            alpaca data bars \
-              --symbol "$SYMBOL" \
-              --start "$START" \
-              --end "$END" \
-              --timeframe "$TIMEFRAME" \
-              --feed "$FEED" \
-              --adjustment "$ADJUSTMENT" \
-              --quiet > "raw/bars_${SYMBOL}.json"
+            : > "raw/_pages_${SYMBOL}.jsonl"
+            PAGE_TOKEN=""
+            for i in $(seq 1 $MAX_PAGES); do
+              if [ -z "$PAGE_TOKEN" ]; then
+                alpaca data bars --symbol "$SYMBOL" --start "$START" --end "$END" \
+                  --timeframe "$TIMEFRAME" --feed "$FEED" --adjustment "$ADJUSTMENT" \
+                  --limit 10000 --quiet > "raw/_page_${SYMBOL}.json"
+              else
+                alpaca data bars --symbol "$SYMBOL" --start "$START" --end "$END" \
+                  --timeframe "$TIMEFRAME" --feed "$FEED" --adjustment "$ADJUSTMENT" \
+                  --limit 10000 --page-token "$PAGE_TOKEN" --quiet > "raw/_page_${SYMBOL}.json"
+              fi
+              cat "raw/_page_${SYMBOL}.json" >> "raw/_pages_${SYMBOL}.jsonl"
+              PAGE_TOKEN=$(jq -r '.next_page_token // empty' "raw/_page_${SYMBOL}.json")
+              [ -z "$PAGE_TOKEN" ] && break
+              if [ "$i" -eq "$MAX_PAGES" ]; then
+                echo "::error::$SYMBOL still has a next_page_token after $MAX_PAGES pages -- aborting rather than looping forever"
+                exit 1
+              fi
+            done
+            jq -s '[.[].bars[]]' "raw/_pages_${SYMBOL}.jsonl" > "raw/bars_${SYMBOL}.json"
+            rm -f "raw/_pages_${SYMBOL}.jsonl" "raw/_page_${SYMBOL}.json"
+            echo "  -> $(jq 'length' "raw/bars_${SYMBOL}.json") total bars"
           done
 
       - name: Run backtest
