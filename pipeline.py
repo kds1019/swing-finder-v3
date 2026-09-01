@@ -196,7 +196,11 @@ def run_pipeline(
 
     # --- Pick outcome tracking (part 2): log this run's new picks for future scoring. ---
     ranked_picks = result.get("ranked_picks", []) if isinstance(result, dict) else []
-    pick_log = record_picks(pick_log, ranked_picks, pd.Timestamp.now().strftime("%Y-%m-%d"))
+    # final_df still carries core.pullback_reversal's per-ticker measurements — pass it so
+    # each logged pick records how it matched the screener (see docs/strategy.md calibration).
+    pick_log = record_picks(
+        pick_log, ranked_picks, pd.Timestamp.now().strftime("%Y-%m-%d"), features_df=final_df
+    )
     save_pick_outcomes_log(pick_log, PICK_OUTCOMES_LOG_PATH)
 
     return {

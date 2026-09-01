@@ -4,3 +4,6 @@ __pycache__/
 .env
 *.log
 *.log.*
+
+# calibration artifacts — large, regenerable from research/build_calibration_dataset.py
+research/data/

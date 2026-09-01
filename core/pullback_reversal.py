@@ -24,18 +24,40 @@ order history and price bars rather than worked from memory of a description:
 
 Every threshold here is a **percentage relative to that ticker's own price/EMA200/
 volume profile**, not an absolute dollar level — this scans for the shape of the
-setup (pullback into a rising 200-day average, stabilize, early bounce, not
-stretched into thin volume above) at any price, not for stocks that resemble
-EMBJ's price level specifically.
+setup (pullback into a rising 200-day average, stabilize, not stretched into thin
+volume above) at any price, not for stocks that resemble EMBJ's price level
+specifically.
 
-core.smartscore's classify_setup() (RSI/Bollinger-band-based Breakout/Pullback),
-the ML-edge adjustment, and chart-pattern detection were walk-forward tested this
-research effort and found no demonstrated edge (see
-docs/ml-edge-confidence-research.md) — removed from the live pipeline entirely
-rather than kept alongside this. Volume profile was never tested and is folded in
-here per explicit instruction (untested, not disproven, unlike the other three).
-This screener itself is not validated the same rigorous way per explicit
-instruction either — treat its output as an unproven candidate signal.
+CALIBRATION (2026-08-31): the thresholds below are no longer EMBJ's numbers plus a
+margin. They were re-derived from research/build_calibration_dataset.py — ~147k
+labelled instances across 461 tickers, 2021-2026 — by binning each measurement
+against the realised R-multiple (research/analyze_calibration.py,
+research/calibration_findings.md) and putting each cutoff where an edge actually
+appears. Headline: the EMBJ-fit gates barely beat "rising 200-EMA + roughly near
+it" (profit factor 1.19 vs 1.18); the re-derived gates reach ~1.27 (train 1.24 /
+test 1.33 on a 2021-2024 vs 2025-2026 split). What changed and why:
+  - price-vs-EMA200 band -12%/+8%  ->  -20%/+3%. The edge is monotonic in pullback
+    DEPTH (the -25%..-12% bins were the best); the +4%..+15% region above EMA200
+    was dead weight (PF ~1.06). This is the deep-pullback trade, not a shallow dip.
+  - "not above value_area_high" (price_vs_vah <= 0)  ->  price_vs_vah <= -4%. The
+    edge was already gone by -2%; a real margin below the value-area high is what
+    matters, not merely "not above it."
+  - consolidation range <= 15%  ->  <= 20%. Wider recent ranges did slightly
+    BETTER, not worse — the tight-range requirement wasn't helping.
+  - min bounce off the 15-day low 3%  ->  0% (gate effectively removed). The best
+    outcomes were with price STILL AT the low (0-1% off); requiring a 3%+ bounce
+    just bought a worse entry after the move had already started.
+Things the calibration said NOT to add, against prior expectation: a
+relative-strength floor (RS laggards did mildly better for this setup — a deep
+pullback IS relative weakness), a 50-EMA > 200-EMA gate (50 < 200 bins were
+better — that cross is the pullback's signature), a near-52-week-high filter
+(within 4% of the high LOSES money here), and a SPY-trend regime gate (no help;
+2022's damage is already covered by the VIX <= 20 gate in pipeline.py).
+
+Caveats: ~one market cycle of IEX history; survivorship-biased to today's
+universe; weak-RR trade plans excluded from the calibration numbers. Treat the
+output as a modest-edge candidate filter, re-run the calibration as more history
+and resolved live picks (pick_outcomes.csv) accumulate. See docs/strategy.md.
 """
 
 from __future__ import annotations
@@ -46,27 +68,33 @@ from core.volume_profile import compute_volume_profile
 
 # How far back to check whether EMA200 itself is trending up — long enough that a
 # genuine multi-week pullback (which flattens the recent EMA200 slope even inside a
-# real uptrend, as EMBJ's own 3-months-before number shows) doesn't get misread as
-# "no uptrend."
+# real uptrend) doesn't get misread as "no uptrend."
 EMA200_TREND_LOOKBACK_DAYS = 126  # ~6 months of trading days
-EMA200_MIN_UPTREND_PCT = 5.0  # EMBJ's own 6-month EMA200 gain was +11.8%; this leaves real margin
+# Kept at 5.0: the calibration showed only a mild, roughly monotonic benefit to a
+# steeper long-term trend, and 5% vs 3% made little difference — not worth tightening.
+EMA200_MIN_UPTREND_PCT = 5.0
 
-# Price must sit within this band of EMA200 — "slightly above or slightly under."
-# EMBJ was -5.2%; banded asymmetrically since "pulled back" implies below more often,
-# but the user's own wording allows slightly above too.
-PRICE_VS_EMA200_MIN_PCT = -12.0
-PRICE_VS_EMA200_MAX_PCT = 8.0
+# Price must sit within this band of EMA200. Calibrated: the realised edge is
+# monotonic in pullback DEPTH (deeper is better, all the way down to ~-25%), and
+# fades to nothing above ~+3%. This is deliberately a deep-pullback filter.
+PRICE_VS_EMA200_MIN_PCT = -20.0
+PRICE_VS_EMA200_MAX_PCT = 3.0
 
-# Consolidation/stabilization window and thresholds — EMBJ's own 15-day range into
-# entry was about 10% of price, with a bounce of ~7.4% off the window's low.
+# Consolidation window. Calibrated: a wider recent range was, if anything, slightly
+# better — so this is a loose sanity bound, not a "must be quiet" gate.
 CONSOLIDATION_LOOKBACK_DAYS = 15
-CONSOLIDATION_MAX_RANGE_PCT = 15.0
-MIN_BOUNCE_OFF_LOW_PCT = 3.0
+CONSOLIDATION_MAX_RANGE_PCT = 20.0
+# Calibrated to 0.0 (gate effectively off): the best outcomes were with price still
+# at the 15-day low; requiring an early bounce bought a worse entry. Kept as a
+# constant (not deleted) so a future calibration can re-enable it cleanly.
+MIN_BOUNCE_OFF_LOW_PCT = 0.0
 
-# Volume profile window — matches pipeline.py's prior VOLUME_PROFILE_WINDOW_DAYS.
-# Gate is "not extended above the value area" (price <= value_area_high), not
-# "at/below POC" — the latter would have excluded the real EMBJ trade itself.
+# Volume profile window.
 VOLUME_PROFILE_WINDOW_DAYS = 60
+# "Not extended" gate: price must sit at least this far BELOW the value-area high
+# (where 70% of recent volume traded), not merely "not above it". Calibrated: the
+# edge was already gone by -2%; -4% is where the good bins start.
+MAX_PRICE_VS_VALUE_AREA_HIGH_PCT = -4.0
 
 # Minimum bars this screener needs to run at all — defined here (not duplicated as a
 # magic number by callers) so a future change to either lookback constant can't
@@ -78,82 +106,122 @@ VOLUME_PROFILE_WINDOW_DAYS = 60
 MIN_BARS_FOR_SCREENER = max(EMA200_TREND_LOOKBACK_DAYS, CONSOLIDATION_LOOKBACK_DAYS) + 1
 
 
-def detect_pullback_reversal(df: pd.DataFrame) -> dict:
-    """Detects the EMA200 pullback + stabilization/reversal setup for the most
+def measure_pullback_reversal(df: pd.DataFrame) -> dict | None:
+    """Every raw measurement the screener's gates are applied to, for the most
     recent bar of `df` (must already have compute_indicators() applied — needs
-    EMA200). Returns {"detected": False} if there isn't enough history or the
-    setup's criteria aren't met; otherwise returns "detected": True plus the raw
-    measurements (not a 0-100 score) so callers can rank/filter on whichever
-    dimension matters most — this only gates whether the pattern is present."""
+    EMA200). NO thresholds applied: returns the continuous values so that
+    research/ calibration can bin each one against realised outcomes, while
+    detect_pullback_reversal() layers the actual gates on top of this. Returns
+    None only when there genuinely isn't enough history (or a degenerate EMA200)
+    to compute the measurements at all. See docs/strategy.md."""
     if df is None or len(df) < MIN_BARS_FOR_SCREENER:
-        return {"detected": False, "reason": "insufficient_data"}
+        return None
 
     close = df["Close"]
     ema200 = df["EMA200"]
     current_close = float(close.iloc[-1])
     current_ema200 = float(ema200.iloc[-1])
     if pd.isna(current_ema200) or current_ema200 <= 0:
-        return {"detected": False, "reason": "insufficient_data"}
+        return None
 
     ema200_then = float(ema200.iloc[-1 - EMA200_TREND_LOOKBACK_DAYS])
     if pd.isna(ema200_then) or ema200_then <= 0:
-        return {"detected": False, "reason": "insufficient_data"}
+        return None
 
     ema200_uptrend_pct = round((current_ema200 - ema200_then) / ema200_then * 100, 2)
-    if ema200_uptrend_pct < EMA200_MIN_UPTREND_PCT:
-        return {
-            "detected": False, "reason": "no_long_term_uptrend",
-            "ema200_uptrend_pct": ema200_uptrend_pct,
-        }
-
     price_vs_ema200_pct = round((current_close - current_ema200) / current_ema200 * 100, 2)
-    if not (PRICE_VS_EMA200_MIN_PCT <= price_vs_ema200_pct <= PRICE_VS_EMA200_MAX_PCT):
-        return {
-            "detected": False, "reason": "price_too_far_from_ema200",
-            "ema200_uptrend_pct": ema200_uptrend_pct, "price_vs_ema200_pct": price_vs_ema200_pct,
-        }
 
     window = close.tail(CONSOLIDATION_LOOKBACK_DAYS)
     window_low = float(window.min())
     window_high = float(window.max())
     consolidation_range_pct = round((window_high - window_low) / current_close * 100, 2)
-    if consolidation_range_pct > CONSOLIDATION_MAX_RANGE_PCT:
-        return {
-            "detected": False, "reason": "not_consolidating",
-            "ema200_uptrend_pct": ema200_uptrend_pct, "price_vs_ema200_pct": price_vs_ema200_pct,
-            "consolidation_range_pct": consolidation_range_pct,
-        }
-
-    bounce_off_low_pct = round((current_close - window_low) / window_low * 100, 2) if window_low > 0 else 0.0
-    if bounce_off_low_pct < MIN_BOUNCE_OFF_LOW_PCT:
-        return {
-            "detected": False, "reason": "no_reversal_yet",
-            "ema200_uptrend_pct": ema200_uptrend_pct, "price_vs_ema200_pct": price_vs_ema200_pct,
-            "consolidation_range_pct": consolidation_range_pct, "bounce_off_low_pct": bounce_off_low_pct,
-        }
+    bounce_off_low_pct = (
+        round((current_close - window_low) / window_low * 100, 2) if window_low > 0 else 0.0
+    )
 
     vp = compute_volume_profile(df, window=VOLUME_PROFILE_WINDOW_DAYS)
-    if vp is None:
-        return {
-            "detected": False, "reason": "insufficient_data",
-            "ema200_uptrend_pct": ema200_uptrend_pct, "price_vs_ema200_pct": price_vs_ema200_pct,
-            "consolidation_range_pct": consolidation_range_pct, "bounce_off_low_pct": bounce_off_low_pct,
-        }
-    if current_close > vp["value_area_high"]:
-        return {
-            "detected": False, "reason": "extended_above_value_area",
-            "ema200_uptrend_pct": ema200_uptrend_pct, "price_vs_ema200_pct": price_vs_ema200_pct,
-            "consolidation_range_pct": consolidation_range_pct, "bounce_off_low_pct": bounce_off_low_pct,
-            "poc": vp["poc"],
-        }
+    poc = value_area_low = value_area_high = None
+    price_vs_poc_pct = price_vs_value_area_high_pct = None
+    if vp is not None:
+        poc = vp["poc"]
+        value_area_low = vp["value_area_low"]
+        value_area_high = vp["value_area_high"]
+        if poc:
+            price_vs_poc_pct = round((current_close - poc) / poc * 100, 2)
+        if value_area_high:
+            price_vs_value_area_high_pct = round(
+                (current_close - value_area_high) / value_area_high * 100, 2
+            )
 
-    price_vs_poc_pct = round((current_close - vp["poc"]) / vp["poc"] * 100, 2) if vp["poc"] else None
     return {
-        "detected": True,
+        "close": current_close,
         "ema200_uptrend_pct": ema200_uptrend_pct,
         "price_vs_ema200_pct": price_vs_ema200_pct,
         "consolidation_range_pct": consolidation_range_pct,
         "bounce_off_low_pct": bounce_off_low_pct,
-        "poc": vp["poc"],
+        "poc": poc,
         "price_vs_poc_pct": price_vs_poc_pct,
+        "value_area_low": value_area_low,
+        "value_area_high": value_area_high,
+        "price_vs_value_area_high_pct": price_vs_value_area_high_pct,
+        "volume_profile_available": vp is not None,
+    }
+
+
+def detect_pullback_reversal(df: pd.DataFrame) -> dict:
+    """Detects the EMA200 pullback + stabilization/reversal setup for the most
+    recent bar of `df` (must already have compute_indicators() applied — needs
+    EMA200). Returns {"detected": False} if there isn't enough history or the
+    setup's criteria aren't met; otherwise returns "detected": True plus the raw
+    measurements (not a 0-100 score) so callers can rank/filter on whichever
+    dimension matters most — this only gates whether the pattern is present.
+
+    Thin threshold layer over measure_pullback_reversal() — the module constants
+    are the gates, that function is the measurements. The return shape (detected,
+    reason, and the per-gate measurement keys) is unchanged from before the split."""
+    m = measure_pullback_reversal(df)
+    if m is None:
+        return {"detected": False, "reason": "insufficient_data"}
+
+    partial = {
+        "ema200_uptrend_pct": m["ema200_uptrend_pct"],
+        "price_vs_ema200_pct": m["price_vs_ema200_pct"],
+        "consolidation_range_pct": m["consolidation_range_pct"],
+        "bounce_off_low_pct": m["bounce_off_low_pct"],
+    }
+
+    if m["ema200_uptrend_pct"] < EMA200_MIN_UPTREND_PCT:
+        return {"detected": False, "reason": "no_long_term_uptrend",
+                "ema200_uptrend_pct": m["ema200_uptrend_pct"]}
+
+    if not (PRICE_VS_EMA200_MIN_PCT <= m["price_vs_ema200_pct"] <= PRICE_VS_EMA200_MAX_PCT):
+        return {"detected": False, "reason": "price_too_far_from_ema200",
+                "ema200_uptrend_pct": m["ema200_uptrend_pct"],
+                "price_vs_ema200_pct": m["price_vs_ema200_pct"]}
+
+    if m["consolidation_range_pct"] > CONSOLIDATION_MAX_RANGE_PCT:
+        return {"detected": False, "reason": "not_consolidating",
+                "ema200_uptrend_pct": m["ema200_uptrend_pct"],
+                "price_vs_ema200_pct": m["price_vs_ema200_pct"],
+                "consolidation_range_pct": m["consolidation_range_pct"]}
+
+    if m["bounce_off_low_pct"] < MIN_BOUNCE_OFF_LOW_PCT:
+        return {"detected": False, "reason": "no_reversal_yet", **partial}
+
+    if not m["volume_profile_available"]:
+        return {"detected": False, "reason": "insufficient_data", **partial}
+
+    vah_pct = m["price_vs_value_area_high_pct"]
+    if vah_pct is None or vah_pct > MAX_PRICE_VS_VALUE_AREA_HIGH_PCT:
+        return {"detected": False, "reason": "extended_above_value_area",
+                **partial, "poc": m["poc"]}
+
+    return {
+        "detected": True,
+        "ema200_uptrend_pct": m["ema200_uptrend_pct"],
+        "price_vs_ema200_pct": m["price_vs_ema200_pct"],
+        "consolidation_range_pct": m["consolidation_range_pct"],
+        "bounce_off_low_pct": m["bounce_off_low_pct"],
+        "poc": m["poc"],
+        "price_vs_poc_pct": m["price_vs_poc_pct"],
     }

@@ -22,14 +22,32 @@ would overstate win rate.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 
 from core.trade_plan import resolve_trade_plan_outcome
 
+# Screener pattern-match measurements, joined onto each pick at record time (from
+# core.pullback_reversal via agents.market_data_agent.scan_universe, carried through
+# pipeline.py's final_df). This makes pick_outcomes.csv a self-contained
+# (features -> outcome) table so the screener's thresholds can be calibrated against
+# realised results instead of against a single reference trade (see docs/strategy.md).
+# Map is {source DataFrame column: log column name}; extend this AND LOG_COLUMNS together
+# whenever the screener grows a new measurement (ATR%, relative strength, market cap, ...).
+SCREENER_FEATURE_COLUMNS = {
+    "EMA200UptrendPct": "ema200_uptrend_pct",
+    "PriceVsEMA200Pct": "price_vs_ema200_pct",
+    "ConsolidationRangePct": "consolidation_range_pct",
+    "BounceOffLowPct": "bounce_off_low_pct",
+    "PriceVsPOCPct": "price_vs_poc_pct",
+}
+
 LOG_COLUMNS = [
     "prediction_date", "ticker", "rank", "entry_price", "stop_price",
-    "target_price", "rr_ratio", "resolved", "outcome", "outcome_price", "outcome_date",
+    "target_price", "rr_ratio",
+    *SCREENER_FEATURE_COLUMNS.values(),
+    "resolved", "outcome", "outcome_price", "outcome_date",
     "bars_to_resolution", "actual_return_pct",
 ]
 
@@ -70,27 +88,51 @@ def save_pick_outcomes_log(log_df: pd.DataFrame, path: str) -> None:
     log_df.to_csv(path, index=False)
 
 
-def record_picks(log_df: pd.DataFrame, ranked_picks: list[dict], prediction_date: str) -> pd.DataFrame:
+def record_picks(
+    log_df: pd.DataFrame,
+    ranked_picks: list[dict],
+    prediction_date: str,
+    features_df: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
     """ranked_picks: DecisionAgent.synthesize()'s own result["ranked_picks"] list — already
-    has ticker/rank/entry/stop/target/rr_ratio per pick, used as-is."""
+    has ticker/rank/entry/stop/target/rr_ratio per pick, used as-is.
+
+    features_df: the post-screener DataFrame still carrying core.pullback_reversal's
+    per-ticker pattern measurements (pipeline.py passes final_df). Joined on ticker so every
+    logged pick also records HOW it matched the screener — see SCREENER_FEATURE_COLUMNS and
+    docs/strategy.md. Omitted / no matching columns -> those fields are left null, exactly
+    as rows logged before this was added read on load."""
     if not ranked_picks:
         return log_df
 
-    rows = [{
-        "prediction_date": prediction_date,
-        "ticker": p["ticker"],
-        "rank": p["rank"],
-        "entry_price": p["entry"],
-        "stop_price": p["stop"],
-        "target_price": p["target"],
-        "rr_ratio": p["rr_ratio"],
-        "resolved": False,
-        "outcome": None,
-        "outcome_price": None,
-        "outcome_date": None,
-        "bars_to_resolution": None,
-        "actual_return_pct": None,
-    } for p in ranked_picks]
+    feature_lookup: dict[str, dict] = {}
+    if features_df is not None and not features_df.empty and "Ticker" in features_df.columns:
+        present = [c for c in SCREENER_FEATURE_COLUMNS if c in features_df.columns]
+        for _, frow in features_df.iterrows():
+            feature_lookup[frow["Ticker"]] = {
+                SCREENER_FEATURE_COLUMNS[c]: frow[c] for c in present
+            }
+
+    rows = []
+    for p in ranked_picks:
+        row = {
+            "prediction_date": prediction_date,
+            "ticker": p["ticker"],
+            "rank": p["rank"],
+            "entry_price": p["entry"],
+            "stop_price": p["stop"],
+            "target_price": p["target"],
+            "rr_ratio": p["rr_ratio"],
+            "resolved": False,
+            "outcome": None,
+            "outcome_price": None,
+            "outcome_date": None,
+            "bars_to_resolution": None,
+            "actual_return_pct": None,
+        }
+        row.update({log_col: None for log_col in SCREENER_FEATURE_COLUMNS.values()})
+        row.update(feature_lookup.get(p["ticker"], {}))
+        rows.append(row)
 
     return pd.concat([log_df, pd.DataFrame(rows)], ignore_index=True)
 

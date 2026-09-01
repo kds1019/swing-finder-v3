@@ -24,6 +24,7 @@ this port uses index [0], the actual nearest one.
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 # Very high R:R (per the tuning sheet's "Advanced Tuning" note) more often means
@@ -56,20 +57,26 @@ def find_support_resistance(df: pd.DataFrame, window: int = 10, num_levels: int 
     if len(df) < window * 2:
         return {"support": [], "resistance": []}
 
-    highs = df["High"].rolling(window=window, center=True).max()
-    lows = df["Low"].rolling(window=window, center=True).min()
+    # numpy arrays for the pivot scan — identical arithmetic to indexing the Series
+    # directly, but without pandas' per-element .iloc overhead (this loop runs on the
+    # full trailing window for every screened bar; research/build_calibration_dataset
+    # calls it hundreds of times per ticker).
+    high_arr = df["High"].to_numpy(dtype=float)
+    low_arr = df["Low"].to_numpy(dtype=float)
+    roll_high = df["High"].rolling(window=window, center=True).max().to_numpy(dtype=float)
+    roll_low = df["Low"].rolling(window=window, center=True).min().to_numpy(dtype=float)
 
     resistance_levels = []
     support_levels = []
     for i in range(window, len(df) - window):
-        if df["High"].iloc[i] == highs.iloc[i]:
-            level = float(df["High"].iloc[i])
-            touches = int((abs(df["High"] - level) / level < 0.01).sum())
-            resistance_levels.append({"price": level, "touches": touches})
-        if df["Low"].iloc[i] == lows.iloc[i]:
-            level = float(df["Low"].iloc[i])
-            touches = int((abs(df["Low"] - level) / level < 0.01).sum())
-            support_levels.append({"price": level, "touches": touches})
+        h = high_arr[i]
+        if h == roll_high[i]:
+            touches = int(np.count_nonzero(np.abs(high_arr - h) / h < 0.01))
+            resistance_levels.append({"price": float(h), "touches": touches})
+        lo = low_arr[i]
+        if lo == roll_low[i]:
+            touches = int(np.count_nonzero(np.abs(low_arr - lo) / lo < 0.01))
+            support_levels.append({"price": float(lo), "touches": touches})
 
     def cluster(levels: list[dict], tolerance: float = 0.02) -> list[dict]:
         if not levels:

@@ -53,6 +53,22 @@ class Settings:
     price_min: float = 10.0
     price_max: float = 150.0
     min_volume: int = 500_000
+    # Dollar-volume floor (Price * Volume), applied client-side in core.universe alongside
+    # the share-count floor above. Share count alone is the wrong unit for liquidity — a
+    # $12 stock at 500k shares turns over ~$6M/day, a $130 stock at 500k turns over ~$65M.
+    # $10M is the low end of the range the practitioner write-ups converge on for a small
+    # account; raise toward $20-30M if fill slippage becomes the constraint. See
+    # docs/strategy.md.
+    min_dollar_volume: float = 10_000_000.0
+    # Market-cap floor in $millions, applied client-side in core.universe. Cuts micro/small
+    # caps whose "pullback" is disproportionately the start of a dilution spiral or a
+    # news-driven collapse that gaps straight through a stop — the deep-pullback entry is
+    # already buying weakness, so the company needs enough size that the weakness reads as a
+    # correction, not an existential problem. $1.5B keeps most of the small/mid universe
+    # (where the deep-pullback-with-upside trade lives) without drifting into the
+    # low-volatility mega-cap zone. Tickers with a missing/zero market cap fail this and are
+    # dropped. Candidate for data-driven refinement — see docs/strategy.md.
+    market_cap_min_musd: float = 1_500.0
     sector_cap: int = 3
     # earnings_buffer_exclude_days: absolute floor — earnings the same day or next day is
     # always hard-excluded (see pipeline.py::apply_earnings_buffer), no override possible,
