@@ -174,7 +174,7 @@ def score_due_picks(log_df: pd.DataFrame, market_agent) -> pd.DataFrame:
         entry_price = float(row["entry_price"])
 
         outcome, outcome_price, outcome_date, bars_checked = resolve_trade_plan_outcome(
-            after, stop, target, MAX_HOLD_DAYS
+            after, stop, target, MAX_HOLD_DAYS, entry=entry_price,
         )
 
         if outcome is not None:
@@ -189,27 +189,39 @@ def score_due_picks(log_df: pd.DataFrame, market_agent) -> pd.DataFrame:
     return log_df
 
 
+# Outcomes that count as a decisive resolution (the trade actually closed one way or the
+# other). "trail_stop" is decisive — the trailing stop closed it, at a gain or a small loss;
+# expired_unresolved is not (marked to close, never really resolved).
+DECISIVE_OUTCOMES = ("target_hit", "stop_hit", "trail_stop")
+
+
 def compute_pick_accuracy_summary(log_df: pd.DataFrame, min_sample: int = MIN_SAMPLE_SIZE) -> dict:
     """
     Rolling win-rate summary over the most recent ACCURACY_WINDOW *decisively* resolved picks
-    (target_hit or stop_hit — expired_unresolved picks are excluded from win rate since they
+    (see DECISIVE_OUTCOMES — expired_unresolved picks are excluded from win rate since they
     never actually resolved either way, though they still count toward general awareness).
-    sufficient_data=False below min_sample tells callers (the Decision Agent prompt) not to
-    draw conclusions from too little history yet.
+    A win is a positive realised return, not outcome == "target_hit": under the trailing
+    exit the target is a ceiling that is rarely reached, and a "trail_stop" is usually a
+    win. sufficient_data=False below min_sample tells callers (the Decision Agent prompt)
+    not to draw conclusions from too little history yet.
     """
     resolved = log_df[log_df["resolved"] == True]  # noqa: E712
-    decisive = resolved[resolved["outcome"].isin(["target_hit", "stop_hit"])].tail(ACCURACY_WINDOW)
+    decisive = resolved[resolved["outcome"].isin(DECISIVE_OUTCOMES)].tail(ACCURACY_WINDOW)
     sample_size = len(decisive)
 
     if sample_size < min_sample:
         return {"sufficient_data": False, "sample_size": sample_size, "min_sample_size": min_sample}
 
-    win_rate_pct = round((decisive["outcome"] == "target_hit").mean() * 100, 1)
+    is_win = decisive["actual_return_pct"].astype(float) > 0
+    win_rate_pct = round(is_win.mean() * 100, 1)
     avg_bars_to_resolution = round(decisive["bars_to_resolution"].astype(float).mean(), 1)
     avg_return_pct = round(decisive["actual_return_pct"].astype(float).mean(), 2)
 
     rank1 = decisive[decisive["rank"] == 1]
-    rank1_win_rate_pct = round((rank1["outcome"] == "target_hit").mean() * 100, 1) if len(rank1) >= 5 else None
+    rank1_win_rate_pct = (
+        round((rank1["actual_return_pct"].astype(float) > 0).mean() * 100, 1)
+        if len(rank1) >= 5 else None
+    )
 
     return {
         "sufficient_data": True,

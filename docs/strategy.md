@@ -54,6 +54,29 @@ Thresholds below are the **calibrated** values (2026-08-31 — see "Calibration 
   deep pullback *is* relative weakness and *is* usually a 50/200 cross. See "Calibration
   status".
 
+## Trade management (`core/trade_plan.py`)
+
+Calibrated the same way as the screener — against the labelled dataset, via
+`research/exit_analysis.py`. The finding was decisive and the exit change matters
+**more than the entry recalibration** (avg R +0.20 → +0.36 vs +0.13 → +0.20):
+
+- **Entry**: the close of the signal bar.
+- **Initial stop**: `min(10-day swing low, EMA20 − 1.3·ATR)`, refined to the nearest
+  support cluster within 3·ATR. Position size is `risk_per_trade_pct` of equity ÷
+  `(entry − stop)`.
+- **Exit — trailing stop.** Hold the initial stop until price reaches **entry + 2R**,
+  then trail the stop at **(running peak high − 1R)**, never loosening. No fixed
+  profit target — the Fibonacci "target" is a hard ceiling only.
+- **Max hold**: 30 trading days, then mark to close.
+
+Why not a fixed target: every fixed target tested (1R–3R) was *strictly worse* than the
+trail (PF 1.13–1.21 vs 1.71), every year. This setup is fat-tailed — winning trades
+average ~12R of favourable excursion — so capping them destroys the edge. A +2R/give-1R
+trail also turned 2022 (the one losing year under a fixed target) positive.
+
+Known limitation: this is a daily-bar simulation. Real intraday whipsaw and fill
+slippage will shave some off the +0.36 R; there is margin over the fixed-target +0.20.
+
 ## Universe floors (`config/settings.py` → `core/universe.py`)
 
 - `price_min` / `price_max` — avoid sub-$10 market-structure noise; price ceiling is a
@@ -128,5 +151,7 @@ Pipeline:
 - Thresholds were read off the bin tables and rounded, then train/test checked — not
   formally optimised. Re-run the calibration as more history and resolved live picks
   accumulate (`pick_outcomes.csv` now carries the features for exactly this).
-- The trade-plan stop/target logic (`core/trade_plan.py`) is a separate lever — the
-  support-refinement step widens stops enough to produce weak-RR plans; worth its own pass.
+- The trailing exit (above) came out of the same calibration and is now the live exit.
+  Remaining trade-plan lever: ~32% of signals still get a weak-RR plan (support refinement
+  widens the stop below the R:R floor); those are PF ~1.1 vs ~1.3 for the clean set —
+  either skip them or stop the refinement from crossing the floor.

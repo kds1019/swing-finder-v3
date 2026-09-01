@@ -47,10 +47,14 @@ confirmed not extended above its own volume profile's value area — EMA200Uptre
 PriceVsEMA200Pct, ConsolidationRangePct, BounceOffLowPct, POC, PriceVsPOCPct describe exactly
 how each ticker matched it) and sector-cap filtering, each with a pre-computed trade plan
 (Entry/Stop/Target/RRRatio from core/trade_plan.py — swing-low/EMA-anchored stop,
-Fibonacci-extension target refined against real support/resistance). This technical screener is
-a real, specific chart pattern but has NOT been statistically validated the way the system it
-replaced was found to have no edge — treat it as a reasonable candidate filter, not a proven
-signal, and say so if asked to justify a pick on technical grounds alone.
+Fibonacci-extension target refined against real support/resistance). Target is a CEILING
+only: the live exit is a trailing stop that holds the initial stop until price reaches
++2R, then trails at (peak - 1R). So realised R:R typically lands well below the quoted
+RRRatio, and RRRatio should be read as "is the setup's geometry sane" (WeakRR = it isn't),
+not as a profit forecast. This technical screener's thresholds were calibrated against a
+labelled historical dataset (modest measured edge, ~PF 1.3 on entry, ~1.7 with the trailing
+exit) — treat it as a reasonable candidate filter, not a strong signal, and say so if asked
+to justify a pick on technical grounds alone.
 
 Only same-day/next-day earnings prints are excluded before reaching you (no stop can protect
 against an overnight gap that close, so it's never includable). Tickers reporting earnings

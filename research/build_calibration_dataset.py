@@ -148,6 +148,18 @@ def get_history(client, symbol: str, start: datetime, refresh: bool = False) -> 
 # -1R stop is hit?) — feeds the "is the fib-extension target too ambitious" analysis.
 TARGET_SWEEP_KS = (1.0, 1.5, 2.0, 2.5, 3.0)
 
+# Trailing-stop variants to simulate per trade (no fixed target — ride until stopped
+# or the 30-bar horizon). (activate_r, giveback_r, lock_be): once +activate_r is
+# touched, the stop follows (running peak - giveback_r * risk), floored at the
+# original stop; lock_be also floors it at breakeven. Feeds the "can a trailing exit
+# capture the runners the 5R cap clips" analysis (winners average ~12R of MFE).
+TRAIL_VARIANTS = {
+    "tr_be_1r":  (1.0, 1e9, True),   # +1R -> stop to breakeven, no further trail
+    "tr_2r_g1":  (2.0, 1.0, False),
+    "tr_3r_g1":  (3.0, 1.0, False),
+    "tr_3r_g2":  (3.0, 2.0, False),
+}
+
 
 def _path_stats(after: pd.DataFrame, entry: float, stop: float, max_hold: int) -> dict:
     """Walk the post-entry bars once. Returns:
@@ -181,6 +193,43 @@ def _path_stats(after: pd.DataFrame, entry: float, stop: float, max_hold: int) -
         if stopped:
             break
     return {"mfe_r": float(mfe), "mae_r": float(mae), **{f"won_{k}r": won[k] for k in ks}}
+
+
+def _trailing_r(after: pd.DataFrame, entry: float, stop: float, max_hold: int) -> dict:
+    """Realised R for each TRAIL_VARIANTS rule. One causal forward pass: the stop for
+    bar j is computed from the running peak AS OF bar j-1 (you cannot trail to a level
+    set by a high that prints after your stop is hit), checked against bar j's low,
+    then the peak is updated with bar j's high. No fixed target — rides to the stop or
+    the horizon close."""
+    risk = entry - stop
+    out: dict[str, float] = {}
+    if risk <= 0 or after.empty:
+        return {name: np.nan for name in TRAIL_VARIANTS}
+
+    highs = after["High"].to_numpy(dtype=float)
+    lows = after["Low"].to_numpy(dtype=float)
+    closes = after["Close"].to_numpy(dtype=float)
+    n = min(len(after), max_hold)
+
+    for name, (act_r, give_r, lock_be) in TRAIL_VARIANTS.items():
+        peak = entry
+        active = False
+        realized = None
+        for j in range(n):
+            eff_stop = stop
+            if active:
+                trail = peak - give_r * risk
+                eff_stop = max(eff_stop, entry if lock_be else -np.inf, trail)
+            if lows[j] <= eff_stop:
+                realized = (eff_stop - entry) / risk
+                break
+            peak = max(peak, highs[j])
+            if not active and highs[j] >= entry + act_r * risk:
+                active = True
+        if realized is None:
+            realized = (closes[n - 1] - entry) / risk
+        out[name] = float(realized)
+    return out
 
 
 def _vectorized_features(df: pd.DataFrame, spy_close: pd.Series) -> pd.DataFrame:
@@ -254,6 +303,7 @@ def label_ticker(symbol: str, df: pd.DataFrame, spy_close: pd.Series, settings) 
         r_multiple = (outcome_price - entry) / risk if risk > 0 else np.nan
 
         path = _path_stats(after, entry, stop, MAX_HOLD_DAYS)
+        trail = _trailing_r(after, entry, stop, MAX_HOLD_DAYS)
         detected, reject_reason = _current_verdict(m)
 
         rows.append({
@@ -295,6 +345,8 @@ def label_ticker(symbol: str, df: pd.DataFrame, spy_close: pd.Series, settings) 
             "mfe_r": path["mfe_r"],
             "mae_r": path["mae_r"],
             **{f"won_{k}r": path[f"won_{k}r"] for k in TARGET_SWEEP_KS},
+            # --- realised R under trailing-stop exits (no fixed target) ---
+            **{name: trail[name] for name in TRAIL_VARIANTS},
         })
     return rows
 
