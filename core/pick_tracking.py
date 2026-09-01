@@ -22,14 +22,40 @@ would overstate win rate.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 
 from core.trade_plan import resolve_trade_plan_outcome
 
+# Screener pattern-match measurements, joined onto each pick at record time (from
+# core.pullback_reversal via agents.market_data_agent.scan_universe, carried through
+# pipeline.py's final_df). This makes pick_outcomes.csv a self-contained
+# (features -> outcome) table so the screener's thresholds can be calibrated against
+# realised results instead of against a single reference trade (see docs/strategy.md).
+# Map is {source DataFrame column: log column name}; extend this AND LOG_COLUMNS together
+# whenever the screener grows a new measurement (ATR%, relative strength, market cap, ...).
+SCREENER_FEATURE_COLUMNS = {
+    "EMA200UptrendPct": "ema200_uptrend_pct",
+    "PriceVsEMA200Pct": "price_vs_ema200_pct",
+    "ConsolidationRangePct": "consolidation_range_pct",
+    "BounceOffLowPct": "bounce_off_low_pct",
+    "PriceVsPOCPct": "price_vs_poc_pct",
+    # recent price action (core.pullback_reversal.measure_stabilization) — logged so the
+    # "has it found support" fields can be calibrated against outcomes later too
+    "Last10dReturnPct": "last_10d_return_pct",
+    "Last20dReturnPct": "last_20d_return_pct",
+    "DaysSincePullbackLow": "days_since_pullback_low",
+    "HigherLowPct": "higher_low_pct",
+    "RangeContractionRatio": "range_contraction_ratio",
+    "DownUpVolumeRatio": "down_up_volume_ratio",
+}
+
 LOG_COLUMNS = [
     "prediction_date", "ticker", "rank", "entry_price", "stop_price",
-    "target_price", "rr_ratio", "resolved", "outcome", "outcome_price", "outcome_date",
+    "target_price", "rr_ratio",
+    *SCREENER_FEATURE_COLUMNS.values(),
+    "resolved", "outcome", "outcome_price", "outcome_date",
     "bars_to_resolution", "actual_return_pct",
 ]
 
@@ -70,27 +96,51 @@ def save_pick_outcomes_log(log_df: pd.DataFrame, path: str) -> None:
     log_df.to_csv(path, index=False)
 
 
-def record_picks(log_df: pd.DataFrame, ranked_picks: list[dict], prediction_date: str) -> pd.DataFrame:
+def record_picks(
+    log_df: pd.DataFrame,
+    ranked_picks: list[dict],
+    prediction_date: str,
+    features_df: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
     """ranked_picks: DecisionAgent.synthesize()'s own result["ranked_picks"] list — already
-    has ticker/rank/entry/stop/target/rr_ratio per pick, used as-is."""
+    has ticker/rank/entry/stop/target/rr_ratio per pick, used as-is.
+
+    features_df: the post-screener DataFrame still carrying core.pullback_reversal's
+    per-ticker pattern measurements (pipeline.py passes final_df). Joined on ticker so every
+    logged pick also records HOW it matched the screener — see SCREENER_FEATURE_COLUMNS and
+    docs/strategy.md. Omitted / no matching columns -> those fields are left null, exactly
+    as rows logged before this was added read on load."""
     if not ranked_picks:
         return log_df
 
-    rows = [{
-        "prediction_date": prediction_date,
-        "ticker": p["ticker"],
-        "rank": p["rank"],
-        "entry_price": p["entry"],
-        "stop_price": p["stop"],
-        "target_price": p["target"],
-        "rr_ratio": p["rr_ratio"],
-        "resolved": False,
-        "outcome": None,
-        "outcome_price": None,
-        "outcome_date": None,
-        "bars_to_resolution": None,
-        "actual_return_pct": None,
-    } for p in ranked_picks]
+    feature_lookup: dict[str, dict] = {}
+    if features_df is not None and not features_df.empty and "Ticker" in features_df.columns:
+        present = [c for c in SCREENER_FEATURE_COLUMNS if c in features_df.columns]
+        for _, frow in features_df.iterrows():
+            feature_lookup[frow["Ticker"]] = {
+                SCREENER_FEATURE_COLUMNS[c]: frow[c] for c in present
+            }
+
+    rows = []
+    for p in ranked_picks:
+        row = {
+            "prediction_date": prediction_date,
+            "ticker": p["ticker"],
+            "rank": p["rank"],
+            "entry_price": p["entry"],
+            "stop_price": p["stop"],
+            "target_price": p["target"],
+            "rr_ratio": p["rr_ratio"],
+            "resolved": False,
+            "outcome": None,
+            "outcome_price": None,
+            "outcome_date": None,
+            "bars_to_resolution": None,
+            "actual_return_pct": None,
+        }
+        row.update({log_col: None for log_col in SCREENER_FEATURE_COLUMNS.values()})
+        row.update(feature_lookup.get(p["ticker"], {}))
+        rows.append(row)
 
     return pd.concat([log_df, pd.DataFrame(rows)], ignore_index=True)
 
@@ -132,7 +182,7 @@ def score_due_picks(log_df: pd.DataFrame, market_agent) -> pd.DataFrame:
         entry_price = float(row["entry_price"])
 
         outcome, outcome_price, outcome_date, bars_checked = resolve_trade_plan_outcome(
-            after, stop, target, MAX_HOLD_DAYS
+            after, stop, target, MAX_HOLD_DAYS, entry=entry_price,
         )
 
         if outcome is not None:
@@ -147,27 +197,39 @@ def score_due_picks(log_df: pd.DataFrame, market_agent) -> pd.DataFrame:
     return log_df
 
 
+# Outcomes that count as a decisive resolution (the trade actually closed one way or the
+# other). "trail_stop" is decisive — the trailing stop closed it, at a gain or a small loss;
+# expired_unresolved is not (marked to close, never really resolved).
+DECISIVE_OUTCOMES = ("target_hit", "stop_hit", "trail_stop")
+
+
 def compute_pick_accuracy_summary(log_df: pd.DataFrame, min_sample: int = MIN_SAMPLE_SIZE) -> dict:
     """
     Rolling win-rate summary over the most recent ACCURACY_WINDOW *decisively* resolved picks
-    (target_hit or stop_hit — expired_unresolved picks are excluded from win rate since they
+    (see DECISIVE_OUTCOMES — expired_unresolved picks are excluded from win rate since they
     never actually resolved either way, though they still count toward general awareness).
-    sufficient_data=False below min_sample tells callers (the Decision Agent prompt) not to
-    draw conclusions from too little history yet.
+    A win is a positive realised return, not outcome == "target_hit": under the trailing
+    exit the target is a ceiling that is rarely reached, and a "trail_stop" is usually a
+    win. sufficient_data=False below min_sample tells callers (the Decision Agent prompt)
+    not to draw conclusions from too little history yet.
     """
     resolved = log_df[log_df["resolved"] == True]  # noqa: E712
-    decisive = resolved[resolved["outcome"].isin(["target_hit", "stop_hit"])].tail(ACCURACY_WINDOW)
+    decisive = resolved[resolved["outcome"].isin(DECISIVE_OUTCOMES)].tail(ACCURACY_WINDOW)
     sample_size = len(decisive)
 
     if sample_size < min_sample:
         return {"sufficient_data": False, "sample_size": sample_size, "min_sample_size": min_sample}
 
-    win_rate_pct = round((decisive["outcome"] == "target_hit").mean() * 100, 1)
+    is_win = decisive["actual_return_pct"].astype(float) > 0
+    win_rate_pct = round(is_win.mean() * 100, 1)
     avg_bars_to_resolution = round(decisive["bars_to_resolution"].astype(float).mean(), 1)
     avg_return_pct = round(decisive["actual_return_pct"].astype(float).mean(), 2)
 
     rank1 = decisive[decisive["rank"] == 1]
-    rank1_win_rate_pct = round((rank1["outcome"] == "target_hit").mean() * 100, 1) if len(rank1) >= 5 else None
+    rank1_win_rate_pct = (
+        round((rank1["actual_return_pct"].astype(float) > 0).mean() * 100, 1)
+        if len(rank1) >= 5 else None
+    )
 
     return {
         "sufficient_data": True,

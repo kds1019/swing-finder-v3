@@ -35,13 +35,17 @@ from agents.decision_agent import DecisionAgent
 # Max tickers (after the technical screener + sector cap) carried into the research/decision
 # step — wider than the old SHORTLIST_SIZE=20, since DecisionAgent's job is now to SELECT the
 # final ~20 (see agents.decision_agent.FINAL_WATCHLIST_SIZE) from this candidate pool using
-# fundamentals/news, not just polish an already-fixed list. Ordered by BounceOffLowPct
-# (core.pullback_reversal's own sort) if more candidates pass than this cap.
+# stabilisation + fundamentals/news, not just polish an already-fixed list. When more
+# candidates pass than this cap, the deepest pullbacks are kept (agents.market_data_agent
+# sorts ranked_df by PriceVsEMA200Pct — the calibration's one real technical gradient).
 CANDIDATE_POOL_SIZE = 40
 
 PICK_OUTCOMES_LOG_PATH = "pick_outcomes.csv"    # persisted in the repo, like results/
 
-NEWS_LOOKBACK_DAYS = 270  # ~9 months — within the user's requested 6-12 month research window
+# ~1 quarter of calendar-day news — enough to judge the latest earnings reaction and any
+# recent catalyst/trend, without the ~2yr blob the old 270 (+ a stale *2.5 buffer in
+# fetch_news) produced, which was ~$1 of Decision Agent input tokens per run on its own.
+NEWS_LOOKBACK_DAYS = 90
 
 
 def apply_earnings_buffer(enriched_df: pd.DataFrame, settings) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -151,7 +155,7 @@ def run_pipeline(
         }
 
     # --- Research Agent: VIX gate + shortlist enrichment (fundamentals, analyst ratings,
-    # earnings-beat/miss history, quarterly growth trend, 6-12mo news, and a derived
+    # earnings-beat/miss history, quarterly growth trend, ~1 quarter of news, and a derived
     # catalyst-recency signal) ---
     research_agent = ResearchAgent(settings)
     vix = research_agent.get_vix_level()
@@ -196,7 +200,11 @@ def run_pipeline(
 
     # --- Pick outcome tracking (part 2): log this run's new picks for future scoring. ---
     ranked_picks = result.get("ranked_picks", []) if isinstance(result, dict) else []
-    pick_log = record_picks(pick_log, ranked_picks, pd.Timestamp.now().strftime("%Y-%m-%d"))
+    # final_df still carries core.pullback_reversal's per-ticker measurements — pass it so
+    # each logged pick records how it matched the screener (see docs/strategy.md calibration).
+    pick_log = record_picks(
+        pick_log, ranked_picks, pd.Timestamp.now().strftime("%Y-%m-%d"), features_df=final_df
+    )
     save_pick_outcomes_log(pick_log, PICK_OUTCOMES_LOG_PATH)
 
     return {

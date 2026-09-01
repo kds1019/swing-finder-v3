@@ -14,7 +14,17 @@ Target: Fibonacci 1.618 extension of the most recent 20-bar swing, floored
     at `min_rr_ratio` (settings.min_risk_reward) if the raw extension doesn't
     clear it, and capped at MAX_RISK_REWARD_RATIO if it overshoots (see that
     constant for why); refined to the nearest resistance cluster if that's
-    both closer and still clears the R:R floor.
+    both closer and still clears the R:R floor. Since 2026-08-31 this target
+    is a CEILING only — the primary exit is the trailing stop below.
+Exit: trailing stop (resolve_trade_plan_outcome). Hold the initial stop until
+    price reaches entry + TRAIL_ACTIVATE_R * risk, then ratchet the stop up to
+    (running peak high - TRAIL_GIVEBACK_R * risk), never loosening. Calibrated
+    against ~30k labelled deep-pullback instances (research/exit_analysis.py):
+    a +2R / give-back-1R trail lifted realised expectancy from PF 1.27 (fixed
+    fib target) to PF 1.71, and turned the one losing year (2022) positive. A
+    fixed target at any level tested strictly worse than the trail — this setup
+    is fat-tailed (winners average ~12R of favourable excursion) and needs the
+    runners.
 
 Fix vs the reference: `find_support_resistance()`'s nearest-support pick used
 index [-1] on a descending-sorted list, i.e. the *farthest* of the top
@@ -24,12 +34,21 @@ this port uses index [0], the actual nearest one.
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 # Very high R:R (per the tuning sheet's "Advanced Tuning" note) more often means
 # an unusually tight stop than an unusually good target — surfaced as a flag
 # rather than acted on automatically.
 STOP_SANITY_RR_THRESHOLD = 15.0
+
+# Trailing-stop policy (see module docstring + research/exit_analysis.py). Once price
+# reaches entry + TRAIL_ACTIVATE_R * risk, the stop trails at
+# (peak_high - TRAIL_GIVEBACK_R * risk), floored at the original stop, never loosening.
+# +2R / give-back-1R was the best of the variants tested (PF 1.71 vs 1.66 at +3R,
+# vs 1.27 for the fixed fib target).
+TRAIL_ACTIVATE_R = 2.0
+TRAIL_GIVEBACK_R = 1.0
 
 # Ceiling on the Fibonacci extension target. Backed by two independent, real
 # datasets (2026-08-25): the 251-trade historical backtest of this exact
@@ -56,20 +75,26 @@ def find_support_resistance(df: pd.DataFrame, window: int = 10, num_levels: int 
     if len(df) < window * 2:
         return {"support": [], "resistance": []}
 
-    highs = df["High"].rolling(window=window, center=True).max()
-    lows = df["Low"].rolling(window=window, center=True).min()
+    # numpy arrays for the pivot scan — identical arithmetic to indexing the Series
+    # directly, but without pandas' per-element .iloc overhead (this loop runs on the
+    # full trailing window for every screened bar; research/build_calibration_dataset
+    # calls it hundreds of times per ticker).
+    high_arr = df["High"].to_numpy(dtype=float)
+    low_arr = df["Low"].to_numpy(dtype=float)
+    roll_high = df["High"].rolling(window=window, center=True).max().to_numpy(dtype=float)
+    roll_low = df["Low"].rolling(window=window, center=True).min().to_numpy(dtype=float)
 
     resistance_levels = []
     support_levels = []
     for i in range(window, len(df) - window):
-        if df["High"].iloc[i] == highs.iloc[i]:
-            level = float(df["High"].iloc[i])
-            touches = int((abs(df["High"] - level) / level < 0.01).sum())
-            resistance_levels.append({"price": level, "touches": touches})
-        if df["Low"].iloc[i] == lows.iloc[i]:
-            level = float(df["Low"].iloc[i])
-            touches = int((abs(df["Low"] - level) / level < 0.01).sum())
-            support_levels.append({"price": level, "touches": touches})
+        h = high_arr[i]
+        if h == roll_high[i]:
+            touches = int(np.count_nonzero(np.abs(high_arr - h) / h < 0.01))
+            resistance_levels.append({"price": float(h), "touches": touches})
+        lo = low_arr[i]
+        if lo == roll_low[i]:
+            touches = int(np.count_nonzero(np.abs(low_arr - lo) / lo < 0.01))
+            support_levels.append({"price": float(lo), "touches": touches})
 
     def cluster(levels: list[dict], tolerance: float = 0.02) -> list[dict]:
         if not levels:
@@ -151,28 +176,57 @@ def calculate_fibonacci_target(
 
 
 def resolve_trade_plan_outcome(
-    after_bars: pd.DataFrame, stop: float, target: float, max_hold_days: int
+    after_bars: pd.DataFrame, stop: float, target: float, max_hold_days: int,
+    entry: float | None = None,
+    trail_activate_r: float | None = TRAIL_ACTIVATE_R,
+    trail_giveback_r: float = TRAIL_GIVEBACK_R,
 ) -> tuple[str | None, float | None, "pd.Timestamp | None", int | None]:
     """Walk forward through `after_bars` (bars strictly after the entry point, already
-    chronologically sorted), checking each bar's High/Low against stop/target, up to
-    max_hold_days bars. Returns (outcome, outcome_price, outcome_date, bars_to_resolution).
+    chronologically sorted), up to max_hold_days bars. Returns
+    (outcome, outcome_price, outcome_date, bars_to_resolution).
 
-    outcome is "target_hit", "stop_hit", "expired_unresolved", or None if after_bars doesn't
-    yet span max_hold_days and neither level has been touched — a still-open pick, not yet
-    resolvable one way or the other (only meaningful for live tracking of open picks;
-    historical backtesting either has enough future bars or excludes the row entirely).
+    Trailing stop: if `entry` is given and `trail_activate_r` is not None, the effective
+    stop starts at `stop` and, once the running peak High reaches
+    entry + trail_activate_r * (entry - stop), ratchets up to
+    max(stop, peak - trail_giveback_r * (entry - stop)) and never loosens (see module
+    docstring / research/exit_analysis.py for why). `target` remains a hard ceiling.
+    Omit `entry` (or pass trail_activate_r=None) for the pre-2026-08 pure stop/target
+    behaviour — the frozen runs/ backtests and research baselines rely on that.
 
-    Same-bar ambiguity (a bar's range touches both stop and target) can't be sequenced from
-    daily OHLC data alone — resolved conservatively toward stop_hit (checked first), since
-    assuming the better outcome would overstate accuracy. Shared by core.pick_tracking (live
-    pick resolution) and research/triple_barrier_walk_forward.py (historical label
-    generation) so both use the identical definition of "did this trade work.\""""
+    The effective stop for bar i uses the peak as of bar i-1 (a stop can't trail to a
+    level set by a High that has not printed when it is hit intrabar); the peak is then
+    updated with bar i.
+
+    outcome is:
+      "stop_hit"           — original stop hit (before the trail activated)
+      "trail_stop"         — ratcheted stop hit (a locked-in gain unless
+                             trail_activate_r <= trail_giveback_r)
+      "target_hit"         — ceiling target hit
+      "expired_unresolved" — max_hold_days elapsed, marked to that bar's close
+      None                 — after_bars doesn't span max_hold_days yet and nothing hit
+                             (a still-open pick; only meaningful for live tracking)
+
+    Same-bar ambiguity (a bar touches both the effective stop and the target) is resolved
+    toward the stop (checked first), unchanged. Shared by core.pick_tracking (live) and
+    research/build_calibration_dataset.py (historical labels)."""
+    trailing = entry is not None and trail_activate_r is not None and (entry - stop) > 0
+    risk = (entry - stop) if trailing else 0.0
+    peak = entry if trailing else 0.0
+    active = False
+
     for i in range(min(len(after_bars), max_hold_days)):
         bar = after_bars.iloc[i]
-        if bar["Low"] <= stop:
-            return "stop_hit", stop, bar["Date"], i + 1
+        eff_stop = stop
+        if trailing and active:
+            eff_stop = max(stop, peak - trail_giveback_r * risk)
+        if bar["Low"] <= eff_stop:
+            return ("trail_stop" if eff_stop > stop else "stop_hit"), eff_stop, bar["Date"], i + 1
         if bar["High"] >= target:
             return "target_hit", target, bar["Date"], i + 1
+        if trailing:
+            peak = max(peak, float(bar["High"]))
+            if not active and bar["High"] >= entry + trail_activate_r * risk:
+                active = True
     if len(after_bars) >= max_hold_days:
         last_bar = after_bars.iloc[max_hold_days - 1]
         return "expired_unresolved", float(last_bar["Close"]), last_bar["Date"], max_hold_days
@@ -244,9 +298,12 @@ def compute_trade_plan(df: pd.DataFrame, settings) -> dict:
     return {
         "entry": round(px, 2),
         "stop": round(actual_stop, 2),
+        # Ceiling only — the real exit is the trailing stop (resolve_trade_plan_outcome).
         "target": round(actual_target, 2),
         "rr_ratio": rr_ratio,
         "weak_rr": weak_rr,
         "stop_distance_sanity_flag": rr_ratio >= STOP_SANITY_RR_THRESHOLD,
         "fib_warning": fib["warning"],
+        "trail_activate_r": TRAIL_ACTIVATE_R,
+        "trail_giveback_r": TRAIL_GIVEBACK_R,
     }

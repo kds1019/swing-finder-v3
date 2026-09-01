@@ -29,7 +29,7 @@ Actions run), present **every** ranked pick returned (up to `FINAL_WATCHLIST_SIZ
 top-N subset or a condensed table. For each pick, show the full detail:
 
 ```
-**N. TICKER** — Entry $X / Stop $X / Target $X / R:R X.XX | N sh, risk $X, value $X | Sentiment: X | Catalyst: X
+**N. TICKER** — Entry $X / Stop $X / Target $X / R:R X.XX | N sh, risk $X, value $X | Sentiment: X | Catalyst: X | Support: X
 Highlight: <research_highlight>
 Rationale: <rationale>
 Bear case: <bear_case>
@@ -39,6 +39,11 @@ Flags: <flags, semicolon-separated>
 `Catalyst:` is the Decision Agent's `catalyst_status` field (`recent` / `upcoming` / `none`) — always
 show it, don't drop it for "recent"-only picks. A `none` catalyst on an otherwise-clean technical
 setup is exactly the kind of thing the user wants visible, not smoothed over.
+
+`Support:` is the `support_status` field (`confirmed` / `forming` / `still_falling`) — the Decision
+Agent's read of whether the pullback has actually stopped falling. Always show it; a `still_falling`
+that made it into the list at all is worth the user's scrutiny. `Target` is a ceiling only — the live
+exit is a +2R-activated trailing stop, so realised R:R normally lands below the quoted `R:R`.
 
 Also surface, before the per-ticker list: market bias, VIX/gate status, and — if present in the
 output — `pick_track_record` (the system's own historical win rate) and any account-balance /

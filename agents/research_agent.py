@@ -47,7 +47,7 @@ def _extract_item_date(item: dict) -> Optional[pd.Timestamp]:
 
 def _catalyst_recency(news_items: list[dict]) -> dict:
     """Cheap recency signal derived entirely from News data already fetched (no extra
-    API calls) — News carries ~6-12 months of history, so this surfaces "how fresh is
+    API calls) — News carries ~1 quarter of history, so this surfaces "how fresh is
     the most recent item" as an explicit, structured field instead of leaving the
     Decision Agent to spot a handful of recent dates buried in a large chronological
     blob on its own. (An earlier version of this also folded in a separate FMP
@@ -248,15 +248,16 @@ class ResearchAgent:
         df["Date"] = pd.to_datetime(df["Date"])
         return df.sort_values("Date").reset_index(drop=True)
 
-    def enrich_shortlist(self, shortlist_df: pd.DataFrame, market_agent=None, news_lookback_days: int = 270) -> pd.DataFrame:
+    def enrich_shortlist(self, shortlist_df: pd.DataFrame, market_agent=None, news_lookback_days: int = 90) -> pd.DataFrame:
         """Adds DaysToEarnings, Fundamentals, AnalystRating, EarningsHistory, IncomeGrowth,
         News, and CatalystRecency columns to the post-screener/post-sector-cap shortlist.
         Never call this on the full universe — it's several FMP calls per ticker.
 
-        News is now a genuine trend window (news_lookback_days, default ~9 months), not a
-        5-headline snapshot — DecisionAgent's job changed from "mention News as background
-        color" to "read it as the primary research basis," which needs enough history to
-        judge a trend, not just whatever's most recent. Fetched via market_agent (Alpaca,
+        News is a real window (news_lookback_days, ~1 quarter of calendar days — enough for
+        the latest earnings reaction and any recent catalyst), not a 5-headline snapshot —
+        DecisionAgent's job is to "read it as the primary research basis," not just cite the
+        most recent item. Wider windows were tried (270d) but ~doubled the Decision Agent
+        prompt for little added signal. Fetched via market_agent (Alpaca,
         agents.market_data_agent.MarketDataAgent.fetch_news) rather than FMP's news/stock
         endpoint, reusing the same mechanism research/walk_forward_backtest.py's FinBERT
         pipeline already relies on for exactly this kind of lookback-windowed fetch. Falls
