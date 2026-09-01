@@ -41,6 +41,14 @@ SCREENER_FEATURE_COLUMNS = {
     "ConsolidationRangePct": "consolidation_range_pct",
     "BounceOffLowPct": "bounce_off_low_pct",
     "PriceVsPOCPct": "price_vs_poc_pct",
+    # recent price action (core.pullback_reversal.measure_stabilization) — logged so the
+    # "has it found support" fields can be calibrated against outcomes later too
+    "Last10dReturnPct": "last_10d_return_pct",
+    "Last20dReturnPct": "last_20d_return_pct",
+    "DaysSincePullbackLow": "days_since_pullback_low",
+    "HigherLowPct": "higher_low_pct",
+    "RangeContractionRatio": "range_contraction_ratio",
+    "DownUpVolumeRatio": "down_up_volume_ratio",
 }
 
 LOG_COLUMNS = [

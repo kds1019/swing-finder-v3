@@ -168,6 +168,73 @@ def measure_pullback_reversal(df: pd.DataFrame) -> dict | None:
     }
 
 
+# How far back to look for the low of the current pullback.
+STABILIZATION_LOOKBACK_DAYS = 20
+
+
+def measure_stabilization(df: pd.DataFrame) -> dict:
+    """Recent price-action read for the most recent bar of `df` (needs
+    compute_indicators() applied). This is NOT a screener gate — the calibration
+    found a hard "must have bounced" requirement HURT expectancy, because the
+    trailing stop already caps a failed entry at -1R. It is structured context for
+    the Decision Agent's judgment call: has this pullback stabilized and found
+    support, or is the stock still in an active decline (a falling knife)? See
+    docs/strategy.md.
+
+    Returns {} if there isn't enough history. Fields:
+      last_10d_return_pct / last_20d_return_pct
+          recent trend. Both sharply negative + days_since_pullback_low == 0 => still falling.
+      days_since_pullback_low
+          bars since the lowest low of the last STABILIZATION_LOOKBACK_DAYS. Higher = a
+          base is forming.
+      higher_low_pct
+          the last-3-day low vs that pullback low, as %. > 0 => a higher low is in
+          (an actual reversal signal), <= 0 => still probing / making new lows.
+      range_contraction_ratio
+          mean daily range of the last 5 bars / that of the 15 before. < 1 => settling
+          down, > 1 => still volatile / accelerating.
+      down_up_volume_ratio
+          avg volume on down-close days / up-close days over the last 12 bars.
+          < 1 => selling pressure is fading relative to buying.
+    """
+    if df is None or len(df) < STABILIZATION_LOOKBACK_DAYS + 20:
+        return {}
+
+    close, low, high, vol = df["Close"], df["Low"], df["High"], df["Volume"]
+    px = float(close.iloc[-1])
+
+    last_10d_return_pct = round((px / float(close.iloc[-11]) - 1) * 100, 2)
+    last_20d_return_pct = round((px / float(close.iloc[-21]) - 1) * 100, 2)
+
+    win_low = low.tail(STABILIZATION_LOOKBACK_DAYS)
+    window_low = float(win_low.min())
+    days_since_pullback_low = int(len(win_low) - 1 - win_low.to_numpy().argmin())
+
+    recent_low_3d = float(low.tail(3).min())
+    higher_low_pct = round((recent_low_3d - window_low) / window_low * 100, 2) if window_low > 0 else 0.0
+
+    rng = (high - low)
+    recent_rng = float(rng.tail(5).mean())
+    prior_rng = float(rng.iloc[-20:-5].mean())
+    range_contraction_ratio = round(recent_rng / prior_rng, 2) if prior_rng > 0 else None
+
+    r12 = df.tail(12)
+    up_v = r12.loc[r12["Close"] > r12["Close"].shift(1), "Volume"]
+    dn_v = r12.loc[r12["Close"] < r12["Close"].shift(1), "Volume"]
+    up_mean = float(up_v.mean()) if len(up_v) else 0.0
+    dn_mean = float(dn_v.mean()) if len(dn_v) else 0.0
+    down_up_volume_ratio = round(dn_mean / up_mean, 2) if up_mean > 0 else None
+
+    return {
+        "last_10d_return_pct": last_10d_return_pct,
+        "last_20d_return_pct": last_20d_return_pct,
+        "days_since_pullback_low": days_since_pullback_low,
+        "higher_low_pct": higher_low_pct,
+        "range_contraction_ratio": range_contraction_ratio,
+        "down_up_volume_ratio": down_up_volume_ratio,
+    }
+
+
 def detect_pullback_reversal(df: pd.DataFrame) -> dict:
     """Detects the EMA200 pullback + stabilization/reversal setup for the most
     recent bar of `df` (must already have compute_indicators() applied — needs

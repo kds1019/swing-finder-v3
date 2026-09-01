@@ -27,7 +27,7 @@ from alpaca.data.enums import DataFeed, Adjustment
 
 from core.universe import batch_tickers
 from core.indicators import compute_indicators
-from core.pullback_reversal import detect_pullback_reversal, MIN_BARS_FOR_SCREENER
+from core.pullback_reversal import detect_pullback_reversal, measure_stabilization, MIN_BARS_FOR_SCREENER
 from core.trade_plan import compute_trade_plan
 
 
@@ -232,6 +232,7 @@ class MarketDataAgent:
 
             bars_by_ticker[ticker] = df
             trade_plan = compute_trade_plan(df, settings)
+            stab = measure_stabilization(df)
 
             rows.append({
                 "Ticker": ticker,
@@ -244,6 +245,15 @@ class MarketDataAgent:
                 "BounceOffLowPct": result["bounce_off_low_pct"],
                 "POC": result["poc"],
                 "PriceVsPOCPct": result["price_vs_poc_pct"],
+                # Recent price action — context for the Decision Agent's "has this
+                # stabilised / found support?" call, NOT a screener gate. See
+                # core.pullback_reversal.measure_stabilization.
+                "Last10dReturnPct": stab.get("last_10d_return_pct"),
+                "Last20dReturnPct": stab.get("last_20d_return_pct"),
+                "DaysSincePullbackLow": stab.get("days_since_pullback_low"),
+                "HigherLowPct": stab.get("higher_low_pct"),
+                "RangeContractionRatio": stab.get("range_contraction_ratio"),
+                "DownUpVolumeRatio": stab.get("down_up_volume_ratio"),
                 "Stop": trade_plan["stop"] if trade_plan else None,
                 "Target": trade_plan["target"] if trade_plan else None,
                 "RRRatio": trade_plan["rr_ratio"] if trade_plan else None,
@@ -253,6 +263,11 @@ class MarketDataAgent:
 
         ranked_df = pd.DataFrame(rows)
         if not ranked_df.empty:
-            ranked_df = ranked_df.sort_values("BounceOffLowPct", ascending=False).reset_index(drop=True)
+            # Sort deepest-pullback first. The old BounceOffLowPct sort went dead when the
+            # calibration removed the bounce gate; pullback depth is the one technical
+            # gradient the calibration found real (deeper -> better realised R). This only
+            # decides which candidates survive the pool cap before the Decision Agent —
+            # the DA still does the real selection (stabilisation + fundamentals).
+            ranked_df = ranked_df.sort_values("PriceVsEMA200Pct").reset_index(drop=True)
 
         return ranked_df, bars_by_ticker

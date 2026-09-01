@@ -93,16 +93,29 @@ slippage will shave some off the +0.36 R; there is margin over the fixed-target 
 
 Three layers, currently partly fused:
 
-1. **Screen** (`core/universe.py`, + hard technical filters) — necessary conditions that
-   rarely change: liquidity, price, market cap, volatility band, 200-EMA rising, 50-EMA
-   above 200-EMA, long-term relative strength. Calibrated from broad historical data.
-2. **Setup** (`core/pullback_reversal.py`) — the timing shape: pullback depth,
-   consolidation, early bounce, not-extended. Small-sample risk is concentrated here.
-3. **Decision** (`agents/decision_agent.py`) — fundamentals, catalyst, portfolio fit,
-   final ranking and selection.
+1. **Screen** (`core/universe.py` + `core/pullback_reversal.detect_pullback_reversal`) —
+   necessary conditions, calibrated from data: liquidity / price / market cap floors,
+   200-EMA rising, price in the −20%…+3% band, not extended above the value area. A wide
+   net by design — the pool is sorted deepest-pullback-first (the calibration's one real
+   technical gradient) before the pool cap.
+2. **Decision** (`agents/decision_agent.py`) — the soft layer. Two independent axes:
+   (a) **has the pullback found support** — `support_status` confirmed / forming /
+   still_falling, judged from the recent price action
+   (`core.pullback_reversal.measure_stabilization`: `DaysSincePullbackLow`, `HigherLowPct`,
+   `RangeContractionRatio`, `DownUpVolumeRatio`, `Last10dReturnPct`). A `still_falling`
+   ticker is excluded/bottom-ranked regardless of fundamentals. This is where the original
+   "consolidating + bounced off the low" intent lives now — the calibration showed it must
+   NOT be a hard screener gate (a bounce requirement hurt expectancy; the −1R stop caps a
+   failed entry), but it is a real risk axis for a discretionary trader taking a handful of
+   positions.
+   (b) fundamentals / earnings / catalyst / portfolio fit — the ranking and final selection.
+3. **Exit** (`core/trade_plan.py`) — the +2R trailing stop (see "Trade management").
 
-Keeping these separate means the screen layer gets calibrated against thousands of
-instances, and only the setup-shape thresholds carry the one-trade calibration risk.
+Why "find support" is soft not hard: the screener optimises average expectancy over
+thousands of instances, where the trailing stop already handles falling knives. A
+discretionary trader taking ~6 positions cares about the *rate* of bad entries, which is a
+judgement call with a chart in front of you — exactly what an LLM Decision Agent, given the
+recent-price-action fields, can do and a fixed threshold can't.
 
 ## Calibration status
 
