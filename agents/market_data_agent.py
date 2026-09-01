@@ -137,13 +137,18 @@ class MarketDataAgent:
     def fetch_spy_bars(self, lookback_days: int | None = None) -> pd.DataFrame | None:
         return self.fetch_universe_bars(["SPY"], lookback_days).get("SPY")
 
-    def fetch_news(self, ticker: str, lookback_days: int, limit: int = 1000) -> pd.DataFrame:
-        """Historical headlines/summaries for one ticker via Alpaca's free News API
+    def fetch_news(self, ticker: str, lookback_days: int, limit: int = 200) -> pd.DataFrame:
+        """Recent headlines/summaries for one ticker via Alpaca's free News API
         (Benzinga-sourced) — explicitly documented as usable for sentiment-model training,
         the data source behind core.sentiment's FinBERT scoring. Unlike bars this needs no
         feed/adjustment choice. include_content=False and exclude_contentless=True keep
         this to headline+summary text only, never full article bodies — cheap to score,
         and this repo has no need for more than that.
+
+        `lookback_days` is CALENDAR days for news (news prints every day, not just trading
+        days — the *2.5 trading-day buffer that bars use does NOT apply here; using it was a
+        copy-paste bug that made a "90-day" window pull ~230 days and bloated the Decision
+        Agent prompt). Near-duplicate headlines (wire syndication) are collapsed.
 
         An article can tag multiple tickers; NewsRequest(symbols=ticker) filters server-side
         to just this one, so no manual explode-by-symbol is needed the way a multi-symbol
@@ -168,7 +173,7 @@ class MarketDataAgent:
         cols = ["Date", "headline", "summary"]
         news_client = NewsClient(self.settings.alpaca_api_key, self.settings.alpaca_secret_key)
         end = datetime.now(timezone.utc)
-        start = end - timedelta(days=int(lookback_days * 2.5) + 5)
+        start = end - timedelta(days=lookback_days + 5)
 
         request = NewsRequest(
             symbols=_to_alpaca_symbol(ticker), start=start, end=end, limit=limit,
@@ -184,6 +189,8 @@ class MarketDataAgent:
         for col in ["headline", "summary"]:
             if col not in df.columns:
                 df[col] = ""
+        # Collapse wire-syndicated repeats (same headline, often within minutes on many outlets).
+        df = df.drop_duplicates(subset="headline", keep="first")
         return df[cols].sort_values("Date").reset_index(drop=True)
 
     def scan_universe(

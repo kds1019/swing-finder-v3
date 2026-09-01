@@ -8,8 +8,8 @@ docs/ml-edge-confidence-research.md). Previously this agent's job was to polish
 an already-decided SmartScore ranking with research color; now it IS the
 ranking/selection mechanism. Input is every ticker that passed
 core.pullback_reversal's technical screener (a real, if unvalidated, chart
-pattern) plus extended fundamentals/earnings-history/news context (6-12 months,
-not a single snapshot); this agent's job is to read that research, write a plain
+pattern) plus fundamentals/earnings-history/last-quarter-news context (not a
+single snapshot); this agent's job is to read that research, write a plain
 highlight per ticker (trend direction, earnings beats/misses, notable catalysts
 — informational judgment support, not a backtested score), and select the final
 FINAL_WATCHLIST_SIZE tickers most likely to keep moving up. Never recomputes the
@@ -76,7 +76,7 @@ Each ticker also carries real research context, not a one-time snapshot: Fundame
 company profile), AnalystRating (rating + buy/hold/sell consensus), EarningsHistory (trailing
 reported quarters' actual vs. estimated EPS/revenue — this is the real beat/met/missed record),
 IncomeGrowth (trailing quarters' revenue/net-income/EPS growth rates — the actual trend, not a
-guess), News (headlines spanning roughly the last 6-12 months, not just the most recent few —
+guess), News (headlines + summaries spanning roughly the last quarter, not just the most recent few —
 sourced from Alpaca/Benzinga, which includes official press-release-style items, not just
 aggregated commentary), and CatalystRecency (days_since_last_item, items_last_3d, items_last_7d
 — computed across News). This research is the PRIMARY basis for your ranking and selection now
@@ -85,8 +85,8 @@ aggregated commentary), and CatalystRecency (days_since_last_item, items_last_3d
 A clean technical setup with no real catalyst behind it is a known weak spot of this system —
 CatalystRecency exists specifically so a stale-news ticker (technically clean, nothing has
 actually happened or is expected to happen) isn't mistaken for one with genuine fresh momentum
-just because both have a News array. Use it, don't just eyeball timestamps across a 6-12 month
-blob yourself.
+just because both have a News array. Use it, don't just eyeball timestamps across the whole
+quarter's blob yourself.
 
 Your job:
 

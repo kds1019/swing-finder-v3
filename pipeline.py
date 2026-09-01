@@ -42,7 +42,10 @@ CANDIDATE_POOL_SIZE = 40
 
 PICK_OUTCOMES_LOG_PATH = "pick_outcomes.csv"    # persisted in the repo, like results/
 
-NEWS_LOOKBACK_DAYS = 270  # ~9 months — within the user's requested 6-12 month research window
+# ~1 quarter of calendar-day news — enough to judge the latest earnings reaction and any
+# recent catalyst/trend, without the ~2yr blob the old 270 (+ a stale *2.5 buffer in
+# fetch_news) produced, which was ~$1 of Decision Agent input tokens per run on its own.
+NEWS_LOOKBACK_DAYS = 90
 
 
 def apply_earnings_buffer(enriched_df: pd.DataFrame, settings) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -152,7 +155,7 @@ def run_pipeline(
         }
 
     # --- Research Agent: VIX gate + shortlist enrichment (fundamentals, analyst ratings,
-    # earnings-beat/miss history, quarterly growth trend, 6-12mo news, and a derived
+    # earnings-beat/miss history, quarterly growth trend, ~1 quarter of news, and a derived
     # catalyst-recency signal) ---
     research_agent = ResearchAgent(settings)
     vix = research_agent.get_vix_level()

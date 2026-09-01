@@ -41,19 +41,22 @@ _FIELD_RENAME = {
     "sector": "Sector",
     "industry": "Industry",
     "price": "Price",
-    "volume": "Volume",
+    # FMP's "volume" is TODAY'S cumulative intraday volume — filtering the universe on it
+    # made universe size depend on the time of day the scan ran (pre-market: prior-day
+    # value, ~1100 names; 30 min into the session: volume-so-far, ~150 names). "avgVolume"
+    # is the stable average daily volume — that's what a liquidity floor needs.
+    "avgVolume": "Volume",
 }
 
 
 def _screen_exchange(session: requests.Session, api_key: str, exchange: str, settings) -> list[dict]:
-    """Filters by price range only — NOT volumeMoreThan too. Confirmed live (2026-08-24) that
-    FMP's /company-screener silently mis-filters when a price range AND volumeMoreThan are
-    combined in one request: price-range-only and volumeMoreThan-only each correctly return
-    the full matching set (1000+ rows), but combining them collapsed NYSE's result to 20 rows
-    when cross-checking the unfiltered dump showed 561 rows actually satisfy both conditions.
-    This wasn't always broken — the combined filter worked fine as recently as 2026-08-23 — so
-    it's a live FMP-side regression, not a documented plan limit or anything on our end; the
-    volume filter is applied client-side in build_universe() instead until FMP fixes it."""
+    """Filters by price range only — NOT volumeMoreThan too. Two reasons: (1) server-side
+    volumeMoreThan filters on FMP's `volume` field, which is TODAY'S intraday cumulative
+    volume, so it would make universe membership depend on the time of day the scan runs —
+    build_universe() filters client-side on `avgVolume` (stable average daily volume)
+    instead; (2) confirmed live 2026-08-24 that combining a price range AND volumeMoreThan
+    in one request silently collapsed NYSE from 561 real matches to 20 rows (an FMP-side
+    regression; the combined filter worked as recently as 2026-08-23)."""
     rows: list[dict] = []
     for page in range(MAX_PAGES):
         params = {
@@ -124,12 +127,15 @@ def build_universe(settings, session: Optional[requests.Session] = None) -> pd.D
     df = df.rename(columns=_FIELD_RENAME)
     df["Market Cap ($M)"] = df["marketCap"] / 1_000_000
 
+    # "Volume" here is FMP's avgVolume (see _FIELD_RENAME) — stable average daily volume,
+    # not the intraday figure that made this filter time-of-day dependent.
+    df["Volume"] = pd.to_numeric(df["Volume"], errors="coerce")
     pre_volume_count = len(df)
     df = df[df["Volume"] >= settings.min_volume]
-    print(f"[universe] After client-side volume filter (>= {settings.min_volume}): "
+    print(f"[universe] After avg-volume filter (>= {settings.min_volume}): "
           f"{len(df)} / {pre_volume_count} tickers", file=sys.stderr)
 
-    # Dollar volume (Price * Volume) is the meaningful liquidity unit — the share-count
+    # Dollar volume (Price * avg Volume) is the meaningful liquidity unit — the share-count
     # floor above is kept as a secondary check. See docs/strategy.md.
     pre_dollar_vol_count = len(df)
     df = df[df["Price"] * df["Volume"] >= settings.min_dollar_volume]
