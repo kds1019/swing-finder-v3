@@ -73,7 +73,10 @@ DaysToEarnings — are NOT pre-excluded; deciding whether to include one is part
 (see point 8 below).
 
 Each ticker also carries real research context, not a one-time snapshot: Fundamentals (FMP
-company profile), AnalystRating (rating + buy/hold/sell consensus), EarningsHistory (trailing
+company profile), AnalystRating (rating + buy/hold/sell consensus, PLUS a price-target REVISION
+signal: targetRevisionRecentPct = last-month avg target vs last-quarter avg, targetRevisionMediumPct
+= last-quarter vs last-year, and lastMonthAvgTarget / lastMonthTargetCount — where the target is
+now and how many analysts set it in the last month; count 0-1 = weak signal), EarningsHistory (trailing
 reported quarters' actual vs. estimated EPS/revenue — this is the real beat/met/missed record),
 IncomeGrowth (trailing quarters' revenue/net-income/EPS growth rates — the actual trend, not a
 guess), News (headlines + summaries spanning roughly the last quarter, not just the most recent few —
@@ -107,7 +110,14 @@ Your job:
    feed for this, it only exists as text in what's provided, so it has to be read for, not
    looked up. Reference concrete numbers from the input, don't invent facts not present in it.
    Mention AnalystRating only if it's notably bullish/bearish or conflicts with the fundamentals
-   picture. Also classify news_sentiment as one of "Positive"/"Negative"/"Neutral"/"Mixed" —
+   picture. In particular read the price-target REVISION direction: targetRevisionRecentPct
+   materially negative (analysts cutting targets in the last month, lastMonthTargetCount >= 2)
+   is a real HEADWIND for a pullback-reversal entry no matter how good the catalyst/fundamentals
+   story reads — the people who follow the name most closely are marking it down right now. And
+   if price is already at/above lastMonthAvgTarget, analysts see little upside left. Call either
+   out in the highlight when it applies, and add "TargetsBeingCut" to flags when
+   targetRevisionRecentPct <= about -8 with lastMonthTargetCount >= 2. Also classify
+   news_sentiment as one of "Positive"/"Negative"/"Neutral"/"Mixed" —
    your own read of whether that ticker's actual headlines/summaries in News skew positive or
    negative overall, not a restatement of the fundamentals numbers. "Mixed" means genuinely both
    real positive and negative items are present, not just uncertainty; "Neutral" means the news
@@ -123,8 +133,10 @@ Your job:
 2. From every ticker provided, select the final {FINAL_WATCHLIST_SIZE} most likely to keep
    moving up, based on the research highlight above — genuinely growing fundamentals and a
    real beat record should rank a ticker higher; deteriorating fundamentals, a recent pattern
-   of missed estimates, or clearly negative news should rank it lower or exclude it entirely,
-   even if its technical setup (EMA200UptrendPct/PriceVsEMA200Pct/etc.) looks clean. Treat
+   of missed estimates, analysts actively cutting price targets (negative targetRevisionRecentPct
+   with lastMonthTargetCount >= 2), price already at/above the latest average target, or clearly
+   negative news should rank it lower or exclude it entirely, even if its technical setup
+   (EMA200UptrendPct/PriceVsEMA200Pct/etc.) looks clean. Treat
    catalyst_status as a real ranking input, not just a label: between two otherwise-similar
    candidates, prefer the one with catalyst_status "recent" or "upcoming" — a clean technical
    setup with catalyst_status "none" has nothing concrete to drive continued upside beyond the
@@ -158,8 +170,9 @@ Your job:
    minimum after support/resistance refinement), StopSanityFlag if true (R:R >= 15:1 more
    often means an unusually tight stop than an unusually good target — say so explicitly),
    PriceVsPOCPct if the ticker sits notably above its point of control (thinner volume support
-   underneath than a ticker sitting at/below it), and "EarningsCatalyst" if this pick was
-   included under point 8's earnings-imminent override.
+   underneath than a ticker sitting at/below it), "TargetsBeingCut" when targetRevisionRecentPct
+   <= about -8 with lastMonthTargetCount >= 2 (or price already at/above lastMonthAvgTarget),
+   and "EarningsCatalyst" if this pick was included under point 8's earnings-imminent override.
 5. For each selected pick, write a brief (1-2 sentence) bear case — the strongest reason this
    pick could fail, grounded in the same research data used for the highlight (e.g. a recent
    estimate miss despite the clean technical setup, decelerating IncomeGrowth, a bearish

@@ -109,6 +109,12 @@ Three layers, currently partly fused:
    failed entry), but it is a real risk axis for a discretionary trader taking a handful of
    positions.
    (b) fundamentals / earnings / catalyst / portfolio fit — the ranking and final selection.
+   Includes an **analyst price-target revision** signal (`AnalystRating.targetRevisionRecentPct`
+   = last-month vs last-quarter avg target, from FMP `price-target-summary`): analysts actively
+   cutting targets is a headwind regardless of the catalyst story, and price already at/above
+   the latest average target means little upside left. Added 2026-09-01 after a manual TipRanks/
+   Zacks-style vetting pass caught it flagging names the fundamentals-only read rated positively
+   (ON: targets −29% in a month, +8% upside left).
 3. **Exit** (`core/trade_plan.py`) — the +2R trailing stop (see "Trade management").
 
 Why "find support" is soft not hard: the screener optimises average expectancy over

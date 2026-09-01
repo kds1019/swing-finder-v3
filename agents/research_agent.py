@@ -164,14 +164,44 @@ class ResearchAgent:
         ]
 
     def get_analyst_ratings(self, ticker: str) -> dict:
-        """Combines the ratings snapshot (overall rating + factor scores) with
-        the analyst buy/hold/sell consensus — FMP splits these into two
-        endpoints on the stable API (the old single "rating" endpoint is gone)."""
+        """Combines the ratings snapshot (overall rating + factor scores), the
+        analyst buy/hold/sell consensus, and a PRICE-TARGET REVISION signal — FMP
+        splits these across endpoints on the stable API.
+
+        The revision signal is the piece the Decision Agent was missing: consensus
+        counts and the latest average target say where analysts stand, but not
+        which way they're *moving*. `targetRevisionRecentPct` = last-month avg
+        target vs last-quarter avg target; `targetRevisionMediumPct` = last-quarter
+        vs last-year. Analysts actively cutting targets is a real headwind for a
+        pullback-reversal entry regardless of how good the catalyst story reads
+        (validated on the 2026-09-01 watchlist: it caught ON slashed -29% in a
+        month with only +8% upside left, and NYT priced to its target, both of
+        which the fundamentals-only read rated positively). `..._n` is the
+        last-month analyst count — 0 or 1 means treat the signal as weak."""
         snapshot_data = self._get("ratings-snapshot", params={"symbol": ticker})
         consensus_data = self._get("grades-consensus", params={"symbol": ticker})
         snapshot = snapshot_data[0] if snapshot_data else {}
         consensus = consensus_data[0] if consensus_data else {}
-        return {**snapshot, **consensus}
+
+        pts = {}
+        try:
+            pt_data = self._get("price-target-summary", params={"symbol": ticker})
+            pt = pt_data[0] if isinstance(pt_data, list) and pt_data else {}
+            mo, qtr, yr = (pt.get("lastMonthAvgPriceTarget"), pt.get("lastQuarterAvgPriceTarget"),
+                           pt.get("lastYearAvgPriceTarget"))
+            mo_n, qtr_n = pt.get("lastMonthCount") or 0, pt.get("lastQuarterCount") or 0
+            recent = round((mo - qtr) / qtr * 100, 1) if (mo_n and qtr_n and qtr) else None
+            medium = round((qtr - yr) / yr * 100, 1) if (qtr_n and yr) else None
+            pts = {
+                "lastMonthAvgTarget": mo, "lastMonthTargetCount": mo_n,
+                "lastQuarterAvgTarget": qtr, "lastYearAvgTarget": yr,
+                "targetRevisionRecentPct": recent,   # last month vs last quarter
+                "targetRevisionMediumPct": medium,   # last quarter vs last year
+            }
+        except requests.HTTPError as e:
+            print(f"[research_agent] price-target-summary({ticker}) failed: {e}", file=sys.stderr)
+
+        return {**snapshot, **consensus, **pts}
 
     def get_news(self, ticker: str, limit: int = 5) -> list[dict]:
         data = self._get("news/stock", params={"symbols": ticker, "limit": limit})
