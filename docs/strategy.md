@@ -96,19 +96,29 @@ Three layers, currently partly fused:
 1. **Screen** (`core/universe.py` + `core/pullback_reversal.detect_pullback_reversal`) —
    necessary conditions, calibrated from data: liquidity / price / market cap floors,
    200-EMA rising, price in the −20%…+3% band, not extended above the value area. A wide
-   net by design — the pool is sorted deepest-pullback-first (the calibration's one real
-   technical gradient) before the pool cap.
+   net by design. The candidate pool is then ordered **knife-risk tier first**
+   (`core.pullback_reversal.classify_knife_risk` → stabilising / forming / still_falling),
+   deepest-pullback within a tier, so that when more names match than fit the pool /
+   pre-research sector cap, the still-falling ones are what gets squeezed out — not the
+   stabilised-but-shallower setups (a pure deepest-first sort did the opposite). Depth
+   stays the in-tier tie-breaker (the calibration's one real technical gradient).
 2. **Decision** (`agents/decision_agent.py`) — the soft layer. Two independent axes:
    (a) **has the pullback found support** — `support_status` confirmed / forming /
-   still_falling, judged from the recent price action
-   (`core.pullback_reversal.measure_stabilization`: `DaysSincePullbackLow`, `HigherLowPct`,
-   `RangeContractionRatio`, `DownUpVolumeRatio`, `Last10dReturnPct`). A `still_falling`
-   ticker is excluded/bottom-ranked regardless of fundamentals. This is where the original
-   "consolidating + bounced off the low" intent lives now — the calibration showed it must
+   still_falling. Anchored to the pre-computed `KnifeRiskTier`
+   (`core.pullback_reversal.classify_knife_risk`, from `DaysSincePullbackLow`, `HigherLowPct`,
+   `CloseVsEMA20Pct`, `Last5dReturnPct`) — the Decision Agent starts from that tier and
+   overrides it only with a stated reason, so the "has it stopped falling?" read uses one
+   fixed definition every run instead of being re-derived ad hoc. Cross-checked against
+   `RangeContractionRatio` / `DownUpVolumeRatio` / recent returns. A `still_falling` ticker
+   is excluded/bottom-ranked regardless of fundamentals. The calibration showed this must
    NOT be a hard screener gate (a bounce requirement hurt expectancy; the −1R stop caps a
-   failed entry), but it is a real risk axis for a discretionary trader taking a handful of
-   positions.
-   (b) fundamentals / earnings / catalyst / portfolio fit — the ranking and final selection.
+   failed entry) — and that the tier is a *weak* predictor individually (a fitted model
+   scores AUC ~0.59); its value is the rate of bad entries for a discretionary trader
+   taking a handful of positions, and consistency of definition, not precision.
+   (b) fundamentals / earnings / catalyst / portfolio fit — the ranking. The Decision Agent
+   **ranks every candidate it receives**; `pipeline.py` then applies the 3-per-sector
+   diversification cap to that ranking (keeping each sector's 3 highest-ranked names, not
+   the 3 the screener happened to surface first) and the top `FINAL_WATCHLIST_SIZE` survive.
    Includes an **analyst price-target revision** signal (`AnalystRating.targetRevisionRecentPct`
    = last-month vs last-quarter avg target, from FMP `price-target-summary`): analysts actively
    cutting targets is a headwind regardless of the catalyst story, and price already at/above

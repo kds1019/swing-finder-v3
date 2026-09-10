@@ -203,11 +203,11 @@ class MarketDataAgent:
         adjustments) gating, which walk-forward testing found no demonstrated edge
         for (see docs/ml-edge-confidence-research.md). Returns (ranked_df,
         bars_by_ticker): ranked_df is every ticker where the setup was detected,
-        sorted by bounce-off-low strength descending as a simple ordering signal —
-        NOT a validated ranking, since this screener hasn't been walk-forward
-        tested (an explicit choice, not an oversight — see the research doc's
-        latest updates); bars_by_ticker is the raw indicator-augmented OHLCV per
-        ticker, kept separately for downstream use.
+        ordered knife-risk tier first (stabilising -> forming -> still_falling) then
+        deepest-pullback within a tier — a pool-ordering heuristic for the
+        CANDIDATE_POOL_SIZE / sector-cap cuts, NOT a validated ranking (the Decision
+        Agent does the real ranking). bars_by_ticker is the raw indicator-augmented
+        OHLCV per ticker, kept separately for downstream use.
         """
         # Fail fast rather than silently rejecting every ticker as "insufficient_data" —
         # this exact misconfiguration (bars_lookback_days too short for the screener's
@@ -254,13 +254,18 @@ class MarketDataAgent:
                 "PriceVsPOCPct": result["price_vs_poc_pct"],
                 # Recent price action — context for the Decision Agent's "has this
                 # stabilised / found support?" call, NOT a screener gate. See
-                # core.pullback_reversal.measure_stabilization.
+                # core.pullback_reversal.measure_stabilization / classify_knife_risk.
                 "Last10dReturnPct": stab.get("last_10d_return_pct"),
                 "Last20dReturnPct": stab.get("last_20d_return_pct"),
+                "Last5dReturnPct": stab.get("last_5d_return_pct"),
                 "DaysSincePullbackLow": stab.get("days_since_pullback_low"),
                 "HigherLowPct": stab.get("higher_low_pct"),
                 "RangeContractionRatio": stab.get("range_contraction_ratio"),
                 "DownUpVolumeRatio": stab.get("down_up_volume_ratio"),
+                "CloseVsEMA20Pct": stab.get("close_vs_ema20_pct"),
+                "EMA20Slope5dPct": stab.get("ema20_slope_5d_pct"),
+                # Pre-computed "has it stopped falling?" prior — stabilising/forming/still_falling.
+                "KnifeRiskTier": stab.get("knife_risk_tier"),
                 "Stop": trade_plan["stop"] if trade_plan else None,
                 "Target": trade_plan["target"] if trade_plan else None,
                 "RRRatio": trade_plan["rr_ratio"] if trade_plan else None,
@@ -270,11 +275,17 @@ class MarketDataAgent:
 
         ranked_df = pd.DataFrame(rows)
         if not ranked_df.empty:
-            # Sort deepest-pullback first. The old BounceOffLowPct sort went dead when the
-            # calibration removed the bounce gate; pullback depth is the one technical
-            # gradient the calibration found real (deeper -> better realised R). This only
-            # decides which candidates survive the pool cap before the Decision Agent —
-            # the DA still does the real selection (stabilisation + fundamentals).
-            ranked_df = ranked_df.sort_values("PriceVsEMA200Pct").reset_index(drop=True)
+            # Order the candidate pool by KNIFE-RISK TIER first, then deepest-pullback within
+            # a tier. This only decides which candidates survive the pre-research sector cap
+            # and the CANDIDATE_POOL_SIZE cut before the Decision Agent — the DA still ranks
+            # everything it receives. The point is that when more candidates match than fit
+            # the pool, the ones squeezed out are the still-falling ones, not stabilised-but-
+            # shallower setups (the old pure-deepest-first sort did the opposite). Pullback
+            # depth stays the tie-breaker inside a tier — the one technical gradient the
+            # calibration found real (deeper -> better realised R). See docs/strategy.md.
+            _tier_order = {"stabilising": 0, "forming": 1, "still_falling": 3}
+            ranked_df["_tier_rank"] = ranked_df["KnifeRiskTier"].map(_tier_order).fillna(2)
+            ranked_df = (ranked_df.sort_values(["_tier_rank", "PriceVsEMA200Pct"])
+                         .drop(columns="_tier_rank").reset_index(drop=True))
 
         return ranked_df, bars_by_ticker

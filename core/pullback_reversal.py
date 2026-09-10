@@ -171,6 +171,42 @@ def measure_pullback_reversal(df: pd.DataFrame) -> dict | None:
 # How far back to look for the low of the current pullback.
 STABILIZATION_LOOKBACK_DAYS = 20
 
+# Knife-risk tier thresholds. Derived from research/analyze_reversal.py on ~147k labelled
+# deep-pullback instances (2021-2026, train/test split): the "stabilising" cell had a
+# ~43-47% chance of a fast -1R vs ~57-58% for "still_falling", and roughly half the MAE —
+# at the cost of roughly half the average R (the fat-tail bounce lives at the low). This is
+# NOT a screener gate and NOT a strong predictor (a fitted model scores AUC ~0.59); it is a
+# consistent, pre-computed "has it stopped falling?" read so the Decision Agent's
+# support_status judgment is anchored to the same definition every run instead of
+# re-derived ad hoc from six raw fields. See docs/strategy.md.
+KNIFE_STABILISING_MIN_DAYS_SINCE_LOW = 3
+KNIFE_STABILISING_MIN_CLOSE_VS_EMA20_PCT = -6.0
+KNIFE_STABILISING_MIN_LAST_5D_RETURN_PCT = -4.0
+KNIFE_STILL_FALLING_MAX_DAYS_SINCE_LOW = 1
+KNIFE_STILL_FALLING_MAX_LAST_5D_RETURN_PCT = -4.0
+
+
+def classify_knife_risk(stab: dict) -> str | None:
+    """Map a measure_stabilization() dict to "stabilising" / "forming" / "still_falling".
+    Returns None if the inputs it needs aren't present. Thresholds above; interpretable
+    on purpose (no fitted model)."""
+    if not stab:
+        return None
+    dsl = stab.get("days_since_pullback_low")
+    hl = stab.get("higher_low_pct")
+    cvs20 = stab.get("close_vs_ema20_pct")
+    r5 = stab.get("last_5d_return_pct")
+    if dsl is None or hl is None or cvs20 is None or r5 is None:
+        return None
+    if (dsl >= KNIFE_STABILISING_MIN_DAYS_SINCE_LOW and hl > 0
+            and cvs20 > KNIFE_STABILISING_MIN_CLOSE_VS_EMA20_PCT
+            and r5 > KNIFE_STABILISING_MIN_LAST_5D_RETURN_PCT):
+        return "stabilising"
+    if (dsl <= KNIFE_STILL_FALLING_MAX_DAYS_SINCE_LOW and hl <= 0
+            and r5 <= KNIFE_STILL_FALLING_MAX_LAST_5D_RETURN_PCT):
+        return "still_falling"
+    return "forming"
+
 
 def measure_stabilization(df: pd.DataFrame) -> dict:
     """Recent price-action read for the most recent bar of `df` (needs
@@ -196,6 +232,16 @@ def measure_stabilization(df: pd.DataFrame) -> dict:
       down_up_volume_ratio
           avg volume on down-close days / up-close days over the last 12 bars.
           < 1 => selling pressure is fading relative to buying.
+      last_5d_return_pct
+          shortest-horizon trend — still sharply negative => the drop hasn't stopped.
+      close_vs_ema20_pct / ema20_slope_5d_pct
+          where price sits vs the 20-day EMA and whether that EMA has turned up. Both
+          feed classify_knife_risk(); calibration showed reclaiming the EMA20 is not by
+          itself a positive for expectancy, but a still-falling EMA20 with price well
+          below it is a real still-falling tell.
+      knife_risk_tier
+          classify_knife_risk() applied to the above — "stabilising" / "forming" /
+          "still_falling". A pre-computed prior for the Decision Agent's support_status.
     """
     if df is None or len(df) < STABILIZATION_LOOKBACK_DAYS + 20:
         return {}
@@ -205,6 +251,17 @@ def measure_stabilization(df: pd.DataFrame) -> dict:
 
     last_10d_return_pct = round((px / float(close.iloc[-11]) - 1) * 100, 2)
     last_20d_return_pct = round((px / float(close.iloc[-21]) - 1) * 100, 2)
+    last_5d_return_pct = round((px / float(close.iloc[-6]) - 1) * 100, 2)
+
+    ema20 = df["EMA20"] if "EMA20" in df.columns else None
+    close_vs_ema20_pct = ema20_slope_5d_pct = None
+    if ema20 is not None:
+        e20_now = float(ema20.iloc[-1])
+        e20_prev = float(ema20.iloc[-6])
+        if not pd.isna(e20_now) and e20_now > 0:
+            close_vs_ema20_pct = round((px - e20_now) / e20_now * 100, 2)
+        if not pd.isna(e20_prev) and e20_prev > 0:
+            ema20_slope_5d_pct = round((e20_now - e20_prev) / e20_prev * 100, 2)
 
     win_low = low.tail(STABILIZATION_LOOKBACK_DAYS)
     window_low = float(win_low.min())
@@ -225,14 +282,19 @@ def measure_stabilization(df: pd.DataFrame) -> dict:
     dn_mean = float(dn_v.mean()) if len(dn_v) else 0.0
     down_up_volume_ratio = round(dn_mean / up_mean, 2) if up_mean > 0 else None
 
-    return {
+    stab = {
         "last_10d_return_pct": last_10d_return_pct,
         "last_20d_return_pct": last_20d_return_pct,
+        "last_5d_return_pct": last_5d_return_pct,
         "days_since_pullback_low": days_since_pullback_low,
         "higher_low_pct": higher_low_pct,
         "range_contraction_ratio": range_contraction_ratio,
         "down_up_volume_ratio": down_up_volume_ratio,
+        "close_vs_ema20_pct": close_vs_ema20_pct,
+        "ema20_slope_5d_pct": ema20_slope_5d_pct,
     }
+    stab["knife_risk_tier"] = classify_knife_risk(stab)
+    return stab
 
 
 def detect_pullback_reversal(df: pd.DataFrame) -> dict:

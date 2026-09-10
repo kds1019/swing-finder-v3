@@ -47,3 +47,39 @@ def apply_sector_cap(ranked_df: pd.DataFrame, cap: int = 3, sector_col: str = "S
     excluded_df["ExclusionReason"] = "sector_cap"
 
     return kept_df, excluded_df
+
+
+def apply_sector_cap_to_picks(
+    ranked_picks: list[dict], sector_lookup: dict, cap: int = 3
+) -> tuple[list[dict], list[dict]]:
+    """Diversification cap for the Decision Agent's already-ranked output.
+
+    Walks `ranked_picks` in rank order (best first) and keeps at most `cap` per sector,
+    so the 3 HIGHEST-RANKED names in a sector survive rather than the first 3 the
+    technical screener happened to surface. `sector_lookup` maps ticker -> sector
+    (build it from the post-screener DataFrame, which carries a Sector column).
+
+    Returns (kept, capped_out). `kept` has its `rank` renumbered 1..N with the Decision
+    Agent's original rank preserved as `claude_rank`; each `capped_out` entry gains
+    `sector` and `exclusion_reason="sector_cap"` so the drop stays visible in the output.
+    """
+    ordered = sorted(ranked_picks, key=lambda p: p.get("rank", 1_000_000))
+    counts: dict[str, int] = {}
+    kept: list[dict] = []
+    capped_out: list[dict] = []
+    for p in ordered:
+        sector = sector_lookup.get(p.get("ticker"), "Unknown") or "Unknown"
+        if counts.get(sector, 0) < cap:
+            counts[sector] = counts.get(sector, 0) + 1
+            kept.append(p)
+        else:
+            entry = dict(p)
+            entry["sector"] = sector
+            entry["exclusion_reason"] = "sector_cap"
+            capped_out.append(entry)
+
+    for new_rank, p in enumerate(kept, start=1):
+        p.setdefault("claude_rank", p.get("rank"))
+        p["rank"] = new_rank
+
+    return kept, capped_out
