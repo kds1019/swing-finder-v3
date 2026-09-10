@@ -50,6 +50,13 @@ class Settings:
     # (2:1 only needs a 40% win rate to break even; 3:1 gives more cushion against
     # losing streaks). See core/trade_plan.py for where this is actually enforced.
     min_risk_reward: float = 3.0
+    # Drop candidates whose trade plan comes back weak_rr (stop/target geometry fell below
+    # min_risk_reward after the support/resistance refinement). ~32% of screener matches.
+    # An isolated portfolio backtest (research/weak_rr_ab.py) found these carry negative
+    # expectancy (profit factor < 1 every year, in and out of sample) and that dropping
+    # them raises return AND cuts max drawdown (-58% -> -40%). Flip to False for the old
+    # behaviour (keep them, let the Decision Agent flag WeakRR and rank them down).
+    drop_weak_rr_candidates: bool = True
     price_min: float = 10.0
     price_max: float = 150.0
     min_volume: int = 500_000

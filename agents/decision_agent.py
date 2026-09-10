@@ -77,8 +77,10 @@ ticker has a pre-computed trade plan
 Fibonacci-extension target refined against real support/resistance). Target is a CEILING
 only: the live exit is a trailing stop that holds the initial stop until price reaches
 +2R, then trails at (peak - 1R). So realised R:R typically lands well below the quoted
-RRRatio, and RRRatio should be read as "is the setup's geometry sane" (WeakRR = it isn't),
-not as a profit forecast. This technical screener's thresholds were calibrated against a
+RRRatio, and RRRatio should be read as "is the setup's geometry sane" (WeakRR = it isn't).
+Candidates whose geometry fell below the R:R floor are normally filtered out before they
+reach you, so a WeakRR=true here is unusual and worth calling out. Not a profit forecast.
+This technical screener's thresholds were calibrated against a
 labelled historical dataset (modest measured edge, ~PF 1.3 on entry, ~1.7 with the trailing
 exit) — treat it as a reasonable candidate filter, not a strong signal, and say so if asked
 to justify a pick on technical grounds alone.
@@ -193,8 +195,9 @@ Your job:
    positions (not just this run's candidates), an existing pending order on the same ticker
    (existing_open_orders lists symbol/side/status/order_type/quantity/prices not yet filled —
    don't silently recommend piling onto or duplicating one already in flight), earnings-date
-   conflicts, whether the VIX gate is open or closed, WeakRR if true (R:R fell short of the
-   minimum after support/resistance refinement), StopSanityFlag if true (R:R >= 15:1 more
+   conflicts, whether the VIX gate is open or closed, WeakRR if true (rare — normally
+   filtered out; R:R fell short of the minimum after support/resistance refinement),
+   StopSanityFlag if true (R:R >= 15:1 more
    often means an unusually tight stop than an unusually good target — say so explicitly),
    PriceVsPOCPct if the ticker sits notably above its point of control (thinner volume support
    underneath than a ticker sitting at/below it), "TargetsBeingCut" when targetRevisionRecentPct
