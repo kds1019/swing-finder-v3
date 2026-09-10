@@ -237,8 +237,17 @@ class MarketDataAgent:
             if not result.get("detected"):
                 continue
 
-            bars_by_ticker[ticker] = df
             trade_plan = compute_trade_plan(df, settings)
+            # Drop weak-RR setups at the screener (config toggle, default on): ~32% of matches
+            # get a plan whose stop/target geometry fell below the R:R floor after the
+            # support/resistance refinement. research/weak_rr_ab.py found these have negative
+            # expectancy (PF < 1 every year, in and out of sample) and that dropping them
+            # raises return and cuts max drawdown. weak_rr is still computed — this just gates.
+            if (settings.drop_weak_rr_candidates and trade_plan is not None
+                    and trade_plan.get("weak_rr")):
+                continue
+
+            bars_by_ticker[ticker] = df
             stab = measure_stabilization(df)
 
             rows.append({

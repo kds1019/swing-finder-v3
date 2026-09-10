@@ -181,6 +181,11 @@ Pipeline:
   formally optimised. Re-run the calibration as more history and resolved live picks
   accumulate (`pick_outcomes.csv` now carries the features for exactly this).
 - The trailing exit (above) came out of the same calibration and is now the live exit.
-  Remaining trade-plan lever: ~32% of signals still get a weak-RR plan (support refinement
-  widens the stop below the R:R floor); those are PF ~1.1 vs ~1.3 for the clean set —
-  either skip them or stop the refinement from crossing the floor.
+- **Weak-RR candidates are now dropped at the screener** (`config.settings.drop_weak_rr_candidates`,
+  default on). ~32% of matches get a plan whose stop/target geometry fell below the R:R
+  floor after the support/resistance refinement. An isolated portfolio backtest
+  (`research/weak_rr_ab.py`) found these carry *negative* expectancy (PF < 1 in every year,
+  in and out of sample — the higher hit rate doesn't cover the oversized losses relative to
+  the compressed target) and that dropping them raises return and cuts max drawdown
+  (−58% → −40%). Tightening the stop to the floor instead ("refloor") tested worse
+  out-of-sample. `weak_rr` is still computed on every plan; the toggle just gates on it.
