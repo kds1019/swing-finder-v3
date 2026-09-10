@@ -45,10 +45,14 @@ SCREENER_FEATURE_COLUMNS = {
     # "has it found support" fields can be calibrated against outcomes later too
     "Last10dReturnPct": "last_10d_return_pct",
     "Last20dReturnPct": "last_20d_return_pct",
+    "Last5dReturnPct": "last_5d_return_pct",
     "DaysSincePullbackLow": "days_since_pullback_low",
     "HigherLowPct": "higher_low_pct",
     "RangeContractionRatio": "range_contraction_ratio",
     "DownUpVolumeRatio": "down_up_volume_ratio",
+    "CloseVsEMA20Pct": "close_vs_ema20_pct",
+    "EMA20Slope5dPct": "ema20_slope_5d_pct",
+    "KnifeRiskTier": "knife_risk_tier",
 }
 
 LOG_COLUMNS = [

@@ -69,7 +69,16 @@ class Settings:
     # low-volatility mega-cap zone. Tickers with a missing/zero market cap fail this and are
     # dropped. Candidate for data-driven refinement — see docs/strategy.md.
     market_cap_min_musd: float = 1_500.0
+    # sector_cap: the real diversification limit — applied to the Decision Agent's RANKED
+    # output (pipeline.py), keeping the 3 highest-ranked names per sector. It is a
+    # portfolio-construction rule, so it runs after quality has been judged, not before.
     sector_cap: int = 3
+    # pre_research_sector_cap: a loose cap applied to the raw screener matches BEFORE the
+    # FMP/Claude stage, purely to stop one selling-off sector from consuming the whole
+    # candidate pool (and the FMP call budget) in a broad sector pullback. Deliberately much
+    # looser than sector_cap so it doesn't do the real selection — that's sector_cap's job,
+    # after Claude has ranked. Set >= candidate pool size to disable.
+    pre_research_sector_cap: int = 8
     # earnings_buffer_exclude_days: absolute floor — earnings the same day or next day is
     # always hard-excluded (see pipeline.py::apply_earnings_buffer), no override possible,
     # since a stop can't protect against an overnight gap through a print that close.

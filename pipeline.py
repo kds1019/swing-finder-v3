@@ -22,7 +22,7 @@ import pandas as pd
 
 from config.settings import load_settings
 from core.universe import build_universe
-from core.sector_cap import apply_sector_cap
+from core.sector_cap import apply_sector_cap, apply_sector_cap_to_picks
 from core.pick_tracking import (
     load_pick_outcomes_log, save_pick_outcomes_log, score_due_picks,
     record_picks, compute_pick_accuracy_summary,
@@ -30,15 +30,19 @@ from core.pick_tracking import (
 from agents.market_data_agent import MarketDataAgent, compute_market_bias
 from agents.research_agent import ResearchAgent
 from agents.portfolio_agent import PortfolioAgent
-from agents.decision_agent import DecisionAgent
+from agents.decision_agent import DecisionAgent, FINAL_WATCHLIST_SIZE
 
-# Max tickers (after the technical screener + sector cap) carried into the research/decision
-# step — wider than the old SHORTLIST_SIZE=20, since DecisionAgent's job is now to SELECT the
-# final ~20 (see agents.decision_agent.FINAL_WATCHLIST_SIZE) from this candidate pool using
-# stabilisation + fundamentals/news, not just polish an already-fixed list. When more
-# candidates pass than this cap, the deepest pullbacks are kept (agents.market_data_agent
-# sorts ranked_df by PriceVsEMA200Pct — the calibration's one real technical gradient).
-CANDIDATE_POOL_SIZE = 40
+# Max tickers carried into the research/decision step, after the technical screener and the
+# loose pre-research sector cap (settings.pre_research_sector_cap). DecisionAgent RANKS all of
+# these on stabilisation + fundamentals/news; the real 3/sector diversification cap
+# (settings.sector_cap) is then applied to that ranking and the top FINAL_WATCHLIST_SIZE
+# survive. When more candidates pass the screener than this cap, the deepest pullbacks are
+# kept (agents.market_data_agent sorts ranked_df by PriceVsEMA200Pct).
+# Lowered 40 -> 30: the agent now writes a full research_highlight/rationale/bear_case for
+# EVERY candidate (not just a 20-name pick list), ~3.7k output tokens each — 40 would push a
+# full run past claude-sonnet-5's 128k output ceiling and truncate the JSON. 30 leaves
+# headroom, and the calibration found no benefit to a wider pool anyway (see docs/strategy.md).
+CANDIDATE_POOL_SIZE = 30
 
 PICK_OUTCOMES_LOG_PATH = "pick_outcomes.csv"    # persisted in the repo, like results/
 
@@ -137,19 +141,22 @@ def run_pipeline(
     if ranked_df.empty:
         return {"error": "No tickers matched the pullback/reversal screener after excluding long-term holds", "ranked_df_empty": True}
 
-    # --- Sector cap ---
-    capped_df, sector_excluded_df = apply_sector_cap(ranked_df, settings.sector_cap)
-    print(f"[pipeline] After sector cap ({settings.sector_cap}/sector): {len(capped_df)} tickers "
-          f"({len(sector_excluded_df)} excluded)", file=sys.stderr)
+    # --- Loose pre-research sector cap (cost control only) ---
+    # NOT the real diversification limit — that is settings.sector_cap, applied to the
+    # Decision Agent's ranked output below. This only stops one selling-off sector from
+    # consuming the whole candidate pool / FMP budget in a broad sector pullback.
+    pooled_df, pre_research_excluded_df = apply_sector_cap(ranked_df, settings.pre_research_sector_cap)
+    print(f"[pipeline] After pre-research sector cap ({settings.pre_research_sector_cap}/sector): "
+          f"{len(pooled_df)} tickers ({len(pre_research_excluded_df)} held back)", file=sys.stderr)
 
-    # Candidate pool for the research/decision step — DecisionAgent selects the final
-    # watchlist from this, it isn't already a fixed-size shortlist (see CANDIDATE_POOL_SIZE).
-    shortlist_df = capped_df.head(candidate_pool_size).reset_index(drop=True)
+    # Candidate pool for the research/decision step — DecisionAgent ranks all of these; the
+    # 3/sector diversification cap is applied afterward (see CANDIDATE_POOL_SIZE).
+    shortlist_df = pooled_df.head(candidate_pool_size).reset_index(drop=True)
 
     if skip_decision:
         return {
             "shortlist": json.loads(shortlist_df.to_json(orient="records")),
-            "sector_excluded": json.loads(sector_excluded_df.to_json(orient="records")),
+            "pre_research_sector_excluded": json.loads(pre_research_excluded_df.to_json(orient="records")),
             "market_bias": market_bias,
             "skipped_decision": True,
         }
@@ -192,13 +199,29 @@ def run_pipeline(
     pick_track_record = compute_pick_accuracy_summary(pick_log)
     print(f"[pipeline] Pick track record: {pick_track_record}", file=sys.stderr)
 
-    # --- Decision Agent: research-driven selection of the final watchlist ---
+    # --- Decision Agent: research-driven RANKING of every candidate ---
     decision_agent = DecisionAgent(settings)
     result = decision_agent.synthesize(
         final_df, portfolio_context, market_gate_open, pick_track_record, settings.risk_per_trade_pct,
     )
 
-    # --- Pick outcome tracking (part 2): log this run's new picks for future scoring. ---
+    # --- Diversification cap: keep the 3 highest-RANKED names per sector, then take the top
+    # FINAL_WATCHLIST_SIZE. This runs here, on the Decision Agent's quality ranking, not on the
+    # raw screener output — so the survivors are a sector's best candidates, not the first the
+    # technical screener happened to surface. ---
+    sector_capped_out: list[dict] = []
+    if isinstance(result, dict) and result.get("ranked_picks"):
+        sector_lookup = dict(zip(final_df["Ticker"], final_df["Sector"]))
+        kept, sector_capped_out = apply_sector_cap_to_picks(
+            result["ranked_picks"], sector_lookup, settings.sector_cap
+        )
+        result["ranked_picks"] = kept[:FINAL_WATCHLIST_SIZE]
+        result["sector_capped_out"] = sector_capped_out
+        print(f"[pipeline] Sector cap ({settings.sector_cap}/sector) on Decision Agent ranking: "
+              f"{len(result['ranked_picks'])} final picks ({len(sector_capped_out)} capped out)",
+              file=sys.stderr)
+
+    # --- Pick outcome tracking (part 2): log this run's final (post-cap) picks for scoring. ---
     ranked_picks = result.get("ranked_picks", []) if isinstance(result, dict) else []
     # final_df still carries core.pullback_reversal's per-ticker measurements — pass it so
     # each logged pick records how it matched the screener (see docs/strategy.md calibration).
@@ -211,7 +234,8 @@ def run_pipeline(
         "market_bias": market_bias,
         "vix": vix,
         "market_gate_open": market_gate_open,
-        "sector_excluded_count": len(sector_excluded_df),
+        "pre_research_sector_excluded_count": len(pre_research_excluded_df),
+        "sector_capped_out_count": len(sector_capped_out),
         "earnings_excluded_count": len(earnings_excluded_df),
         "decision": result,
         "pick_track_record": pick_track_record,

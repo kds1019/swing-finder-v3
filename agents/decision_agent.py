@@ -11,10 +11,11 @@ core.pullback_reversal's technical screener (a real, if unvalidated, chart
 pattern) plus fundamentals/earnings-history/last-quarter-news context (not a
 single snapshot); this agent's job is to read that research, write a plain
 highlight per ticker (trend direction, earnings beats/misses, notable catalysts
-— informational judgment support, not a backtested score), and select the final
-FINAL_WATCHLIST_SIZE tickers most likely to keep moving up. Never recomputes the
-technical screener's numbers, sector cap, or trade-plan stop/target — those are
-already-decided facts by the time they reach this agent.
+— informational judgment support, not a backtested score), and RANK every
+candidate best-first. pipeline.py then applies the 3-per-sector diversification
+cap to that ranking and keeps the top FINAL_WATCHLIST_SIZE survivors. Never
+recomputes the technical screener's numbers, the sector cap, or trade-plan
+stop/target — those are already-decided facts by the time they reach this agent.
 """
 
 from __future__ import annotations
@@ -38,23 +39,40 @@ def _strip_code_fence(text: str) -> str:
 
 MODEL = "claude-sonnet-5"
 MODEL_MAX_OUTPUT_TOKENS = 128_000  # claude-sonnet-5's real max_tokens limit; update if MODEL changes
-FINAL_WATCHLIST_SIZE = 20  # user asked for a top 15-20; raised to 20 (the max) per explicit request
+# Final watchlist length AFTER pipeline.py applies the 3-per-sector diversification cap to
+# this agent's ranking. The agent now ranks every candidate it is given (see SYSTEM_PROMPT
+# point 2) rather than pre-selecting this many, because the sector cap — a
+# portfolio-construction rule — must act on a full quality ranking, not truncate it first.
+FINAL_WATCHLIST_SIZE = 20
 
 SYSTEM_PROMPT = f"""You are the research and selection step of a swing-trading screening
 pipeline. You receive tickers that have ALREADY passed core.pullback_reversal's technical
-screener — a DEEP pullback (roughly -20% to +3% vs a still-rising 200-day EMA; deeper is a
-stronger match and the pool is sorted deepest-first) that is not extended above its own
-volume profile's value area. EMA200UptrendPct, PriceVsEMA200Pct, ConsolidationRangePct,
+screener — a DEEP pullback (roughly -20% to +3% vs a still-rising 200-day EMA) that is not
+extended above its own volume profile's value area. The candidates are handed to you ordered
+knife-risk tier first (stabilising, then forming, then still_falling) and deepest-pullback
+within a tier — but that is just pool-ordering, NOT a ranking: you rank them.
+EMA200UptrendPct, PriceVsEMA200Pct, ConsolidationRangePct,
 BounceOffLowPct, POC, PriceVsPOCPct describe how each ticker matched it. The screener does
 NOT confirm the pullback has stopped falling — assessing that is now part of your job (point
 2b). These fields carry the recent price action for it:
-  Last10dReturnPct / Last20dReturnPct — recent trend; both sharply negative = still dropping
+  KnifeRiskTier — a PRE-COMPUTED "has it stopped falling?" read, one of "stabilising" /
+      "forming" / "still_falling", from a fixed definition applied identically every run
+      (days-since-low, higher-low, price-vs-EMA20, 5-day return). Use it as the STARTING
+      POINT for your support_status in point 2b — adopt it unless the other fields or the
+      research give a specific, stated reason to override it. It is a weak signal
+      individually; its value is consistency, not precision.
+  Last5dReturnPct / Last10dReturnPct / Last20dReturnPct — recent trend over 3 horizons;
+      all sharply negative = still dropping
   DaysSincePullbackLow — bars since the 20-day low; higher = a base is forming
   HigherLowPct — last-3-day low vs that pullback low; > 0 = a higher low is in (reversal
       signal), <= 0 = still probing lows
+  CloseVsEMA20Pct / EMA20Slope5dPct — price vs the 20-day EMA and whether that EMA has
+      turned up. Note: reclaiming the EMA20 is NOT by itself a positive for expectancy
+      (calibration) — but price well below a still-falling EMA20 is a real still-falling tell
   RangeContractionRatio — recent 5-day range / prior 15-day; < 1 = settling, > 1 = still wild
   DownUpVolumeRatio — down-day vs up-day volume, last 12 bars; < 1 = selling drying up
-Then sector-cap filtering, and each ticker has a pre-computed trade plan
+Then a 3-per-sector diversification cap is applied to YOUR ranking (after you rank), and each
+ticker has a pre-computed trade plan
 (Entry/Stop/Target/RRRatio from core/trade_plan.py — swing-low/EMA-anchored stop,
 Fibonacci-extension target refined against real support/resistance). Target is a CEILING
 only: the live exit is a trailing stop that holds the initial stop until price reaches
@@ -130,9 +148,13 @@ Your job:
    forward-looking) — this is a first-class, structured signal, not just prose color, precisely
    so a "none" ticker is visibly flagged as such rather than reading the same as a ticker with
    genuine fresh news.
-2. From every ticker provided, select the final {FINAL_WATCHLIST_SIZE} most likely to keep
-   moving up, based on the research highlight above — genuinely growing fundamentals and a
-   real beat record should rank a ticker higher; deteriorating fundamentals, a recent pattern
+2. RANK EVERY ticker provided, best first (rank 1 = most likely to keep moving up), based on
+   the research highlight above — do NOT pre-truncate to a watchlist length. A
+   3-per-sector diversification cap is applied to your ranking afterward by the pipeline and
+   the top {FINAL_WATCHLIST_SIZE} survivors become the watchlist, so a lower-ranked name still
+   matters: it is the backup if higher-ranked names in its sector are capped out. Genuinely
+   growing fundamentals and a real beat record should rank a ticker higher; deteriorating
+   fundamentals, a recent pattern
    of missed estimates, analysts actively cutting price targets (negative targetRevisionRecentPct
    with lastMonthTargetCount >= 2), price already at/above the latest average target, or clearly
    negative news should rank it lower or exclude it entirely, even if its technical setup
@@ -142,20 +164,25 @@ Your job:
    setup with catalyst_status "none" has nothing concrete to drive continued upside beyond the
    pattern itself, so it should generally rank below a comparable candidate that does have one,
    not be excluded automatically (a strong enough fundamentals/technical case can still justify
-   including a "none" ticker, just say so). If fewer than {FINAL_WATCHLIST_SIZE} tickers were
-   provided, return all of them ranked, don't pad.
+   including a "none" ticker, just say so). Return every ticker provided, ranked — the only
+   reason to omit one is a genuine "do not touch this" call (deteriorating fundamentals /
+   still_falling / clearly negative catalyst), and say so in its absence. Do not pad and do
+   not drop a ticker just to hit a length target.
 2b. Judge, per ticker, whether the pullback has STABILISED AND FOUND SUPPORT or is still an
    active decline (a falling knife). The screener only checks that price pulled back into a
    rising-200-EMA zone — it does NOT check that the drop has stopped, and buying a stock still
-   in free-fall is the main way this setup loses. Read the recent-price-action fields
-   together: a stabilised pullback looks like DaysSincePullbackLow >= ~3, HigherLowPct > 0,
-   RangeContractionRatio < ~1, DownUpVolumeRatio trending < 1, and Last10dReturnPct no longer
-   sharply negative. A falling knife looks like DaysSincePullbackLow 0-1, HigherLowPct <= 0,
-   Last10dReturnPct still steeply down, range not contracting. Set a structured
-   support_status of "confirmed" / "forming" / "still_falling" for every ticker. A
-   "still_falling" ticker should be excluded or ranked at the very bottom regardless of how
-   good its fundamentals look — this is a distinct axis from the fundamental read in point 2,
-   not a tiebreaker. "forming" is acceptable but ranks below "confirmed" all else equal. account_balance's
+   in free-fall is the main way this setup loses. START from KnifeRiskTier (the pre-computed
+   read: stabilising -> "confirmed", forming -> "forming", still_falling -> "still_falling")
+   and then sanity-check it against the other fields: a stabilised pullback also has
+   RangeContractionRatio < ~1, DownUpVolumeRatio trending < 1, and Last5d/Last10dReturnPct no
+   longer sharply negative; a falling knife also has range not contracting and DownUpVolumeRatio
+   high. Override KnifeRiskTier only when those fields clearly disagree with it OR the research
+   gives a specific reason (e.g. the drop was one earnings gap and price has been flat since) —
+   and when you override, say so explicitly in the rationale. Set a structured support_status
+   of "confirmed" / "forming" / "still_falling" for every ticker. A "still_falling" ticker
+   should be excluded or ranked at the very bottom regardless of how good its fundamentals look
+   — this is a distinct axis from the fundamental read in point 2, not a tiebreaker. "forming"
+   is acceptable but ranks below "confirmed" all else equal. account_balance's
    total_net_liquidation_value is the account's total equity, risk_per_trade_pct is the
    configured max % of that to risk on any single trade. risk_amount =
    total_net_liquidation_value * risk_per_trade_pct / 100; position_shares =
@@ -270,9 +297,10 @@ class DecisionAgent:
             research_data, portfolio_context, market_gate_open, pick_track_record, risk_per_trade_pct,
         )
 
-        # Scaled to candidate-pool size (every technically-screened ticker passed in here, not
-        # just the final watchlist — this agent does the narrowing, so the prompt covers however
-        # many candidates survived sector cap, which can be more than FINAL_WATCHLIST_SIZE).
+        # Scaled to candidate-pool size (every technically-screened ticker passed in here — the
+        # agent now RANKS them all rather than pre-selecting a watchlist, so the output covers
+        # the whole candidate pool, which can be well over FINAL_WATCHLIST_SIZE; the 3/sector
+        # cap in pipeline.py trims it to the final list afterward).
         # 4000/ticker + 4000 overhead is the per-ticker budget prior prompt growth settled on
         # (see git history) once FMP research, position sizing, and open-order checks were all
         # in the prompt. Ceiling raised from an earlier, too-low 32000 to MODEL_MAX_OUTPUT_TOKENS
