@@ -29,6 +29,7 @@ from core.universe import batch_tickers
 from core.indicators import compute_indicators
 from core.pullback_reversal import detect_pullback_reversal, measure_stabilization, MIN_BARS_FOR_SCREENER
 from core.trade_plan import compute_trade_plan
+from core.trend_context import compute_trend_state, measure_swing_fib_retracement, classify_setup_type
 
 
 def _to_alpaca_symbol(symbol: str) -> str:
@@ -250,6 +251,17 @@ class MarketDataAgent:
             bars_by_ticker[ticker] = df
             stab = measure_stabilization(df)
 
+            # Trend-state + swing-Fib context layer (core.trend_context) — informational only
+            # for now, computed for every screener match so setup_type can be logged and
+            # backtested per-bucket before it's wired into live ranking/sizing. See
+            # core/trend_context.py and docs/strategy.md.
+            trend = compute_trend_state(df)
+            fib = measure_swing_fib_retracement(df)
+            setup_type = classify_setup_type(
+                trend.get("trend_state"), fib.get("in_fib_zone"),
+                stab.get("knife_risk_tier") == "stabilising",
+            )
+
             rows.append({
                 "Ticker": ticker,
                 "Sector": sector_lookup.get(ticker, "Unknown"),
@@ -275,6 +287,18 @@ class MarketDataAgent:
                 "EMA20Slope5dPct": stab.get("ema20_slope_5d_pct"),
                 # Pre-computed "has it stopped falling?" prior — stabilising/forming/still_falling.
                 "KnifeRiskTier": stab.get("knife_risk_tier"),
+                # Trend-state + swing-Fib context (core.trend_context) — see comment above.
+                "SMA50": trend.get("sma50"),
+                "SMA200": trend.get("sma200"),
+                "PriceAboveSMA50": trend.get("price_above_sma50"),
+                "PriceAboveSMA200": trend.get("price_above_sma200"),
+                "SMA200SlopePct": trend.get("sma200_slope_pct"),
+                "TrendState": trend.get("trend_state"),
+                "SwingHigh": fib.get("swing_high"),
+                "SwingLow": fib.get("swing_low"),
+                "RetracementPct": fib.get("retracement_pct"),
+                "InFibZone": fib.get("in_fib_zone"),
+                "SetupType": setup_type,
                 "Stop": trade_plan["stop"] if trade_plan else None,
                 "Target": trade_plan["target"] if trade_plan else None,
                 "RRRatio": trade_plan["rr_ratio"] if trade_plan else None,

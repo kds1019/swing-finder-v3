@@ -46,6 +46,41 @@ CANDIDATE_POOL_SIZE = 30
 
 PICK_OUTCOMES_LOG_PATH = "pick_outcomes.csv"    # persisted in the repo, like results/
 
+# core.trend_context fields to join onto each final pick, keyed by ticker. Attached here
+# (in Python, post-hoc) rather than added to DecisionAgent's own JSON contract in
+# agents/decision_agent.py — setup_type is deterministic, not an LLM judgment (unlike
+# support_status), and this keeps the Decision Agent's prompt/output schema untouched.
+# Purely additive to results/latest.json: new keys on each pick, nothing renamed/removed.
+# Phase 1 only (compute + log) — not yet used to affect ranking, selection, or position
+# sizing; see core/trend_context.py and docs/strategy.md.
+TREND_CONTEXT_PICK_FIELDS = {
+    "TrendState": "trend_state",
+    "SetupType": "setup_type",
+    "RetracementPct": "retracement_pct",
+    "InFibZone": "in_fib_zone",
+    "SMA50": "sma50",
+    "SMA200": "sma200",
+    "PriceAboveSMA50": "price_above_sma50",
+    "PriceAboveSMA200": "price_above_sma200",
+    "SMA200SlopePct": "sma200_slope_pct",
+    "SwingHigh": "swing_high",
+    "SwingLow": "swing_low",
+}
+
+
+def attach_trend_context(picks: list[dict], features_df: pd.DataFrame) -> None:
+    """Joins TREND_CONTEXT_PICK_FIELDS onto each pick dict in `picks`, in place, by ticker.
+    No-op (leaves picks unchanged) if a ticker isn't found or a field wasn't computed for it
+    (e.g. insufficient history for the 200-SMA) — never raises on missing trend context."""
+    if not picks or features_df.empty or "Ticker" not in features_df.columns:
+        return
+    cols = [c for c in TREND_CONTEXT_PICK_FIELDS if c in features_df.columns]
+    lookup = features_df.set_index("Ticker")[cols].to_dict(orient="index")
+    for p in picks:
+        row = lookup.get(p.get("ticker"), {})
+        for src_col, dest_key in TREND_CONTEXT_PICK_FIELDS.items():
+            p[dest_key] = row.get(src_col)
+
 # ~1 quarter of calendar-day news — enough to judge the latest earnings reaction and any
 # recent catalyst/trend, without the ~2yr blob the old 270 (+ a stale *2.5 buffer in
 # fetch_news) produced, which was ~$1 of Decision Agent input tokens per run on its own.
@@ -220,6 +255,11 @@ def run_pipeline(
         print(f"[pipeline] Sector cap ({settings.sector_cap}/sector) on Decision Agent ranking: "
               f"{len(result['ranked_picks'])} final picks ({len(sector_capped_out)} capped out)",
               file=sys.stderr)
+
+        # Trend-context fields (setup_type/trend_state/etc.) — additive, Phase 1 only. See
+        # TREND_CONTEXT_PICK_FIELDS above.
+        attach_trend_context(result["ranked_picks"], final_df)
+        attach_trend_context(result["sector_capped_out"], final_df)
 
     # --- Pick outcome tracking (part 2): log this run's final (post-cap) picks for scoring. ---
     ranked_picks = result.get("ranked_picks", []) if isinstance(result, dict) else []

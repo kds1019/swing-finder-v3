@@ -189,3 +189,96 @@ Pipeline:
   the compressed target) and that dropping them raises return and cuts max drawdown
   (−58% → −40%). Tightening the stop to the floor instead ("refloor") tested worse
   out-of-sample. `weak_rr` is still computed on every plan; the toggle just gates on it.
+
+## Trend context & setup_type (`core/trend_context.py`) — Phase 1 + backtest
+
+Motivated by a live case (2026-09-11, CRUS): the scanner flagged the short-term
+higher-low/contracting-range/falling-down-up-volume signal (`KnifeRiskTier` /
+`support_status`) while the ticker was still below both its 50-day and 200-day SMA, only
+~30% retraced off its down-leg — a reversion bounce, not a confirmed pullback in an
+uptrend, but the old single "confirmed support" read didn't distinguish the two. That's
+possible even though `core.pullback_reversal`'s own gate requires a "rising" EMA200,
+because that gate's uptrend read (EMA200 risen ≥5% over the last *126* sessions) is much
+slower and different from a literal current SMA50/SMA200 position/slope check.
+
+`core/trend_context.py` adds that plainer read as a separate, informational axis:
+- `compute_trend_state()`: SMA50/SMA200, price above/below each, SMA200 slope over the last
+  20 sessions (deliberately much shorter than the screener's 126-day EMA200 check — the
+  point is to catch a more current rollover/reclaim). Classifies `uptrend` / `downtrend` /
+  `transitional`.
+- `measure_swing_fib_retracement()`: the most recent major swing high/low over a 60-session
+  window (vs. the existing 20-bar short-term Fib helper in `core/indicators.py`), % retraced
+  from that swing high, and whether it's in the classic 38.2–61.8% zone.
+- `classify_setup_type()`: `trend_continuation` (uptrend + in the Fib zone + the *same*
+  stabilization signal used for `KnifeRiskTier == "stabilising"`) vs. `reversion_bounce`
+  (same stabilization signal, but downtrend or transitional). One shared definition of
+  "has it stabilised" for both `setup_type` and `support_status`, not two that could drift
+  apart.
+
+**Two-phase rollout, deliberately not done in one step:**
+- **Phase 1 (shipped):** compute `TrendState`/`SetupType`/swing-Fib fields for every screener
+  match (`agents/market_data_agent.py::scan_universe`), log them to `pick_outcomes.csv`
+  (`core/pick_tracking.py::SCREENER_FEATURE_COLUMNS`), and attach them onto each final pick in
+  `results/*.json` (`pipeline.py::attach_trend_context`, post-hoc in Python — NOT part of
+  `agents/decision_agent.py`'s JSON contract, since `setup_type` is deterministic, unlike the
+  LLM-judged `support_status`). Purely additive; doesn't affect the live screener gate,
+  Decision Agent ranking, or position sizing.
+- **Phase 2 (shipped, backtest-only):** `research/trend_context_backtest.py`, forked from
+  `research/portfolio_backtest.py` so that script's numbers stay an untouched baseline. Tags
+  every historical signal with `setup_type`; `trend_continuation` keeps the existing
+  chandelier-style trail unchanged, `reversion_bounce` gets trailing disabled (pure fixed
+  stop/target — the pre-2026-08-31 exit behavior, scoped to just this bucket) and
+  `REVERSION_BOUNCE_SIZE_MULT` (0.5, an uncalibrated placeholder) applied to position size.
+  Supports three candidate-selection-under-capacity modes (see `PRIORITY_MODE` in that file):
+  `full` (default — hard priority trend_continuation > reversion_bounce > unclassified),
+  `--depth-only-priority` (ablation — baseline's own tie-break, no priority), and
+  `--reserved-slots[=N]` (up to N of `MAX_POSITIONS` reserved for trend_continuation only,
+  rest filled depth-only). Reports win-rate/PF/avg-R **per bucket**, not just blended.
+- **Phase 3 (not done):** wiring `setup_type` into the live Decision Agent's ranking or
+  actual position sizing — deferred until Phase 2's numbers show the split is real, given the
+  system's live track record (13.3% win rate / -2.63% avg return over 60 picks as of
+  2026-09-11) means nothing new should get real size on a hypothesis alone.
+
+### Phase 2 results (2026-09-11, cached universe, 2021-06-01 .. 2026-08-31)
+
+Ran all three selection modes to separate "is the setup_type split real" from "is this
+particular portfolio-construction rule for trading both buckets at once any good" — they
+turned out to be two different questions with two different answers.
+
+| | baseline (unbucketed) | `full` priority | `depth_only` ablation | `reserved-slots=2` |
+|---|---|---|---|---|
+| total return | +12.2% | +43.0% | +9.6% | +9.0% |
+| max drawdown | -52.0% | **-78.5%** | -47.0% | -60.2% |
+| trades | 1096 | 700 | 948 | 879 |
+| trend_continuation: n / win% / PF | — | 272 / 39.3% / 1.32 | 2 (no signal) | 301 / 37.9% / 1.26 |
+| reversion_bounce: n / win% / PF | — | 398 / 28.1% / 1.12 | 269 / 26.0% / 1.08 | 173 / 25.4% / 1.07 |
+
+**The per-bucket split is real and robust.** `trend_continuation` beats `reversion_bounce` on
+every metric in *both* runs that give it an actual sample (`full`: 39.3% win / PF 1.32;
+`reserved-slots=2`: 37.9% win / PF 1.26) — consistent across two different selection rules,
+not an artifact of one ordering. `reversion_bounce`'s PF sits at 1.07–1.12 across *all three*
+variants regardless of how candidates are picked — also robust. This is the trustworthy
+result: `setup_type` is measuring something real, and `reversion_bounce` is meaningfully
+weaker than `trend_continuation`, matching the motivating CRUS case.
+
+**The blended portfolio numbers are NOT reliable, and are a separate problem.**
+`trend_continuation` is only ~3% of raw signals (1,311 of 44,033) vs. `reversion_bounce`'s 38%
+— rare enough that pure depth-based selection (`depth_only`) almost never gives it a slot
+(n=2), so getting *any* sample at all requires deliberately favoring it. But hard-favoring it
+(`full`) let it claim disproportionate concurrent slots — likely correlated ones, given it's
+a rare, narrow category — and blew up max drawdown to -78.5%, worse than doing nothing.
+Reserving a fixed 2-of-6 slots (`reserved-slots=2`) tamed that (-60.2%) but didn't fully fix
+it, and `full`'s standout +43% return did not reappear (+9.0%) — that number looks like a
+concentration/variance artifact of unrestricted prioritization, not a repeatable effect.
+**Conclusion: none of these three variants' blended return/DD should be read as a forecast of
+live behavior** — a 6-position/3-sector-cap daily sim is too coarse an instrument to settle
+how a live 3-5-name watchlist should split capital across the two buckets. That's a real,
+separate, harder question than "is the split real," and is unresolved — treat it as a Phase 3
+prerequisite, not something these numbers already answer.
+
+**Caveats:** the swing-Fib lookback (60 sessions), SMA200 slope window (20 sessions) and
+flat-band (0.5%), and `REVERSION_BOUNCE_SIZE_MULT` are first-cut defaults, not independently
+calibrated the way the pullback-reversal thresholds above were — re-tune from
+`trend_context_backtest.md`'s per-bucket numbers before trusting either bucket with real size.
+The three backtest runs above are also survivorship-biased to today's ~480-ticker cache and
+don't model intraday whipsaw or real fills, same as `portfolio_backtest.py`.

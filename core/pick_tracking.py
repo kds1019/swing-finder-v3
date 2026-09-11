@@ -53,6 +53,20 @@ SCREENER_FEATURE_COLUMNS = {
     "CloseVsEMA20Pct": "close_vs_ema20_pct",
     "EMA20Slope5dPct": "ema20_slope_5d_pct",
     "KnifeRiskTier": "knife_risk_tier",
+    # Trend-state + swing-Fib context (core.trend_context) — logged so trend_continuation
+    # vs. reversion_bounce can be calibrated against realised outcomes, same as every other
+    # screener measurement here. See docs/strategy.md.
+    "SMA50": "sma50",
+    "SMA200": "sma200",
+    "PriceAboveSMA50": "price_above_sma50",
+    "PriceAboveSMA200": "price_above_sma200",
+    "SMA200SlopePct": "sma200_slope_pct",
+    "TrendState": "trend_state",
+    "SwingHigh": "swing_high",
+    "SwingLow": "swing_low",
+    "RetracementPct": "retracement_pct",
+    "InFibZone": "in_fib_zone",
+    "SetupType": "setup_type",
 }
 
 LOG_COLUMNS = [
