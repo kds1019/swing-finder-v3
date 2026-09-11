@@ -288,11 +288,14 @@ class MarketDataAgent:
                 # Pre-computed "has it stopped falling?" prior — stabilising/forming/still_falling.
                 "KnifeRiskTier": stab.get("knife_risk_tier"),
                 # Trend-state + swing-Fib context (core.trend_context) — see comment above.
-                "SMA50": trend.get("sma50"),
-                "SMA200": trend.get("sma200"),
-                "PriceAboveSMA50": trend.get("price_above_sma50"),
-                "PriceAboveSMA200": trend.get("price_above_sma200"),
-                "SMA200SlopePct": trend.get("sma200_slope_pct"),
+                # "Trend" prefix disambiguates from EMA200UptrendPct/PriceVsEMA200Pct above,
+                # which are core.pullback_reversal's own EMA200 measurements on a 126-day
+                # slope window — these are core.trend_context's, on a 20-day window.
+                "TrendEMA50": trend.get("ema50"),
+                "TrendEMA200": trend.get("ema200"),
+                "PriceAboveTrendEMA50": trend.get("price_above_ema50"),
+                "PriceAboveTrendEMA200": trend.get("price_above_ema200"),
+                "TrendEMA200SlopePct": trend.get("ema200_slope_pct"),
                 "TrendState": trend.get("trend_state"),
                 "SwingHigh": fib.get("swing_high"),
                 "SwingLow": fib.get("swing_low"),

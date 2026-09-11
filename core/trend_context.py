@@ -8,13 +8,23 @@ single "confirmed support" read conflated the two.
 
 Motivating case (2026-09-11): the live scan flagged CRUS on exactly the short-term signal
 (higher low, contracting range, falling down/up volume) while it was still below both its
-50-day and 200-day SMA, only ~30% retraced off its down-leg — a reversion bounce, not a
+50-day and 200-day EMA, only ~30% retraced off its down-leg — a reversion bounce, not a
 confirmed pullback in an uptrend. That's possible because core.pullback_reversal's own
-uptrend gate is a slower, different read (EMA200 risen >=5% over the last *126* sessions,
-price within a wide band of that EMA) than a literal current SMA50/SMA200 position/slope
-check — a ticker can clear the EMA200 gate while, by this module's plainer read, still be in
-a downtrend. That's intentional here: this module adds the plainer read as a SEPARATE,
-informational axis, not a replacement for the screener's gate.
+uptrend gate uses a much longer slope window (EMA200 risen >=5% over the last *126*
+sessions) than this module's 20-session slope — a ticker can clear that slower gate while,
+by this module's more current read, still be rolling over into a downtrend. That's
+intentional here: this module adds the more current read as a SEPARATE, informational axis,
+not a replacement for the screener's gate.
+
+Uses EMA, not SMA (switched 2026-09-11 after a live case, RDW: SMA200 still read a mild
+uptrend while price had already fallen back below both EMA50/EMA200 and EMA200's own
+20-session slope had gone flat — EMA reacts faster to a recent stall/rollover because it
+weights recent bars more heavily, which is exactly the property this read wants at the
+inflection points where it matters most; SMA's slower reaction was masking exactly the kind
+of rollover this module exists to catch). Reuses core.indicators.compute_indicators()'s
+EMA50/EMA200 columns rather than recomputing them — same convention as
+core.pullback_reversal's own functions, which likewise require compute_indicators() to have
+already run.
 
 Deliberately NOT wired into the screener gate, live ranking, or position sizing yet — this
 is Phase 1 (compute + log every field so setup_type below can be backtested per-bucket,
@@ -29,61 +39,66 @@ import pandas as pd
 
 from core.indicators import find_pivot_points
 
-# How far back the 200-SMA slope is measured to call it "rising" / "falling". Deliberately
+# How far back the 200-EMA slope is measured to call it "rising" / "falling". Deliberately
 # much shorter than core.pullback_reversal's 126-day EMA200 trend check — the whole point of
 # this read is to catch a more current rollover/reclaim than that slower gate does.
-SMA200_SLOPE_LOOKBACK_DAYS = 20
+EMA200_SLOPE_LOOKBACK_DAYS = 20
 # Slope smaller than this (as %, either sign) counts as flat rather than clearly
 # rising/falling, and falls through to "transitional" instead of being forced into
 # uptrend/downtrend on noise.
-SMA200_SLOPE_FLAT_BAND_PCT = 0.5
+EMA200_SLOPE_FLAT_BAND_PCT = 0.5
 
-MIN_BARS_FOR_TREND_STATE = 200 + SMA200_SLOPE_LOOKBACK_DAYS
+MIN_BARS_FOR_TREND_STATE = 200 + EMA200_SLOPE_LOOKBACK_DAYS
 
 
 def compute_trend_state(df: pd.DataFrame) -> dict:
-    """SMA50/SMA200 read for the most recent bar of `df`. Returns {} if there isn't enough
-    history (needs 200 + SMA200_SLOPE_LOOKBACK_DAYS bars). Fields:
-      sma50 / sma200
-      price_above_sma50 / price_above_sma200 — bool
-      sma200_slope_pct — % change in SMA200 over the last SMA200_SLOPE_LOOKBACK_DAYS sessions
+    """EMA50/EMA200 read for the most recent bar of `df` — requires compute_indicators() to
+    have already been applied (needs the EMA50/EMA200 columns it adds), same requirement as
+    core.pullback_reversal's functions. Returns {} if there isn't enough history (needs
+    200 + EMA200_SLOPE_LOOKBACK_DAYS bars) or those columns aren't present. Fields:
+      ema50 / ema200
+      price_above_ema50 / price_above_ema200 — bool
+      ema200_slope_pct — % change in EMA200 over the last EMA200_SLOPE_LOOKBACK_DAYS sessions
       trend_state — one of:
-        "uptrend"      price above SMA200 AND SMA200 clearly rising
-        "downtrend"    price below SMA200 AND SMA200 clearly falling
+        "uptrend"      price above EMA200 AND EMA200 clearly rising
+        "downtrend"    price below EMA200 AND EMA200 clearly falling
         "transitional" anything else — e.g. bounced off lows but hasn't reclaimed the
-                       50-day yet, or SMA200 is flat, or price/SMA200 direction disagree
+                       50-day yet, or EMA200 is flat, or price/EMA200 direction disagree
     """
-    if df is None or len(df) < MIN_BARS_FOR_TREND_STATE:
+    if (
+        df is None or len(df) < MIN_BARS_FOR_TREND_STATE
+        or "EMA50" not in df.columns or "EMA200" not in df.columns
+    ):
         return {}
 
     close = df["Close"].astype(float)
-    sma50 = close.rolling(50).mean()
-    sma200 = close.rolling(200).mean()
+    ema50 = df["EMA50"].astype(float)
+    ema200 = df["EMA200"].astype(float)
 
     px = float(close.iloc[-1])
-    sma50_now = float(sma50.iloc[-1])
-    sma200_now = float(sma200.iloc[-1])
-    sma200_then = float(sma200.iloc[-1 - SMA200_SLOPE_LOOKBACK_DAYS])
-    if pd.isna(sma50_now) or pd.isna(sma200_now) or pd.isna(sma200_then) or sma200_then <= 0:
+    ema50_now = float(ema50.iloc[-1])
+    ema200_now = float(ema200.iloc[-1])
+    ema200_then = float(ema200.iloc[-1 - EMA200_SLOPE_LOOKBACK_DAYS])
+    if pd.isna(ema50_now) or pd.isna(ema200_now) or pd.isna(ema200_then) or ema200_then <= 0:
         return {}
 
-    sma200_slope_pct = round((sma200_now - sma200_then) / sma200_then * 100, 2)
-    price_above_sma50 = px > sma50_now
-    price_above_sma200 = px > sma200_now
+    ema200_slope_pct = round((ema200_now - ema200_then) / ema200_then * 100, 2)
+    price_above_ema50 = px > ema50_now
+    price_above_ema200 = px > ema200_now
 
-    if price_above_sma200 and sma200_slope_pct > SMA200_SLOPE_FLAT_BAND_PCT:
+    if price_above_ema200 and ema200_slope_pct > EMA200_SLOPE_FLAT_BAND_PCT:
         trend_state = "uptrend"
-    elif (not price_above_sma200) and sma200_slope_pct < -SMA200_SLOPE_FLAT_BAND_PCT:
+    elif (not price_above_ema200) and ema200_slope_pct < -EMA200_SLOPE_FLAT_BAND_PCT:
         trend_state = "downtrend"
     else:
         trend_state = "transitional"
 
     return {
-        "sma50": round(sma50_now, 2),
-        "sma200": round(sma200_now, 2),
-        "price_above_sma50": price_above_sma50,
-        "price_above_sma200": price_above_sma200,
-        "sma200_slope_pct": sma200_slope_pct,
+        "ema50": round(ema50_now, 2),
+        "ema200": round(ema200_now, 2),
+        "price_above_ema50": price_above_ema50,
+        "price_above_ema200": price_above_ema200,
+        "ema200_slope_pct": ema200_slope_pct,
         "trend_state": trend_state,
     }
 

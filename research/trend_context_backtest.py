@@ -130,8 +130,9 @@ def build_signals(tickers, sectors, settings):
     computed per-ticker with no portfolio state — each uses only bars up to its own date.
     Same screener gate as research/portfolio_backtest.py (unmodified — see that module and
     core/pullback_reversal.py for why loosening it isn't needed to see reversion_bounce
-    cases: a ticker can clear the EMA200-based gate while a plainer current SMA50/SMA200
-    read still calls it a downtrend, e.g. the live CRUS case that motivated this)."""
+    cases: a ticker can clear the screener's slower 126-session EMA200 gate while
+    core.trend_context's faster 20-session EMA200 slope still calls it a downtrend, e.g. the
+    live CRUS/RDW cases that motivated this)."""
     sig = []
     for n, t in enumerate(tickers, 1):
         cache = BARS_DIR / f"{t}.pkl"

@@ -74,12 +74,13 @@ NOT confirm the pullback has stopped falling — assessing that is now part of y
 Each ticker also carries a PRE-COMPUTED, deterministic trend-context read (core/trend_context.py)
 — a separate axis from KnifeRiskTier/support_status, which only says whether the short-term drop
 has stopped, not whether that's happening inside an uptrend or a downtrend:
-  TrendState — "uptrend" (price above a rising 200-day SMA), "downtrend" (price below a falling
-      200-day SMA), or "transitional" (anything else, e.g. bounced off lows but hasn't reclaimed
-      the 50-day yet). A slower, coarser read (EMA200UptrendPct above) can say "uptrend" while
-      this plainer current-SMA read still says downtrend/transitional — that's real, not a bug
-      (see the CRUS case in docs/strategy.md): a name can clear the screener's 126-day-back EMA200
-      gate while still being, by today's actual price/SMA position, in a real downtrend.
+  TrendState — "uptrend" (price above a rising 200-day EMA, 20-session slope), "downtrend"
+      (price below a falling 200-day EMA), or "transitional" (anything else, e.g. bounced off
+      lows but hasn't reclaimed the 50-day yet). A slower, coarser read (EMA200UptrendPct
+      above, a 126-session slope) can say "uptrend" while this faster-reacting 20-session read
+      still says downtrend/transitional — that's real, not a bug (see the CRUS/RDW cases in
+      docs/strategy.md): a name can clear the screener's 126-day-back EMA200 gate while its
+      more current EMA200 slope has already flattened or rolled over into a real downtrend.
   RetracementPct / InFibZone — where price sits in the most recent major (60-session) swing
       high-to-low leg; InFibZone means it's given back 38.2-61.8% of that leg, the classic
       pullback-continuation entry zone.

@@ -49,9 +49,10 @@ DETERMINISTIC, Python-computed read (core/trend_context.py), separate from `Supp
 `support_status`, which only says whether the drop has stopped, not whether that's happening
 inside an uptrend or a downtrend. `trend_continuation` = uptrend pullback in the classic
 38.2-61.8% Fib retracement zone; `reversion_bounce` = the same short-term stabilization signal,
-but in a downtrend or transitional trend (see docs/strategy.md's CRUS case for why this matters —
-a stock can clear the screener's slower EMA200 gate while still being, by current SMA position,
-in a real downtrend). Backtested separately per-bucket (docs/strategy.md's Phase 2 results):
+but in a downtrend or transitional trend (see docs/strategy.md's CRUS/RDW cases for why this
+matters — a stock can clear the screener's slower 126-session EMA200 gate while its faster,
+20-session EMA200 slope has already rolled over into a real downtrend). Backtested separately
+per-bucket (docs/strategy.md's Phase 2 results):
 `trend_continuation` showed a real, repeatable edge over `reversion_bounce` (win rate ~38-39% vs
 ~25-28%, profit factor ~1.26-1.32 vs ~1.07-1.12) across independent backtest runs. `null` means
 neither bucket applied (e.g. the stabilization signal itself never fired, or it's an uptrend

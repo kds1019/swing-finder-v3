@@ -61,11 +61,11 @@ TREND_CONTEXT_PICK_FIELDS = {
     "SetupType": "setup_type",
     "RetracementPct": "retracement_pct",
     "InFibZone": "in_fib_zone",
-    "SMA50": "sma50",
-    "SMA200": "sma200",
-    "PriceAboveSMA50": "price_above_sma50",
-    "PriceAboveSMA200": "price_above_sma200",
-    "SMA200SlopePct": "sma200_slope_pct",
+    "TrendEMA50": "trend_ema50",
+    "TrendEMA200": "trend_ema200",
+    "PriceAboveTrendEMA50": "price_above_trend_ema50",
+    "PriceAboveTrendEMA200": "price_above_trend_ema200",
+    "TrendEMA200SlopePct": "trend_ema200_slope_pct",
     "SwingHigh": "swing_high",
     "SwingLow": "swing_low",
 }
@@ -84,7 +84,7 @@ def _na_to_none(v):
 def attach_trend_context(picks: list[dict], features_df: pd.DataFrame) -> None:
     """Joins TREND_CONTEXT_PICK_FIELDS onto each pick dict in `picks`, in place, by ticker.
     No-op (leaves picks unchanged) if a ticker isn't found or a field wasn't computed for it
-    (e.g. insufficient history for the 200-SMA) — never raises on missing trend context."""
+    (e.g. insufficient history for the 200-EMA) — never raises on missing trend context."""
     if not picks or features_df.empty or "Ticker" not in features_df.columns:
         return
     cols = [c for c in TREND_CONTEXT_PICK_FIELDS if c in features_df.columns]

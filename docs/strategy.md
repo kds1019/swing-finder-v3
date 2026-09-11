@@ -194,18 +194,27 @@ Pipeline:
 
 Motivated by a live case (2026-09-11, CRUS): the scanner flagged the short-term
 higher-low/contracting-range/falling-down-up-volume signal (`KnifeRiskTier` /
-`support_status`) while the ticker was still below both its 50-day and 200-day SMA, only
+`support_status`) while the ticker was still below both its 50-day and 200-day EMA, only
 ~30% retraced off its down-leg — a reversion bounce, not a confirmed pullback in an
 uptrend, but the old single "confirmed support" read didn't distinguish the two. That's
 possible even though `core.pullback_reversal`'s own gate requires a "rising" EMA200,
 because that gate's uptrend read (EMA200 risen ≥5% over the last *126* sessions) is much
-slower and different from a literal current SMA50/SMA200 position/slope check.
+slower than this module's 20-session EMA200 slope check.
 
-`core/trend_context.py` adds that plainer read as a separate, informational axis:
-- `compute_trend_state()`: SMA50/SMA200, price above/below each, SMA200 slope over the last
-  20 sessions (deliberately much shorter than the screener's 126-day EMA200 check — the
-  point is to catch a more current rollover/reclaim). Classifies `uptrend` / `downtrend` /
-  `transitional`.
+`core/trend_context.py` adds that faster-reacting read as a separate, informational axis:
+- `compute_trend_state()`: EMA50/EMA200 (reused from `core.indicators.compute_indicators()`
+  — same requirement as `core.pullback_reversal`'s own functions), price above/below each,
+  EMA200 slope over the last 20 sessions (deliberately much shorter than the screener's
+  126-day EMA200 check — the point is to catch a more current rollover/reclaim). Classifies
+  `uptrend` / `downtrend` / `transitional`.
+  **Switched from SMA to EMA on 2026-09-11** after a live case (RDW): SMA200's slope still
+  read a mild uptrend while price had already fallen back below both EMA50/EMA200 and
+  EMA200's own 20-session slope had gone flat — EMA reacts faster to a recent stall because
+  it weights recent bars more heavily, exactly the property this read needs at the
+  inflection points where it matters most. Checked live afterward across the 26 candidates
+  from that day's scan: only 2 of 26 were within 1.5% of either EMA (a "could flip on a
+  small move" zone) — RDW's case was a genuine outlier, not evidence of a systemic problem,
+  but the fix (reacting faster) is still the right one for exactly that kind of case.
 - `measure_swing_fib_retracement()`: the most recent major swing high/low over a 60-session
   window (vs. the existing 20-bar short-term Fib helper in `core/indicators.py`), % retraced
   from that swing high, and whether it's in the classic 38.2–61.8% zone.
@@ -276,7 +285,7 @@ how a live 3-5-name watchlist should split capital across the two buckets. That'
 separate, harder question than "is the split real," and is unresolved — treat it as a Phase 3
 prerequisite, not something these numbers already answer.
 
-**Caveats:** the swing-Fib lookback (60 sessions), SMA200 slope window (20 sessions) and
+**Caveats:** the swing-Fib lookback (60 sessions), EMA200 slope window (20 sessions) and
 flat-band (0.5%), and `REVERSION_BOUNCE_SIZE_MULT` are first-cut defaults, not independently
 calibrated the way the pullback-reversal thresholds above were — re-tune from
 `trend_context_backtest.md`'s per-bucket numbers before trusting either bucket with real size.
