@@ -71,6 +71,34 @@ NOT confirm the pullback has stopped falling — assessing that is now part of y
       (calibration) — but price well below a still-falling EMA20 is a real still-falling tell
   RangeContractionRatio — recent 5-day range / prior 15-day; < 1 = settling, > 1 = still wild
   DownUpVolumeRatio — down-day vs up-day volume, last 12 bars; < 1 = selling drying up
+Each ticker also carries a PRE-COMPUTED, deterministic trend-context read (core/trend_context.py)
+— a separate axis from KnifeRiskTier/support_status, which only says whether the short-term drop
+has stopped, not whether that's happening inside an uptrend or a downtrend:
+  TrendState — "uptrend" (price above a rising 200-day SMA), "downtrend" (price below a falling
+      200-day SMA), or "transitional" (anything else, e.g. bounced off lows but hasn't reclaimed
+      the 50-day yet). A slower, coarser read (EMA200UptrendPct above) can say "uptrend" while
+      this plainer current-SMA read still says downtrend/transitional — that's real, not a bug
+      (see the CRUS case in docs/strategy.md): a name can clear the screener's 126-day-back EMA200
+      gate while still being, by today's actual price/SMA position, in a real downtrend.
+  RetracementPct / InFibZone — where price sits in the most recent major (60-session) swing
+      high-to-low leg; InFibZone means it's given back 38.2-61.8% of that leg, the classic
+      pullback-continuation entry zone.
+  SetupType — "trend_continuation" (TrendState uptrend + InFibZone + the same stabilization
+      signal KnifeRiskTier=="stabilising" reflects), "reversion_bounce" (same stabilization
+      signal, but TrendState downtrend or transitional), or null (neither — e.g. the
+      stabilization signal hasn't fired, or it's an uptrend pullback outside the Fib zone).
+      Backtested separately (research/trend_context_backtest.py, see docs/strategy.md's Phase 2
+      results): trend_continuation showed a real, repeatable edge over reversion_bounce across
+      independent backtest runs (win rate ~38-39% vs ~25-28%, profit factor ~1.26-1.32 vs
+      ~1.07-1.12) — reversion_bounce is a real but much weaker setup, closer to breakeven.
+Use SetupType in your ranking (point 2): all else equal, a "trend_continuation" candidate should
+rank above a comparable "reversion_bounce" candidate that only has the short-term stabilization
+signal without the uptrend/Fib-zone backdrop — the deterministic version of "the overlap between
+the two signals ranks higher than either alone." This is a genuine ranking input like
+support_status, not a hard filter — a reversion_bounce candidate with a strong fundamentals/
+catalyst case can still rank well; it should just not out-rank an otherwise-comparable
+trend_continuation candidate on setup quality alone. Note in the rationale when SetupType broke
+a tie between two similar candidates.
 Then a 3-per-sector diversification cap is applied to YOUR ranking (after you rank), and each
 ticker has a pre-computed trade plan
 (Entry/Stop/Target/RRRatio from core/trade_plan.py — swing-low/EMA-anchored stop,
@@ -101,9 +129,29 @@ reported quarters' actual vs. estimated EPS/revenue — this is the real beat/me
 IncomeGrowth (trailing quarters' revenue/net-income/EPS growth rates — the actual trend, not a
 guess), News (headlines + summaries spanning roughly the last quarter, not just the most recent few —
 sourced from Alpaca/Benzinga, which includes official press-release-style items, not just
-aggregated commentary), and CatalystRecency (days_since_last_item, items_last_3d, items_last_7d
-— computed across News). This research is the PRIMARY basis for your ranking and selection now
-— it is not background color on top of an already-decided score, there is no score to defer to.
+aggregated commentary), CatalystRecency (days_since_last_item, items_last_3d, items_last_7d
+— computed across News), and ShortInterest (bi-weekly FINRA-reported, via Nasdaq's own public
+data — inherently up to ~2 weeks stale, a positioning read not a timing signal):
+DaysToCover (shares short / avg daily volume — higher means more squeeze potential AND more
+downside fuel if the short thesis is right and volume dries up; NOT directional by itself),
+ShortPercentOfFloat (shares short / float — >10-15% is a genuinely crowded short, "% of Float"
+context most retail-facing short-interest displays lead with), and ShortInterestChangePct (%
+change in shares short vs the PRIOR bi-weekly settlement — positive means shorts are actively
+ADDING, negative means they're covering/reducing; this is the trend-direction read). Weigh this
+AGAINST the ticker's own TrendState/SetupType, since the same short-interest number means
+different things in different setups: rising short interest fighting a trend_continuation
+(shorts adding into a name that's technically pulling back in a confirmed uptrend) is a real,
+concrete headwind — smart money is betting against the exact continuation this setup implies.
+On a reversion_bounce, elevated DaysToCover/ShortPercentOfFloat cuts both ways and needs judgment,
+not a reflex: it can mean the "bounce" is fragile short-covering that stalls once covering ends,
+or it can mean genuine squeeze fuel if the bounce continues — say which reading the other
+evidence (News, EarningsHistory, IncomeGrowth) actually supports rather than defaulting to one.
+Falling short interest (negative ShortInterestChangePct) alongside a clean setup is a mild
+positive — shorts capitulating, not fighting it. If ShortInterest is empty (the lookup failed
+or the ticker has no reported short interest), don't mention it; treat it as unavailable, not
+as "no shorts."
+This research is the PRIMARY basis for your ranking and selection now — it is not background
+color on top of an already-decided score, there is no score to defer to.
 
 A clean technical setup with no real catalyst behind it is a known weak spot of this system —
 CatalystRecency exists specifically so a stale-news ticker (technically clean, nothing has
@@ -202,7 +250,12 @@ Your job:
    PriceVsPOCPct if the ticker sits notably above its point of control (thinner volume support
    underneath than a ticker sitting at/below it), "TargetsBeingCut" when targetRevisionRecentPct
    <= about -8 with lastMonthTargetCount >= 2 (or price already at/above lastMonthAvgTarget),
-   and "EarningsCatalyst" if this pick was included under point 8's earnings-imminent override.
+   "EarningsCatalyst" if this pick was included under point 8's earnings-imminent override, and
+   "HeavilyShorted" when ShortInterest shows ShortPercentOfFloat >= about 10 OR DaysToCover >= 5
+   — a genuinely crowded short, regardless of which way you read it (squeeze fuel vs. real
+   headwind, per the ShortInterest guidance above). Add "ShortsAdding" (can co-occur with
+   HeavilyShorted or stand alone) when ShortInterestChangePct is positive and material (say,
+   >= 10%) — shorts are actively building the position, not just already-crowded.
 5. For each selected pick, write a brief (1-2 sentence) bear case — the strongest reason this
    pick could fail, grounded in the same research data used for the highlight (e.g. a recent
    estimate miss despite the clean technical setup, decelerating IncomeGrowth, a bearish
@@ -213,7 +266,10 @@ Your job:
    beyond generic market risk, say so plainly rather than inventing a weak objection. For any
    pick with the "EarningsCatalyst" flag, the bear case MUST explicitly name the binary/gap
    risk of holding through an unpredictable print — a stop-loss cannot protect against an
-   overnight gap, no matter how strong the setup looks going in.
+   overnight gap, no matter how strong the setup looks going in. For any pick with the
+   "HeavilyShorted" or "ShortsAdding" flag, the bear case MUST address short interest
+   explicitly — say which reading applies (real headwind fighting this setup, vs. squeeze fuel
+   that could accelerate it) based on the rest of the research, not just note the flag exists.
 6. If pick_track_record is present, it's THIS SYSTEM'S OWN historical performance (win rate,
    target hit vs. stop hit, of past ranked_picks output, tracked independently of whether any
    pick was actually traded) — if sufficient_data is true, weave one brief, proportionate note

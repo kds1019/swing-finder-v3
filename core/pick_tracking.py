@@ -168,6 +168,14 @@ def score_due_picks(log_df: pd.DataFrame, market_agent) -> pd.DataFrame:
     Resolves any unresolved pick whose stop or target has since been touched (checked via
     High/Low on each bar since the pick's date, in chronological order — first level touched
     wins), or that has aged past MAX_HOLD_DAYS without either being touched.
+
+    Phase 3 (docs/strategy.md): setup_type-aware exit. A "reversion_bounce" pick (core.
+    trend_context.classify_setup_type — logged in the setup_type column) resolves against a
+    pure fixed stop/target, trailing disabled (trail_activate_r=None below) — matching
+    research/trend_context_backtest.py's bucketed exit and the "quick in-and-out" trade
+    management this bucket is meant to get. Everything else (trend_continuation, unclassified,
+    and rows logged before setup_type existed, which read as NaN) keeps the unchanged live
+    default: the +2R-activated trailing stop.
     """
     if log_df.empty:
         return log_df
@@ -198,9 +206,11 @@ def score_due_picks(log_df: pd.DataFrame, market_agent) -> pd.DataFrame:
         stop = float(row["stop_price"])
         target = float(row["target_price"])
         entry_price = float(row["entry_price"])
+        is_reversion = row.get("setup_type") == "reversion_bounce"
+        resolve_kwargs = {"trail_activate_r": None} if is_reversion else {}
 
         outcome, outcome_price, outcome_date, bars_checked = resolve_trade_plan_outcome(
-            after, stop, target, MAX_HOLD_DAYS, entry=entry_price,
+            after, stop, target, MAX_HOLD_DAYS, entry=entry_price, **resolve_kwargs,
         )
 
         if outcome is not None:

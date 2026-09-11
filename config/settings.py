@@ -104,6 +104,13 @@ class Settings:
     # picked the midpoint) after seeing the 1%-based sizing round several picks down to
     # 2-4 shares on a small account.
     risk_per_trade_pct: float = 4.0
+    # reversion_bounce picks (core.trend_context.classify_setup_type — a short-term stabilization
+    # signal firing outside a confirmed uptrend, e.g. the CRUS case in docs/strategy.md) are sized
+    # at this fraction of risk_per_trade_pct instead of the full amount — a quick in-and-out trade,
+    # not one to size like a trend-continuation entry meant to run. Same value as
+    # research/trend_context_backtest.py's REVERSION_BOUNCE_SIZE_MULT; an uncalibrated first cut
+    # (see docs/strategy.md's Phase 2 results), not independently tuned.
+    reversion_bounce_size_mult: float = 0.5
 
     # --- Data pull parameters ---
     # Bumped from 60 to 300 (2026-07-13): core.pullback_reversal's EMA200 uptrend check

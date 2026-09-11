@@ -282,3 +282,73 @@ calibrated the way the pullback-reversal thresholds above were — re-tune from
 `trend_context_backtest.md`'s per-bucket numbers before trusting either bucket with real size.
 The three backtest runs above are also survivorship-biased to today's ~480-ticker cache and
 don't model intraday whipsaw or real fills, same as `portfolio_backtest.py`.
+
+### Phase 3 (shipped 2026-09-11) — scoped to sidestep the unresolved prerequisite above
+
+The portfolio-construction question above (how many *concurrent* slots to give
+trend_continuation vs. reversion_bounce) is about a multi-position SIMULATION and is still
+unresolved. Phase 3 didn't wait on it, because it doesn't need it: `pipeline.py` never calls
+`agents/portfolio_agent.py::place_order` (confirmed by reading pipeline.py — `dry_run` is
+accepted as a CLI arg but never threaded into an actual order call) — this system produces a
+ranked, sized RECOMMENDATION list, not automatic concurrent execution, so "how many of each
+bucket to hold at once" is the user's own manual call when they act on the list, not something
+the code needs to arbitrate. Given that, Phase 3 was scoped to per-pick trade management,
+which the robust per-bucket backtest result (above) already justifies on its own:
+- `agents/decision_agent.py`: SYSTEM_PROMPT now describes TrendState/RetracementPct/
+  InFibZone/SetupType and instructs ranking a comparable trend_continuation above a
+  reversion_bounce-only candidate — the same LLM-judgment mechanism already used for
+  support_status's confirmed/forming/still_falling tie-break.
+- `pipeline.py::apply_trend_context_trade_management`: reversion_bounce picks get
+  position_shares/risk_amount/position_value recomputed at `reversion_bounce_size_mult`
+  (config/settings.py, default 0.5) of normal size — deterministic Python, overriding the
+  Decision Agent's own numbers for just those three fields, not asked of the LLM (setup_type
+  itself isn't part of its JSON contract either, for the same reason).
+- `core/pick_tracking.py::score_due_picks`: now setup_type-aware — a reversion_bounce pick
+  resolves against a pure fixed stop/target (trailing disabled), matching
+  `research/trend_context_backtest.py`'s bucketed exit; this is the one that actually changes
+  the system's own live track record going forward, since it changes how a real pick's
+  outcome gets scored.
+- `CLAUDE.md`'s pick-format convention gained `Setup:`/`Exit:` lines.
+
+The screener gate itself (`core/pullback_reversal.py::detect_pullback_reversal`) is still
+untouched — a ticker that doesn't qualify for either bucket (setup_type=null) still passes
+through exactly as before, with default (trailing, normal-size) trade management.
+
+## Short interest (`agents/research_agent.py::get_short_interest`) — added 2026-09-11
+
+Motivated by wanting to know whether a pick's setup is being fought by short sellers — e.g. is
+a reversion_bounce's "bounce" fragile short-covering, or is a trend_continuation's pullback
+being pressed by shorts adding into it. Neither FMP nor Webull's OpenAPI expose this (checked
+live: several plausible FMP endpoint names all 404; Webull's `financial_alert`/
+`financial_indicators` don't carry it either). Data comes from Nasdaq's own public,
+undocumented, no-key-required short-interest API (the standard bi-weekly FINRA-reported
+settlement data) plus FMP's `shares-float` for percent-of-float.
+
+**Known coverage gap, confirmed live (2026-09-11): Nasdaq's endpoint only covers Nasdaq-listed
+tickers.** An NYSE-listed ticker (e.g. KEY, NEE, KMI — roughly half this project's universe,
+which spans NYSE/NASDAQ/AMEX) returns `{"data": null, "message": "Short interest is only
+supported for Nasdaq Listed stocks"}`, which `get_short_interest` correctly degrades to `{}`
+for — but that means roughly HALF of all candidates will show no short-interest data, not just
+illiquid/obscure ones. This wasn't caught by initial testing because both test tickers (AAPL,
+CRUS) happen to be Nasdaq-listed. Options considered for full NYSE+NASDAQ coverage: NYSE has
+no equivalent free public endpoint found so far; `financialdata.net`'s short-interest API
+requires a paid key (401 without one); a from-scratch FINRA bulk short-interest file parser
+(the bi-weekly files FINRA itself publishes, covering all exchanges) would be free but is real
+new engineering, not a quick add. Also checked live (2026-09-11) and ruled out: Zacks'
+`compare_stocks` tool CLAIMS "insider and institutional ownership with short interest" in its
+own description, but the real response has no short-interest field for either AAPL or KEY
+tested — the claim doesn't match live behavior; TipRanks has no short-interest-named tool
+among ~65 checked; Webull app-side subscriptions don't carry over to the OpenAPI anyway (per
+Webull's own docs), so upgrading the app wouldn't help even if the app UI shows it.
+`decision_agent.py`'s prompt already instructs treating an empty ShortInterest as
+"unavailable," never as "no shorts" — important given how large this gap actually is.
+**Decision (user, 2026-09-11): leave the Nasdaq-only gap as-is for now** — user is
+independently researching further options. Revisit if that turns up something, or if the gap
+proves costly enough in practice to justify the FINRA-parser build.
+
+Wired in: `enrich_shortlist()` fetches it per shortlist ticker; `decision_agent.py`'s prompt
+weighs DaysToCover/ShortPercentOfFloat/ShortInterestChangePct against TrendState/SetupType
+(the same number means different things in different setups — see the prompt for the exact
+reasoning it's asked to apply) and sets `HeavilyShorted`/`ShortsAdding` flags with a required
+bear-case callout; `pipeline.py::attach_short_interest` guarantees the raw numbers land on
+every final pick in `results/*.json` regardless of whether the LLM's prose mentions them.

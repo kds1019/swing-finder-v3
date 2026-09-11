@@ -28,6 +28,22 @@ import requests
 
 FMP_BASE_URL = "https://financialmodelingprep.com/stable"
 
+# Short interest: FMP has no equivalent endpoint (confirmed live -- several plausible names
+# ["short-interest", "shorts-interest", "short_interest", "stock-short-interest",
+# "short-interest-history"] all 404 on this key/plan, and "quote-short" is an unrelated
+# abbreviated-quote endpoint, not short-interest data), and Webull's OpenAPI
+# financial_alert/financial_indicators don't carry it either. This is Nasdaq's own public
+# short-interest API (undocumented, no key required, confirmed live) -- the standard
+# bi-weekly FINRA-reported settlement data every US short-interest source ultimately derives
+# from. Being undocumented, it could change/break without notice; get_short_interest() below
+# degrades to {} on any failure, same as this module's other per-ticker fetches.
+NASDAQ_SHORT_INTEREST_URL = "https://api.nasdaq.com/api/quote/{symbol}/short-interest"
+_NASDAQ_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+    "Accept": "application/json",
+}
+
 _ITEM_DATE_KEYS = ("Date", "date", "publishedDate")
 
 
@@ -203,6 +219,93 @@ class ResearchAgent:
 
         return {**snapshot, **consensus, **pts}
 
+    def get_short_interest(self, ticker: str) -> dict:
+        """Bi-weekly FINRA-reported short interest via Nasdaq's own public API (see
+        NASDAQ_SHORT_INTEREST_URL above for why FMP/Webull weren't usable) plus FMP's
+        shares-float for percent-of-float. Settlement-date data is inherently up to ~2 weeks
+        stale (FINRA's own reporting cadence) -- a real limitation of ALL short-interest data,
+        not specific to this source; this is a positioning/risk read, not a timing signal.
+
+        CONFIRMED LIVE (2026-09-11) COVERAGE GAP: Nasdaq's endpoint only covers Nasdaq-listed
+        tickers -- an NYSE-listed ticker (e.g. KEY, NEE, KMI -- roughly half this project's
+        universe, which spans NYSE/NASDAQ/AMEX) returns
+        {"data": null, "message": "Short interest is only supported for Nasdaq Listed stocks"}
+        and this method correctly degrades to {} for it, exactly like a genuine lookup
+        failure. This was NOT caught by earlier testing (AAPL, CRUS) because both happen to be
+        Nasdaq-listed. There is no NYSE-equivalent free/no-key public endpoint found so far
+        (checked: NYSE's own site has none; financialdata.net's short-interest API requires a
+        paid key). See docs/strategy.md for the options considered. Callers (decision_agent.py)
+        are already instructed to treat an empty result as "unavailable", never as "no
+        shorts" -- important given this gap means it WILL be empty for roughly half of all
+        candidates, not just illiquid/obscure ones.
+
+        Returns {} on any failure (network, unexpected shape, non-Nasdaq-listed ticker, ticker
+        with no data) -- never raises. Fields:
+          short_interest_shares / prior_short_interest_shares -- latest and prior settlement
+          settlement_date / prior_settlement_date
+          avg_daily_share_volume
+          days_to_cover -- shares short / avg daily volume. Higher = more squeeze potential
+              AND more downside fuel if the short thesis plays out and volume dries up --
+              cuts both ways, not a directional signal by itself.
+          short_interest_change_pct -- % change in shares short vs the PRIOR settlement
+              (positive = shorts adding, negative = shorts covering/reducing) -- this is the
+              trend-direction read: are shorts fighting the current setup or capitulating.
+          short_percent_of_float -- shares short / floatShares, None if that lookup fails
+        """
+        def _num(v):
+            try:
+                return float(str(v).replace(",", ""))
+            except (TypeError, ValueError):
+                return None
+
+        try:
+            resp = self._session.get(
+                NASDAQ_SHORT_INTEREST_URL.format(symbol=ticker),
+                params={"assetclass": "stocks"}, headers=_NASDAQ_HEADERS, timeout=15,
+            )
+            resp.raise_for_status()
+            rows = (resp.json().get("data") or {}).get("shortInterestTable", {}).get("rows") or []
+        except Exception as e:
+            print(f"[research_agent] get_short_interest({ticker}) failed: {e}", file=sys.stderr)
+            return {}
+        if not rows:
+            return {}
+
+        latest = rows[0]
+        prior = rows[1] if len(rows) > 1 else None
+        shares = _num(latest.get("interest"))
+        avg_vol = _num(latest.get("avgDailyShareVolume"))
+        try:
+            days_to_cover = float(latest.get("daysToCover"))
+        except (TypeError, ValueError):
+            days_to_cover = (shares / avg_vol) if (shares and avg_vol) else None
+
+        prior_shares = _num(prior.get("interest")) if prior else None
+        change_pct = (
+            round((shares - prior_shares) / prior_shares * 100, 1)
+            if shares is not None and prior_shares else None
+        )
+
+        pct_float = None
+        try:
+            float_data = self._get("shares-float", params={"symbol": ticker})
+            float_shares = float_data[0].get("floatShares") if float_data else None
+            if shares is not None and float_shares:
+                pct_float = round(shares / float_shares * 100, 2)
+        except Exception as e:
+            print(f"[research_agent] shares-float({ticker}) failed: {e}", file=sys.stderr)
+
+        return {
+            "short_interest_shares": shares,
+            "prior_short_interest_shares": prior_shares,
+            "settlement_date": latest.get("settlementDate"),
+            "prior_settlement_date": prior.get("settlementDate") if prior else None,
+            "avg_daily_share_volume": avg_vol,
+            "days_to_cover": round(days_to_cover, 2) if days_to_cover is not None else None,
+            "short_interest_change_pct": change_pct,
+            "short_percent_of_float": pct_float,
+        }
+
     def get_news(self, ticker: str, limit: int = 5) -> list[dict]:
         data = self._get("news/stock", params={"symbols": ticker, "limit": limit})
         return data if isinstance(data, list) else []
@@ -280,8 +383,8 @@ class ResearchAgent:
 
     def enrich_shortlist(self, shortlist_df: pd.DataFrame, market_agent=None, news_lookback_days: int = 90) -> pd.DataFrame:
         """Adds DaysToEarnings, Fundamentals, AnalystRating, EarningsHistory, IncomeGrowth,
-        News, and CatalystRecency columns to the post-screener/post-sector-cap shortlist.
-        Never call this on the full universe — it's several FMP calls per ticker.
+        ShortInterest, News, and CatalystRecency columns to the post-screener/post-sector-cap
+        shortlist. Never call this on the full universe — it's several FMP calls per ticker.
 
         News is a real window (news_lookback_days, ~1 quarter of calendar days — enough for
         the latest earnings reaction and any recent catalyst), not a 5-headline snapshot —
@@ -306,6 +409,7 @@ class ResearchAgent:
         enriched["AnalystRating"] = enriched["Ticker"].apply(lambda t: self.get_analyst_ratings(t))
         enriched["EarningsHistory"] = enriched["Ticker"].apply(lambda t: self.get_earnings_history(t))
         enriched["IncomeGrowth"] = enriched["Ticker"].apply(lambda t: self.get_income_growth(t))
+        enriched["ShortInterest"] = enriched["Ticker"].apply(lambda t: self.get_short_interest(t))
 
         if market_agent is not None:
             def _fetch_news(ticker: str) -> list[dict]:

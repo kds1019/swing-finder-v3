@@ -51,8 +51,11 @@ PICK_OUTCOMES_LOG_PATH = "pick_outcomes.csv"    # persisted in the repo, like re
 # agents/decision_agent.py — setup_type is deterministic, not an LLM judgment (unlike
 # support_status), and this keeps the Decision Agent's prompt/output schema untouched.
 # Purely additive to results/latest.json: new keys on each pick, nothing renamed/removed.
-# Phase 1 only (compute + log) — not yet used to affect ranking, selection, or position
-# sizing; see core/trend_context.py and docs/strategy.md.
+# Phase 3 (docs/strategy.md): setup_type now also feeds the Decision Agent's ranking
+# (agents/decision_agent.py's SYSTEM_PROMPT) and apply_trend_context_trade_management() below
+# — NOT the screener gate itself (core.pullback_reversal.detect_pullback_reversal is
+# unchanged; a ticker that doesn't get trend_continuation or reversion_bounce still passes
+# through exactly as before, just with setup_type=null and default trade management).
 TREND_CONTEXT_PICK_FIELDS = {
     "TrendState": "trend_state",
     "SetupType": "setup_type",
@@ -68,6 +71,16 @@ TREND_CONTEXT_PICK_FIELDS = {
 }
 
 
+def _na_to_none(v):
+    """pandas' .to_dict() can hand back a bare NaN for a missing value in an otherwise
+    string/object column (confirmed live: a mixed string/None SetupType column round-tripped
+    through set_index(...).to_dict() came back as float('nan') for the None rows, not None
+    itself) — json.dumps() then emits the literal (invalid-JSON) token NaN instead of null.
+    pd.isna() also safely handles None/NaT, so this is used as a blanket sanitizer rather than
+    a float-only isinstance check."""
+    return None if pd.isna(v) else v
+
+
 def attach_trend_context(picks: list[dict], features_df: pd.DataFrame) -> None:
     """Joins TREND_CONTEXT_PICK_FIELDS onto each pick dict in `picks`, in place, by ticker.
     No-op (leaves picks unchanged) if a ticker isn't found or a field wasn't computed for it
@@ -79,7 +92,72 @@ def attach_trend_context(picks: list[dict], features_df: pd.DataFrame) -> None:
     for p in picks:
         row = lookup.get(p.get("ticker"), {})
         for src_col, dest_key in TREND_CONTEXT_PICK_FIELDS.items():
-            p[dest_key] = row.get(src_col)
+            p[dest_key] = _na_to_none(row.get(src_col))
+
+
+def attach_short_interest(picks: list[dict], features_df: pd.DataFrame) -> None:
+    """Joins agents.research_agent.ResearchAgent.get_short_interest()'s per-ticker dict onto
+    each pick dict in `picks`, in place, by ticker — guaranteed visible in results/*.json
+    regardless of whether the Decision Agent's prose happens to mention it (it also sees the
+    raw ShortInterest field and reasons about it for ranking/flags — see decision_agent.py —
+    but this is the deterministic passthrough of the actual numbers, same pattern as
+    attach_trend_context above). No-op if a ticker isn't found or ShortInterest wasn't
+    computed for it (e.g. the Nasdaq lookup failed) — never raises."""
+    if not picks or features_df.empty or "Ticker" not in features_df.columns or "ShortInterest" not in features_df.columns:
+        return
+    lookup = dict(zip(features_df["Ticker"], features_df["ShortInterest"]))
+    for p in picks:
+        si = lookup.get(p.get("ticker")) or {}
+        p["short_interest_shares"] = _na_to_none(si.get("short_interest_shares"))
+        p["short_interest_change_pct"] = _na_to_none(si.get("short_interest_change_pct"))
+        p["days_to_cover"] = _na_to_none(si.get("days_to_cover"))
+        p["short_percent_of_float"] = _na_to_none(si.get("short_percent_of_float"))
+        p["short_interest_settlement_date"] = _na_to_none(si.get("settlement_date"))
+
+
+def apply_trend_context_trade_management(
+    picks: list[dict], portfolio_context: dict, settings,
+) -> None:
+    """Phase 3 (docs/strategy.md): setup_type-aware trade management, applied in place AFTER
+    attach_trend_context() has already put `setup_type` on each pick.
+      - exit_mode: "fixed_target" for reversion_bounce (trailing disabled downstream in
+        core.pick_tracking.score_due_picks — a quick in-and-out, matching
+        research/trend_context_backtest.py's bucketed exit); "trailing" for everything else
+        (unchanged live default: +2R activate / trail peak-1R, never loosens). Target is
+        still a ceiling in both modes; only whether the stop trails differs.
+      - sizing: reversion_bounce picks get position_shares/risk_amount/position_value
+        recomputed at settings.reversion_bounce_size_mult of the normal risk_per_trade_pct,
+        overriding the Decision Agent's own numbers for just those three fields (same formula
+        it uses — see agents/decision_agent.py point 3). Done here in Python, deterministically,
+        rather than asked of the LLM, for the same reason setup_type itself isn't part of its
+        JSON contract — see attach_trend_context above.
+    A first-cut, uncalibrated split (see docs/strategy.md's Phase 2 results) — not itself
+    independently tuned. Never raises; leaves sizing fields untouched (as the Decision Agent
+    set them) if account balance isn't available or a pick's entry/stop are missing."""
+    if not picks:
+        return
+    balance = portfolio_context.get("balance") or {}
+    try:
+        total_equity = float(balance.get("total_net_liquidation_value"))
+    except (TypeError, ValueError):
+        total_equity = None
+
+    for p in picks:
+        is_reversion = p.get("setup_type") == "reversion_bounce"
+        p["exit_mode"] = "fixed_target" if is_reversion else "trailing"
+        if not is_reversion:
+            continue
+        entry, stop = p.get("entry"), p.get("stop")
+        if total_equity is None or entry is None or stop is None:
+            continue
+        risk_per_share = abs(entry - stop)
+        if risk_per_share <= 0:
+            continue
+        risk_amount = total_equity * settings.risk_per_trade_pct * settings.reversion_bounce_size_mult / 100.0
+        position_shares = int(risk_amount // risk_per_share)
+        p["risk_amount"] = round(risk_amount, 2)
+        p["position_shares"] = position_shares
+        p["position_value"] = round(position_shares * entry, 2)
 
 # ~1 quarter of calendar-day news — enough to judge the latest earnings reaction and any
 # recent catalyst/trend, without the ~2yr blob the old 270 (+ a stale *2.5 buffer in
@@ -256,10 +334,15 @@ def run_pipeline(
               f"{len(result['ranked_picks'])} final picks ({len(sector_capped_out)} capped out)",
               file=sys.stderr)
 
-        # Trend-context fields (setup_type/trend_state/etc.) — additive, Phase 1 only. See
-        # TREND_CONTEXT_PICK_FIELDS above.
+        # Trend-context fields (setup_type/trend_state/etc.), then Phase 3's setup_type-aware
+        # trade management (exit_mode + reversion_bounce sizing) — see TREND_CONTEXT_PICK_FIELDS
+        # and apply_trend_context_trade_management above. Trade management only applies to the
+        # actual final picks, not sector_capped_out (those aren't being recommended for entry).
         attach_trend_context(result["ranked_picks"], final_df)
         attach_trend_context(result["sector_capped_out"], final_df)
+        attach_short_interest(result["ranked_picks"], final_df)
+        attach_short_interest(result["sector_capped_out"], final_df)
+        apply_trend_context_trade_management(result["ranked_picks"], portfolio_context, settings)
 
     # --- Pick outcome tracking (part 2): log this run's final (post-cap) picks for scoring. ---
     ranked_picks = result.get("ranked_picks", []) if isinstance(result, dict) else []

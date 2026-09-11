@@ -29,7 +29,7 @@ Actions run), present **every** ranked pick returned (up to `FINAL_WATCHLIST_SIZ
 top-N subset or a condensed table. For each pick, show the full detail:
 
 ```
-**N. TICKER** — Entry $X / Stop $X / Target $X / R:R X.XX | N sh, risk $X, value $X | Sentiment: X | Catalyst: X | Support: X
+**N. TICKER** — Entry $X / Stop $X / Target $X / R:R X.XX | N sh, risk $X, value $X | Sentiment: X | Catalyst: X | Support: X | Setup: X | Exit: X | Short: X
 Highlight: <research_highlight>
 Rationale: <rationale>
 Bear case: <bear_case>
@@ -42,8 +42,40 @@ setup is exactly the kind of thing the user wants visible, not smoothed over.
 
 `Support:` is the `support_status` field (`confirmed` / `forming` / `still_falling`) — the Decision
 Agent's read of whether the pullback has actually stopped falling. Always show it; a `still_falling`
-that made it into the list at all is worth the user's scrutiny. `Target` is a ceiling only — the live
-exit is a +2R-activated trailing stop, so realised R:R normally lands below the quoted `R:R`.
+that made it into the list at all is worth the user's scrutiny.
+
+`Setup:` is the `setup_type` field (`trend_continuation` / `reversion_bounce` / `null`) — a
+DETERMINISTIC, Python-computed read (core/trend_context.py), separate from `Support:`/
+`support_status`, which only says whether the drop has stopped, not whether that's happening
+inside an uptrend or a downtrend. `trend_continuation` = uptrend pullback in the classic
+38.2-61.8% Fib retracement zone; `reversion_bounce` = the same short-term stabilization signal,
+but in a downtrend or transitional trend (see docs/strategy.md's CRUS case for why this matters —
+a stock can clear the screener's slower EMA200 gate while still being, by current SMA position,
+in a real downtrend). Backtested separately per-bucket (docs/strategy.md's Phase 2 results):
+`trend_continuation` showed a real, repeatable edge over `reversion_bounce` (win rate ~38-39% vs
+~25-28%, profit factor ~1.26-1.32 vs ~1.07-1.12) across independent backtest runs. `null` means
+neither bucket applied (e.g. the stabilization signal itself never fired, or it's an uptrend
+pullback outside the Fib zone) — treat it like any other technically-clean-but-uncategorized pick.
+
+`Exit:` is the `exit_mode` field (`trailing` / `fixed_target`), set from `setup_type`:
+`reversion_bounce` picks get `fixed_target` (trailing disabled — treat the quoted `Stop`/`Target`
+as real, fixed levels for a quick in-and-out; `position_shares`/`risk_amount`/`position_value`
+for these are already sized at `reversion_bounce_size_mult` — normally half — of a normal pick,
+not the full `risk_per_trade_pct`). Everything else (`trend_continuation`, `null`) gets
+`trailing`: `Target` is a ceiling only, the live exit is the +2R-activated trailing stop, so
+realised R:R normally lands below the quoted `R:R` — this is the unchanged pre-existing behavior.
+
+`Short:` summarizes `days_to_cover` / `short_percent_of_float` / `short_interest_change_pct`
+(e.g. "5.2d cover, 7.7% float, +2.8% 2wk" or "n/a" if the lookup failed) — real, bi-weekly
+FINRA-reported short interest via Nasdaq's own public data (see agents/research_agent.py's
+`get_short_interest`), inherently up to ~2 weeks stale, always show it when available. It cuts
+both ways and needs the Decision Agent's own `rationale`/`bear_case`/`flags` for which reading
+applies to THIS pick, not a fixed rule: elevated short interest fighting a `trend_continuation`
+is a real headwind (smart money betting against the exact continuation the setup implies);
+elevated short interest on a `reversion_bounce` can mean either fragile short-covering (stalls
+once covering ends) or genuine squeeze fuel (accelerates the bounce) — read the `flags`
+(`HeavilyShorted` / `ShortsAdding`) and `bear_case` for which one the Decision Agent judged for
+that specific pick, don't infer a reading from the raw number alone.
 
 Also surface, before the per-ticker list: market bias, VIX/gate status, and — if present in the
 output — `pick_track_record` (the system's own historical win rate) and any account-balance /
