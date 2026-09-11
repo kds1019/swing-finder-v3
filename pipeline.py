@@ -66,6 +66,7 @@ TREND_CONTEXT_PICK_FIELDS = {
     "PriceAboveTrendEMA50": "price_above_trend_ema50",
     "PriceAboveTrendEMA200": "price_above_trend_ema200",
     "TrendEMA200SlopePct": "trend_ema200_slope_pct",
+    "TrendEMA200LongSlopePct": "trend_ema200_long_slope_pct",
     "SwingHigh": "swing_high",
     "SwingLow": "swing_low",
 }

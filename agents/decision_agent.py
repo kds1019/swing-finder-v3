@@ -80,7 +80,25 @@ has stopped, not whether that's happening inside an uptrend or a downtrend:
       above, a 126-session slope) can say "uptrend" while this faster-reacting 20-session read
       still says downtrend/transitional — that's real, not a bug (see the CRUS/RDW cases in
       docs/strategy.md): a name can clear the screener's 126-day-back EMA200 gate while its
-      more current EMA200 slope has already flattened or rolled over into a real downtrend.
+      more current EMA200 slope has already flattened or rolled over. The screener itself now
+      also hard-rejects the worst of this (EMA200CurrentSlopePct, its own 20-session slope,
+      must clear -2% to reach you at all — validated by an isolated portfolio backtest,
+      docs/strategy.md), so what you see here is the remaining, less clear-cut cases, not the
+      obvious breakdowns.
+  TrendEMA200LongSlopePct — EMA200's slope over the last ~252 sessions (~1 year), vs.
+      EMA200UptrendPct's 126-session (~6 month) version. A live case (ENPH, 2026-09-11) showed
+      why this matters: EMA200UptrendPct read a strong +7.5% ("uptrend") built almost entirely
+      from a sharp recovery off a low ~5 months back, while TrendEMA200LongSlopePct was only
+      +2.4% — a V-shaped round trip stalling at its own recent high, not a genuinely sustained
+      trend, invisible to the 126-day number alone. An isolated backtest confirmed this can't
+      be fixed with another hard gate (it rejects genuinely-continuing recoveries just as often
+      as stalling ones, net negative every window tested) — so this is deliberately YOUR call,
+      not a rule: when TrendEMA200LongSlopePct is much weaker than EMA200UptrendPct (say, less
+      than half, or negative while EMA200UptrendPct is positive), treat it as a specific reason
+      for caution and look for whether the research (News, EarningsHistory, IncomeGrowth)
+      actually supports the recovery continuing — if not, that's a real, concrete point for the
+      bear case, not just a vague "uncertain" hedge. May be null (insufficient history, e.g. a
+      recent IPO) — treat that as unavailable, not as a red flag.
   RetracementPct / InFibZone — where price sits in the most recent major (60-session) swing
       high-to-low leg; InFibZone means it's given back 38.2-61.8% of that leg, the classic
       pullback-continuation entry zone.

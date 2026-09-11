@@ -74,6 +74,28 @@ EMA200_TREND_LOOKBACK_DAYS = 126  # ~6 months of trading days
 # steeper long-term trend, and 5% vs 3% made little difference — not worth tightening.
 EMA200_MIN_UPTREND_PCT = 5.0
 
+# CURRENT trend gate — separate from, and much shorter than, EMA200_TREND_LOOKBACK_DAYS
+# above. That 126-day check is deliberately slow so a genuine multi-week pullback inside a
+# real uptrend doesn't get misread as "no uptrend" — but the same slowness means it can
+# still read "uptrend" on a ticker that has, more recently, actually rolled into a decline
+# (confirmed live 2026-09-11: 24 of 26 real screener matches had EMA200_TREND_LOOKBACK_DAYS
+# reading positive while this shorter, current slope had already turned negative). Added
+# 2026-09-11 after an isolated portfolio A/B (research/current_trend_gate_ab.py) found a
+# -2% floor here wins in every window tested (full period, 2021-2024 train, 2025-2026 test,
+# and the 2022 bear year) — full period +122% vs +89% baseline, test window +21% vs +13%,
+# 2022 -9% vs -14%. Stricter floors (0%, requiring flat-or-better) tested WORSE despite
+# sounding more intuitive: a mild negative slope is the normal signature of being mid-dip,
+# only an outright breakdown should reject. A SEPARATE, longer (252-day) version of this
+# same idea was also tested (research/long_horizon_gate_ab.py, motivated by a live ENPH
+# case where a V-shaped recovery stalling at its own high slips past both this gate and the
+# 126-day one) and made every window WORSE — it can't distinguish a stalling recovery from
+# one that keeps climbing, so it got dropped rather than added as a second gate here. That
+# distinction is instead surfaced to the Decision Agent as information (see
+# core/trend_context.py's ema200_long_slope_pct) for it to judge case-by-case against the
+# actual news/fundamentals, not mechanically rejected — see docs/strategy.md.
+EMA200_CURRENT_SLOPE_LOOKBACK_DAYS = 20
+EMA200_CURRENT_SLOPE_MIN_PCT = -2.0
+
 # Price must sit within this band of EMA200. Calibrated: the realised edge is
 # monotonic in pullback DEPTH (deeper is better, all the way down to ~-25%), and
 # fades to nothing above ~+3%. This is deliberately a deep-pullback filter.
@@ -131,6 +153,14 @@ def measure_pullback_reversal(df: pd.DataFrame) -> dict | None:
     ema200_uptrend_pct = round((current_ema200 - ema200_then) / ema200_then * 100, 2)
     price_vs_ema200_pct = round((current_close - current_ema200) / current_ema200 * 100, 2)
 
+    ema200_current_slope_pct = None
+    if len(ema200) > EMA200_CURRENT_SLOPE_LOOKBACK_DAYS:
+        ema200_recent = float(ema200.iloc[-1 - EMA200_CURRENT_SLOPE_LOOKBACK_DAYS])
+        if not pd.isna(ema200_recent) and ema200_recent > 0:
+            ema200_current_slope_pct = round(
+                (current_ema200 - ema200_recent) / ema200_recent * 100, 2
+            )
+
     window = close.tail(CONSOLIDATION_LOOKBACK_DAYS)
     window_low = float(window.min())
     window_high = float(window.max())
@@ -156,6 +186,7 @@ def measure_pullback_reversal(df: pd.DataFrame) -> dict | None:
     return {
         "close": current_close,
         "ema200_uptrend_pct": ema200_uptrend_pct,
+        "ema200_current_slope_pct": ema200_current_slope_pct,
         "price_vs_ema200_pct": price_vs_ema200_pct,
         "consolidation_range_pct": consolidation_range_pct,
         "bounce_off_low_pct": bounce_off_low_pct,
@@ -314,6 +345,7 @@ def detect_pullback_reversal(df: pd.DataFrame) -> dict:
 
     partial = {
         "ema200_uptrend_pct": m["ema200_uptrend_pct"],
+        "ema200_current_slope_pct": m["ema200_current_slope_pct"],
         "price_vs_ema200_pct": m["price_vs_ema200_pct"],
         "consolidation_range_pct": m["consolidation_range_pct"],
         "bounce_off_low_pct": m["bounce_off_low_pct"],
@@ -322,6 +354,12 @@ def detect_pullback_reversal(df: pd.DataFrame) -> dict:
     if m["ema200_uptrend_pct"] < EMA200_MIN_UPTREND_PCT:
         return {"detected": False, "reason": "no_long_term_uptrend",
                 "ema200_uptrend_pct": m["ema200_uptrend_pct"]}
+
+    if (m["ema200_current_slope_pct"] is not None
+            and m["ema200_current_slope_pct"] < EMA200_CURRENT_SLOPE_MIN_PCT):
+        return {"detected": False, "reason": "current_trend_rolled_over",
+                "ema200_uptrend_pct": m["ema200_uptrend_pct"],
+                "ema200_current_slope_pct": m["ema200_current_slope_pct"]}
 
     if not (PRICE_VS_EMA200_MIN_PCT <= m["price_vs_ema200_pct"] <= PRICE_VS_EMA200_MAX_PCT):
         return {"detected": False, "reason": "price_too_far_from_ema200",
@@ -348,6 +386,7 @@ def detect_pullback_reversal(df: pd.DataFrame) -> dict:
     return {
         "detected": True,
         "ema200_uptrend_pct": m["ema200_uptrend_pct"],
+        "ema200_current_slope_pct": m["ema200_current_slope_pct"],
         "price_vs_ema200_pct": m["price_vs_ema200_pct"],
         "consolidation_range_pct": m["consolidation_range_pct"],
         "bounce_off_low_pct": m["bounce_off_low_pct"],

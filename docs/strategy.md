@@ -189,6 +189,40 @@ Pipeline:
   the compressed target) and that dropping them raises return and cuts max drawdown
   (−58% → −40%). Tightening the stop to the floor instead ("refloor") tested worse
   out-of-sample. `weak_rr` is still computed on every plan; the toggle just gates on it.
+- **New gate added 2026-09-11: `EMA200_CURRENT_SLOPE_MIN_PCT` (-2%, 20-session EMA200
+  slope).** Motivated by a live finding: on a real full-universe scan, 24 of 26 candidates
+  had `EMA200_TREND_LOOKBACK_DAYS`'s 126-day check reading "uptrend" while their *current*
+  20-day EMA200 slope had already turned negative — the 126-day window is deliberately slow
+  (so a temporary flattening mid-pullback doesn't reject a genuine uptrend), but that same
+  slowness let names that had actually rolled into a decline through too (PLAB was the
+  concrete case: 126-day slope +16.9%, but 60-day -6.2%, 20-day -2.2% — clearly rolling
+  over). SPY itself was positive across every window that same day, so this wasn't a broad
+  market rollover, just the screener's own blind spot. An isolated portfolio A/B
+  (`research/current_trend_gate_ab.py`) tested several floors and found -2% wins in *every*
+  window — full period +122% vs +89% baseline, 2021-2024 train +83% vs +66%, 2025-2026 test
+  +21% vs +13%, and even reduces damage in the 2022 bear year (-9% vs -14%, PF 0.95 vs
+  0.68). Stricter floors (0%, requiring flat-or-better) tested WORSE despite sounding more
+  intuitive — a mild negative slope is the normal signature of being mid-dip; only an
+  outright breakdown should reject. `EMA200CurrentSlopePct` is now a real gate reason
+  (`"current_trend_rolled_over"`) in `detect_pullback_reversal()`, not just informational.
+- **A second, longer (252-day/1-year) version of the same idea was tested and REJECTED —
+  do not re-add without new data.** Motivated by ENPH the same day: 126-day slope +7.5%
+  ("uptrend"), current 20-day slope -1.99% (just inside the -2% floor above, still passes),
+  but the 252-day slope only +2.4% — a V-shaped recovery off a low ~5 months back, stalling
+  at its own recent high, not a genuinely sustained trend. Tempting to also gate on this,
+  but an isolated portfolio A/B (`research/long_horizon_gate_ab.py`, layered on top of the
+  already-adopted -2% gate) made EVERY window worse at every threshold tested (0/1/2/3%) —
+  full period +122%→as low as +45%, and the 2025-2026 test window flips from +21% to
+  *negative* (-3% to -5%). It can't distinguish a recovery that's stalling from one that's
+  genuinely continuing, so blocking both loses more than it saves, and it caught zero 2022
+  bear-year signals at any threshold (no downside protection either). Instead, the 252-day
+  slope is exposed as an INFORMATIONAL field to the Decision Agent
+  (`core/trend_context.py`'s `ema200_long_slope_pct` → `TrendEMA200LongSlopePct`), with
+  explicit prompt guidance (`agents/decision_agent.py`) to weigh a large gap between it and
+  the 126-day `EMA200UptrendPct` against the actual research (News/EarningsHistory/
+  IncomeGrowth) rather than a mechanical rule — this is a case where the isolated backtest
+  said a hard gate genuinely doesn't work, so judgment is the right layer for it, not a
+  fallback for a gate we didn't get around to building.
 
 ## Trend context & setup_type (`core/trend_context.py`) — Phase 1 + backtest
 

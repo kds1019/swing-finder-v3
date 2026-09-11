@@ -48,6 +48,19 @@ EMA200_SLOPE_LOOKBACK_DAYS = 20
 # uptrend/downtrend on noise.
 EMA200_SLOPE_FLAT_BAND_PCT = 0.5
 
+# Long-horizon (1-year) EMA200 slope — informational only, NOT a gate (an isolated backtest,
+# research/long_horizon_gate_ab.py, tested rejecting on this and it made every window worse:
+# it can't tell a recovery that's stalling apart from one that's genuinely continuing, so
+# blocking both loses more than it saves). Exists so the Decision Agent can SEE the
+# discrepancy and judge case-by-case: a live case (ENPH, 2026-09-11) had a strong 126-day
+# slope (+7.5%, "uptrend" per the screener gate) built almost entirely from a sharp recovery
+# off a low ~5 months back, while the 252-day slope was only +2.4% — a V-shaped round trip
+# stalling at its own recent high, not a sustained trend, invisible to any single two-point
+# slope comparison alone. Requires more history than compute_trend_state()'s own 220-bar
+# minimum, so it's computed leniently (just needs len(df) > this lookback) and degrades to
+# None on its own rather than failing the whole function when unavailable.
+EMA200_LONG_SLOPE_LOOKBACK_DAYS = 252
+
 MIN_BARS_FOR_TREND_STATE = 200 + EMA200_SLOPE_LOOKBACK_DAYS
 
 
@@ -59,6 +72,11 @@ def compute_trend_state(df: pd.DataFrame) -> dict:
       ema50 / ema200
       price_above_ema50 / price_above_ema200 — bool
       ema200_slope_pct — % change in EMA200 over the last EMA200_SLOPE_LOOKBACK_DAYS sessions
+      ema200_long_slope_pct — % change in EMA200 over the last EMA200_LONG_SLOPE_LOOKBACK_DAYS
+          (252) sessions — None if there isn't enough history. Informational only; see the
+          constant's comment above for why this isn't a gate. A much weaker long_slope than
+          ema200_uptrend_pct (core.pullback_reversal's 126-day version) is the signature of a
+          recovery stalling at its own recent high rather than a genuine sustained trend.
       trend_state — one of:
         "uptrend"      price above EMA200 AND EMA200 clearly rising
         "downtrend"    price below EMA200 AND EMA200 clearly falling
@@ -93,12 +111,21 @@ def compute_trend_state(df: pd.DataFrame) -> dict:
     else:
         trend_state = "transitional"
 
+    ema200_long_slope_pct = None
+    if len(ema200) > EMA200_LONG_SLOPE_LOOKBACK_DAYS:
+        ema200_long_ago = float(ema200.iloc[-1 - EMA200_LONG_SLOPE_LOOKBACK_DAYS])
+        if not pd.isna(ema200_long_ago) and ema200_long_ago > 0:
+            ema200_long_slope_pct = round(
+                (ema200_now - ema200_long_ago) / ema200_long_ago * 100, 2
+            )
+
     return {
         "ema50": round(ema50_now, 2),
         "ema200": round(ema200_now, 2),
         "price_above_ema50": price_above_ema50,
         "price_above_ema200": price_above_ema200,
         "ema200_slope_pct": ema200_slope_pct,
+        "ema200_long_slope_pct": ema200_long_slope_pct,
         "trend_state": trend_state,
     }
 

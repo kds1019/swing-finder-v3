@@ -37,6 +37,7 @@ from core.trade_plan import resolve_trade_plan_outcome
 # whenever the screener grows a new measurement (ATR%, relative strength, market cap, ...).
 SCREENER_FEATURE_COLUMNS = {
     "EMA200UptrendPct": "ema200_uptrend_pct",
+    "EMA200CurrentSlopePct": "ema200_current_slope_pct",
     "PriceVsEMA200Pct": "price_vs_ema200_pct",
     "ConsolidationRangePct": "consolidation_range_pct",
     "BounceOffLowPct": "bounce_off_low_pct",
@@ -61,6 +62,7 @@ SCREENER_FEATURE_COLUMNS = {
     "PriceAboveTrendEMA50": "price_above_trend_ema50",
     "PriceAboveTrendEMA200": "price_above_trend_ema200",
     "TrendEMA200SlopePct": "trend_ema200_slope_pct",
+    "TrendEMA200LongSlopePct": "trend_ema200_long_slope_pct",
     "TrendState": "trend_state",
     "SwingHigh": "swing_high",
     "SwingLow": "swing_low",
