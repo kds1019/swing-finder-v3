@@ -312,10 +312,12 @@ class ResearchAgent:
 
     def get_insider_trades(self, ticker: str, limit: int = 1000) -> pd.DataFrame:
         """Form 4 insider transactions — filingDate/transactionType/acquisitionOrDisposition/
-        securitiesTransacted/price. Feeds core.ml_forecast.prepare_features' insider_df
-        parameter. filingDate (not transactionDate) is the causally correct date to key
-        off — insiders can file up to a few days after the actual trade, so the market
-        (and this model) only "knows" as of the filing, not the trade itself.
+        securitiesTransacted/price. Was built to feed core.ml_forecast.prepare_features'
+        insider_df parameter; that system was deleted (see CLAUDE.md) and this went unused
+        until summarize_insider_activity() below picked it up 2026-09-11. filingDate (not
+        transactionDate) is the causally correct date to key off — insiders can file up to a
+        few days after the actual trade, so the market only "knows" as of the filing, not
+        the trade itself.
 
         Path is "insider-trading/search", not "search-insider-trades" — the latter is
         the display name FMP's own docs page (and the FMP MCP tool's internal endpoint
@@ -335,6 +337,74 @@ class ResearchAgent:
         df = pd.DataFrame(rows)
         df["filingDate"] = pd.to_datetime(df["filingDate"])
         return df[cols].sort_values("filingDate").reset_index(drop=True)
+
+    # Only these two transactionType codes are a genuine, voluntary open-market decision by
+    # the insider. Everything else FMP returns (confirmed live 2026-09-11 across several
+    # real tickers) is routine noise that would drown out the real signal if counted the same
+    # way: A-Award (stock granted as compensation, not bought), M-Exempt (option exercise,
+    # often paired with an immediate same-day sale that isn't itself a market view),
+    # F-InKind (shares surrendered to cover tax withholding, not a sell decision), G-Gift,
+    # J-Other, D-Return. A ticker's insider activity can be 80%+ these non-signal types.
+    INSIDER_PURCHASE_CODE = "P-Purchase"
+    INSIDER_SALE_CODE = "S-Sale"
+    INSIDER_LOOKBACK_DAYS = 90  # matches NEWS_LOOKBACK_DAYS's convention (pipeline.py)
+
+    def summarize_insider_activity(self, ticker: str, lookback_days: int = INSIDER_LOOKBACK_DAYS) -> dict:
+        """Genuine open-market insider buying/selling over the trailing `lookback_days`,
+        filtered to INSIDER_PURCHASE_CODE/INSIDER_SALE_CODE only (see that comment for why
+        the other transaction types are excluded rather than lumped in). Returns {} if there
+        is no insider data at all for this ticker (never raises).
+
+        Complementary to short interest, not a restatement of it: an insider buying into a
+        heavily-shorted stock is a real "the shorts may be wrong" signal; insiders selling
+        alongside heavy shorting is the opposite — real alignment, not misplaced positioning.
+        Confirmed live (2026-09-11): WULF (heavily shorted, 31.9% of float) had 2 real
+        open-market purchases days before its pullback low; ESTA (already fundamentally
+        weak — 2 straight EPS misses) had zero purchases and 24 sales over its recent
+        history — insiders steadily selling, reinforcing rather than contradicting the
+        already-bearish read.
+
+        Fields:
+          window_days
+          purchase_count / sale_count — number of genuine open-market transactions
+          purchase_shares / sale_shares — total shares transacted
+          purchase_value / sale_value — dollar value (shares * reported price)
+          net_value — purchase_value - sale_value (positive = net insider buying)
+          most_recent_purchase_date / most_recent_sale_date — None if none in the window
+        """
+        df = self.get_insider_trades(ticker)
+        if df.empty:
+            return {}
+
+        cutoff = pd.Timestamp.now().normalize() - pd.Timedelta(days=lookback_days)
+        recent = df[df["filingDate"] >= cutoff]
+        if recent.empty:
+            return {"window_days": lookback_days, "purchase_count": 0, "sale_count": 0,
+                    "purchase_shares": 0, "sale_shares": 0, "purchase_value": 0.0,
+                    "sale_value": 0.0, "net_value": 0.0,
+                    "most_recent_purchase_date": None, "most_recent_sale_date": None}
+
+        purchases = recent[recent["transactionType"] == self.INSIDER_PURCHASE_CODE]
+        sales = recent[recent["transactionType"] == self.INSIDER_SALE_CODE]
+        purchase_value = float((purchases["securitiesTransacted"] * purchases["price"]).sum())
+        sale_value = float((sales["securitiesTransacted"] * sales["price"]).sum())
+
+        return {
+            "window_days": lookback_days,
+            "purchase_count": int(len(purchases)),
+            "sale_count": int(len(sales)),
+            "purchase_shares": int(purchases["securitiesTransacted"].sum()),
+            "sale_shares": int(sales["securitiesTransacted"].sum()),
+            "purchase_value": round(purchase_value, 0),
+            "sale_value": round(sale_value, 0),
+            "net_value": round(purchase_value - sale_value, 0),
+            "most_recent_purchase_date": (
+                str(purchases["filingDate"].max().date()) if len(purchases) else None
+            ),
+            "most_recent_sale_date": (
+                str(sales["filingDate"].max().date()) if len(sales) else None
+            ),
+        }
 
     def get_grade_history(self, ticker: str, limit: int = 1000) -> pd.DataFrame:
         """Individual sell-side analyst rating-change events (date/gradingCompany/
@@ -383,8 +453,9 @@ class ResearchAgent:
 
     def enrich_shortlist(self, shortlist_df: pd.DataFrame, market_agent=None, news_lookback_days: int = 90) -> pd.DataFrame:
         """Adds DaysToEarnings, Fundamentals, AnalystRating, EarningsHistory, IncomeGrowth,
-        ShortInterest, News, and CatalystRecency columns to the post-screener/post-sector-cap
-        shortlist. Never call this on the full universe — it's several FMP calls per ticker.
+        ShortInterest, InsiderActivity, News, and CatalystRecency columns to the
+        post-screener/post-sector-cap shortlist. Never call this on the full universe — it's
+        several FMP calls per ticker.
 
         News is a real window (news_lookback_days, ~1 quarter of calendar days — enough for
         the latest earnings reaction and any recent catalyst), not a 5-headline snapshot —
@@ -410,6 +481,7 @@ class ResearchAgent:
         enriched["EarningsHistory"] = enriched["Ticker"].apply(lambda t: self.get_earnings_history(t))
         enriched["IncomeGrowth"] = enriched["Ticker"].apply(lambda t: self.get_income_growth(t))
         enriched["ShortInterest"] = enriched["Ticker"].apply(lambda t: self.get_short_interest(t))
+        enriched["InsiderActivity"] = enriched["Ticker"].apply(lambda t: self.summarize_insider_activity(t))
 
         if market_agent is not None:
             def _fetch_news(ticker: str) -> list[dict]:

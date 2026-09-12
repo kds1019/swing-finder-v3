@@ -29,7 +29,7 @@ Actions run), present **every** ranked pick returned (up to `FINAL_WATCHLIST_SIZ
 top-N subset or a condensed table. For each pick, show the full detail:
 
 ```
-**N. TICKER** — Entry $X / Stop $X / Target $X / R:R X.XX | N sh, risk $X, value $X | Sentiment: X | Catalyst: X | Support: X | Setup: X | Exit: X | Short: X
+**N. TICKER** — Entry $X / Stop $X / Target $X / R:R X.XX | N sh, risk $X, value $X | Sentiment: X | Catalyst: X | Support: X | Setup: X | Exit: X | Short: X | Insider: X
 Highlight: <research_highlight>
 Rationale: <rationale>
 Bear case: <bear_case>
@@ -77,6 +77,17 @@ elevated short interest on a `reversion_bounce` can mean either fragile short-co
 once covering ends) or genuine squeeze fuel (accelerates the bounce) — read the `flags`
 (`HeavilyShorted` / `ShortsAdding`) and `bear_case` for which one the Decision Agent judged for
 that specific pick, don't infer a reading from the raw number alone.
+
+`Insider:` summarizes `insider_purchase_count` / `insider_sale_count` / `insider_net_value`
+over the trailing ~90 days (e.g. "2 buys, 4 sells, net -$8.9M" or "none" if there's no
+genuine open-market activity in the window) — real Form 4 filings via
+`agents/research_agent.py`'s `summarize_insider_activity`, filtered to actual open-market
+purchases/sales only (stock grants, option exercises, and tax-withholding surrenders are
+excluded, since those aren't a voluntary market decision). It's the natural complement to
+`Short:` — insider buying into a heavily-shorted name (`HeavilyShorted` + `InsiderBuying`) is
+real evidence the short thesis may be wrong; insider selling alongside heavy or rising short
+interest (`HeavilyShorted`/`ShortsAdding` + `InsiderSelling`) reinforces rather than offsets
+the bear case. Zero activity either way is genuinely uninformative, not a signal.
 
 Also surface, before the per-ticker list: market bias, VIX/gate status, and — if present in the
 output — `pick_track_record` (the system's own historical win rate) and any account-balance /

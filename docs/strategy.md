@@ -395,3 +395,33 @@ weighs DaysToCover/ShortPercentOfFloat/ShortInterestChangePct against TrendState
 reasoning it's asked to apply) and sets `HeavilyShorted`/`ShortsAdding` flags with a required
 bear-case callout; `pipeline.py::attach_short_interest` guarantees the raw numbers land on
 every final pick in `results/*.json` regardless of whether the LLM's prose mentions them.
+
+## Insider activity (`agents/research_agent.py::summarize_insider_activity`) — added 2026-09-11
+
+The natural complement to short interest: does insider buying/selling agree or disagree with
+where the shorts are positioned. The raw fetch (`get_insider_trades`, FMP's
+`insider-trading/search`) already existed in this file — it was built to feed the deleted
+`core.ml_forecast` system (see CLAUDE.md) and sat unused since. `summarize_insider_activity`
+picks it back up: filters to genuine open-market transactions only (`P-Purchase`/`S-Sale`)
+over a trailing 90-day window, excluding the transaction types that are routine compensation
+mechanics, not a voluntary market decision (`A-Award` stock grants, `M-Exempt` option
+exercises, `F-InKind` tax-withholding surrenders, `G-Gift`, `J-Other`, `D-Return`) — confirmed
+live (2026-09-11) that these can be 80%+ of a ticker's raw Form 4 activity, which would drown
+out the real signal if counted the same way.
+
+Confirmed live on real 2026-09-11 candidates: WULF (heavily shorted, 31.9% of float) had 2
+genuine open-market purchases on 2026-08-17, but ALSO 4 sales over the same 90-day window
+worth far more (~$9.0M vs ~$0.1M) — net insider activity is actually strongly negative
+despite those 2 purchases, a more complete and different picture than eyeballing just the
+purchase rows would suggest. This is exactly why the summary does real date-filtered
+aggregation rather than surfacing raw transaction lists — the full picture (`net_value`) can
+disagree with what a partial read implies.
+
+Wired in the same pattern as ShortInterest: `enrich_shortlist()` adds an `InsiderActivity`
+column; `decision_agent.py`'s prompt treats it as complementary to ShortInterest (insider
+buying into a heavily-shorted name argues the short thesis may be wrong; insider selling
+alongside heavy/rising short interest reinforces rather than offsets the bear case) and sets
+`InsiderBuying`/`InsiderSelling` flags; `pipeline.py::attach_insider_activity` guarantees the
+raw counts/net_value land on every final pick in `results/*.json` regardless of the LLM's
+prose. Caveat: filing-date lag (Form 4s can be filed up to a few days after the actual trade)
+and the 90-day window are both first-cut choices, not independently tuned.

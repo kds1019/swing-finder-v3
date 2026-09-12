@@ -116,6 +116,23 @@ def attach_short_interest(picks: list[dict], features_df: pd.DataFrame) -> None:
         p["short_interest_settlement_date"] = _na_to_none(si.get("settlement_date"))
 
 
+def attach_insider_activity(picks: list[dict], features_df: pd.DataFrame) -> None:
+    """Joins agents.research_agent.ResearchAgent.summarize_insider_activity()'s per-ticker
+    dict onto each pick dict in `picks`, in place, by ticker — same deterministic-passthrough
+    pattern as attach_short_interest above. No-op if a ticker isn't found or InsiderActivity
+    wasn't computed for it — never raises."""
+    if not picks or features_df.empty or "Ticker" not in features_df.columns or "InsiderActivity" not in features_df.columns:
+        return
+    lookup = dict(zip(features_df["Ticker"], features_df["InsiderActivity"]))
+    for p in picks:
+        ia = lookup.get(p.get("ticker")) or {}
+        p["insider_purchase_count"] = _na_to_none(ia.get("purchase_count"))
+        p["insider_sale_count"] = _na_to_none(ia.get("sale_count"))
+        p["insider_net_value"] = _na_to_none(ia.get("net_value"))
+        p["insider_most_recent_purchase_date"] = _na_to_none(ia.get("most_recent_purchase_date"))
+        p["insider_most_recent_sale_date"] = _na_to_none(ia.get("most_recent_sale_date"))
+
+
 def apply_trend_context_trade_management(
     picks: list[dict], portfolio_context: dict, settings,
 ) -> None:
@@ -343,6 +360,8 @@ def run_pipeline(
         attach_trend_context(result["sector_capped_out"], final_df)
         attach_short_interest(result["ranked_picks"], final_df)
         attach_short_interest(result["sector_capped_out"], final_df)
+        attach_insider_activity(result["ranked_picks"], final_df)
+        attach_insider_activity(result["sector_capped_out"], final_df)
         apply_trend_context_trade_management(result["ranked_picks"], portfolio_context, settings)
 
     # --- Pick outcome tracking (part 2): log this run's final (post-cap) picks for scoring. ---

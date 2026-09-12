@@ -169,6 +169,24 @@ Falling short interest (negative ShortInterestChangePct) alongside a clean setup
 positive — shorts capitulating, not fighting it. If ShortInterest is empty (the lookup failed
 or the ticker has no reported short interest), don't mention it; treat it as unavailable, not
 as "no shorts."
+
+InsiderActivity (genuine open-market Form 4 transactions only — routine stock-grant/
+option-exercise/tax-withholding activity is already excluded before it reaches you, so
+whatever you see here reflects an insider's own voluntary buy/sell decision, not
+compensation mechanics) is the natural complement to ShortInterest, and the two often tell
+you whether a crowded short is misplaced or justified:
+  purchase_count / sale_count / net_value (purchase_value - sale_value, positive = net
+      buying) / most_recent_purchase_date / most_recent_sale_date, all within the last
+      window_days (~90).
+An insider buying into a heavily-shorted name is real evidence the short thesis may be
+wrong — weigh it as support for the bull case, not just a footnote, when it's genuinely
+recent (a purchase from months ago matters far less than one from the last few weeks).
+Insiders selling alongside heavy or rising short interest is the opposite: real alignment,
+not misplaced positioning — treat that combination as reinforcing the bear case, not
+independent pieces of evidence to weigh separately. Zero purchases and multiple sales on an
+already fundamentally weak name (e.g. a recent earnings miss) is a meaningful confirming
+signal, not neutral. If InsiderActivity is empty or shows zero of both, that's genuinely
+uninformative (no signal either way) — don't stretch it into one.
 This research is the PRIMARY basis for your ranking and selection now — it is not background
 color on top of an already-decided score, there is no score to defer to.
 
@@ -274,7 +292,12 @@ Your job:
    — a genuinely crowded short, regardless of which way you read it (squeeze fuel vs. real
    headwind, per the ShortInterest guidance above). Add "ShortsAdding" (can co-occur with
    HeavilyShorted or stand alone) when ShortInterestChangePct is positive and material (say,
-   >= 10%) — shorts are actively building the position, not just already-crowded.
+   >= 10%) — shorts are actively building the position, not just already-crowded. Add
+   "InsiderBuying" when InsiderActivity shows a genuinely recent purchase_count >= 1 (weigh
+   more if it co-occurs with HeavilyShorted — that's the "shorts may be wrong" combination),
+   and "InsiderSelling" when sale_count >= 1 with purchase_count == 0 — especially notable
+   alongside HeavilyShorted or ShortsAdding, where it reinforces rather than offsets the
+   bear case.
 5. For each selected pick, write a brief (1-2 sentence) bear case — the strongest reason this
    pick could fail, grounded in the same research data used for the highlight (e.g. a recent
    estimate miss despite the clean technical setup, decelerating IncomeGrowth, a bearish
