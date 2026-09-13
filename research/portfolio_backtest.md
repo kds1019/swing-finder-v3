@@ -9,29 +9,29 @@
 
 | metric | strategy | SPY (same window) |
 |---|---|---|
-| total return | +45.2% | +82.7% |
-| CAGR | +7.3% | +12.1% |
-| max drawdown | -37.9% | -25.4% |
-| Sharpe (daily, ann.) | 0.47 | — |
+| total return | +106.1% | +82.7% |
+| CAGR | +14.7% | +12.1% |
+| max drawdown | -28.5% | -25.4% |
+| Sharpe (daily, ann.) | 0.88 | — |
 
 ## Trades
 
-- closed trades: 1052
-- win rate (R>0): 43.6%
-- avg R: +0.158   median R: -1.00   profit factor: 1.28
-- avg hold: 5.6 bars
-- exit reasons: {'stop_hit': 580, 'target_hit': 304, 'trail_stop': 126, 'expired': 39, 'open_at_end': 3}
-- weak-RR share of trades taken: 43%
+- closed trades: 1187
+- win rate (R>0): 35.0%
+- avg R: +0.223   median R: -1.00   profit factor: 1.35
+- avg hold: 4.9 bars
+- exit reasons: {'stop_hit': 763, 'trail_stop': 276, 'target_hit': 122, 'expired': 22, 'open_at_end': 4}
+- weak-RR share of trades taken: 0%
 
 ## By year
 
 | year | trades | win% | avg R | end equity |
 |---|---|---|---|---|
-| 2021 | 56 | 48% | +0.20 | 107,853 |
-| 2022 | 69 | 28% | -0.17 | 92,079 |
-| 2023 | 228 | 43% | +0.09 | 85,340 |
-| 2024 | 282 | 46% | +0.21 | 129,671 |
-| 2025 | 217 | 43% | +0.10 | 118,138 |
-| 2026 | 200 | 46% | +0.33 | 145,166 |
+| 2021 | 83 | 41% | +0.48 | 113,878 |
+| 2022 | 76 | 18% | -0.33 | 95,105 |
+| 2023 | 234 | 32% | +0.06 | 108,658 |
+| 2024 | 272 | 40% | +0.37 | 168,127 |
+| 2025 | 297 | 33% | +0.18 | 169,151 |
+| 2026 | 225 | 37% | +0.37 | 206,125 |
 
 _Daily-bar sim: intraday whipsaw and real fills not modelled. Survivorship bias not corrected._

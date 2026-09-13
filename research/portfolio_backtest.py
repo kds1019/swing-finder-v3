@@ -86,6 +86,12 @@ def build_signals(tickers, sectors, settings):
             plan = compute_trade_plan(prefix, settings)
             if plan is None or plan["stop"] >= plan["entry"]:
                 continue
+            # Match the live screener's default gate exactly (agents/market_data_agent.py) —
+            # settings.drop_weak_rr_candidates defaults True and research/weak_rr_ab.py found
+            # keeping weak-RR signals roughly halves full-window return here. Without this,
+            # this "capstone" backtest silently includes ~32% of signals live trading skips.
+            if settings.drop_weak_rr_candidates and plan["weak_rr"]:
+                continue
             sig.append({
                 "date": d, "ticker": t, "sector": sectors.get(t, "Unknown"),
                 "entry": plan["entry"], "stop": plan["stop"], "target": plan["target"],
