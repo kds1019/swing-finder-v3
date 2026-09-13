@@ -303,6 +303,7 @@ class MarketDataAgent:
                 "SwingLow": fib.get("swing_low"),
                 "RetracementPct": fib.get("retracement_pct"),
                 "InFibZone": fib.get("in_fib_zone"),
+                "PullbackWidthBars": fib.get("pullback_width_bars"),
                 "SetupType": setup_type,
                 "Stop": trade_plan["stop"] if trade_plan else None,
                 "Target": trade_plan["target"] if trade_plan else None,

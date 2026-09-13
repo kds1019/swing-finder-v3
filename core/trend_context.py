@@ -158,6 +158,16 @@ def measure_swing_fib_retracement(df: pd.DataFrame, lookback: int = SWING_LOOKBA
           swing_high, 100 at swing_low (clamped to [0, 100]) — same convention as the
           "38.2%"/"61.8%" fib_levels already used in core.indicators.calculate_fibonacci_levels
       in_fib_zone — bool, retracement_pct within [FIB_ZONE_MIN_PCT, FIB_ZONE_MAX_PCT]
+      pullback_width_bars — bars since THIS SAME swing high to the current bar: how long the
+          decline-to-here round trip has taken, not how long price has rested since its low
+          (core.pullback_reversal.measure_stabilization's days_since_pullback_low is that
+          instead — forward from the low, not back to the peak). Exploratory, not validated:
+          research/pullback_shape_ab.py found long/grinding pullbacks (terciles) underperformed
+          short ones in every backtested window, but a finer follow-up sweep
+          (research/pullback_width_sweep.py) showed the real relationship isn't a clean
+          gradient — a middle bucket (12-16 bars) was the worst performer, not the longest, and
+          no specific cutoff held up consistently. Exposed for the Decision Agent's judgment
+          only; see docs/strategy.md.
     """
     if df is None or len(df) < lookback:
         return {}
@@ -168,7 +178,12 @@ def measure_swing_fib_retracement(df: pd.DataFrame, lookback: int = SWING_LOOKBA
     )
     phs, pls = pivots["pivot_highs"], pivots["pivot_lows"]
 
-    swing_high = float(max(phs, key=lambda p: p["bar"])["price"]) if phs else float(window["High"].max())
+    if phs:
+        swing_high_pivot = max(phs, key=lambda p: p["bar"])
+        swing_high, swing_high_bar = float(swing_high_pivot["price"]), swing_high_pivot["bar"]
+    else:
+        swing_high_bar = int(window["High"].to_numpy().argmax())
+        swing_high = float(window["High"].iloc[swing_high_bar])
     swing_low = float(max(pls, key=lambda p: p["bar"])["price"]) if pls else float(window["Low"].min())
 
     swing_range = swing_high - swing_low
@@ -183,6 +198,7 @@ def measure_swing_fib_retracement(df: pd.DataFrame, lookback: int = SWING_LOOKBA
         "swing_low": round(swing_low, 2),
         "retracement_pct": retracement_pct,
         "in_fib_zone": FIB_ZONE_MIN_PCT <= retracement_pct <= FIB_ZONE_MAX_PCT,
+        "pullback_width_bars": int(len(window) - 1 - swing_high_bar),
     }
 
 

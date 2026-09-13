@@ -69,6 +69,7 @@ TREND_CONTEXT_PICK_FIELDS = {
     "TrendEMA200LongSlopePct": "trend_ema200_long_slope_pct",
     "SwingHigh": "swing_high",
     "SwingLow": "swing_low",
+    "PullbackWidthBars": "pullback_width_bars",
 }
 
 

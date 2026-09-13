@@ -68,6 +68,7 @@ SCREENER_FEATURE_COLUMNS = {
     "SwingLow": "swing_low",
     "RetracementPct": "retracement_pct",
     "InFibZone": "in_fib_zone",
+    "PullbackWidthBars": "pullback_width_bars",
     "SetupType": "setup_type",
 }
 

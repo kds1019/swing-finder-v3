@@ -468,3 +468,70 @@ breakout/momentum entries; it doesn't hold for this system's mean-reversion-with
 already-confirmed-uptrend pattern. **Decision: not wired into `decision_agent.py` or any
 gate.** Documented here so the question doesn't get re-litigated from instinct alone next
 time it comes up; revisit only if the live gate's own pattern changes materially.
+
+## Super Trend indicator — tested and REJECTED (2026-09-13)
+
+Motivated by reviewing an external paper (IJSAT, 2026) that used the Super Trend indicator
+(ATR-based volatility bands) as a trend-confirmation input — the paper itself is low-rigor
+(single-stock test, undisclosed backtest dates, no reported transaction costs, templated
+self-citations by the same lead author across a dozen near-identical papers), so it's not
+trusted as evidence; Super Trend itself is a legitimate, independently well-known indicator,
+tested here on its own merits via `research/supertrend_ab.py`.
+
+Computed the standard way (ATR(10) via Wilder's smoothing, bands at (H+L)/2 ± 3×ATR, direction
+flips when price closes through the current band) per ticker, tagged onto every signal in
+today's live gate by its own (ticker, date). **Result: only 16% of live-gate signals (4,762 of
+29,945) even had Super Trend already reading "up" at the moment the pullback-reversal fires**
+— and those performed slightly worse (avg R +0.15) than the 84% where it still read "down"
+(avg R +0.23). Requiring Super Trend to confirm "up" before entering roughly halved the full
+and train-window returns (+91%→+45%, +66%→+30%) and only helped in the 2022 bear year
+(-14%→-9%). Reason: Super Trend is deliberately slow/smooth by design (that's its whole
+purpose — filtering noise), so by the time this system's faster EMA-based pullback-reversal
+pattern catches a stabilizing dip, Super Trend is usually still reading the prior decline —
+the same lesson as the SMA→EMA switch, more extreme. **Decision: not wired into anything
+live.**
+
+## Pullback shape — width-in-bars (`core.trend_context.measure_swing_fib_retracement`) —
+added 2026-09-13, informational only
+
+Motivated by reviewing an external paper (IJSAT, 2026, low-rigor — single-stock test,
+undisclosed backtest dates, templated self-citations, not trusted as evidence on its own) that
+prompted a broader question: does the SHAPE of a pullback (not just its depth) predict
+anything? Two features were tested — depth "regime" (is `PriceVsEMA200Pct` nonlinear rather
+than "deeper is better," the read implied by using it as a plain sort key) and width-in-bars
+(how long the whole decline-to-stabilization round trip took, back to the pullback's actual
+peak — NOT `DaysSincePullbackLow`, which only counts forward from the low).
+
+**Width-in-bars, first pass** (`research/pullback_shape_ab.py`, terciles of the live gate's
+own signal set): long/grinding pullbacks (>18 bars since the peak) were the worst performer in
+every backtested window — full portfolio return collapsed from +91% to +6%, test window from
++14% to -22%. Looked like a clean, promotable finding on par with the current-trend gate.
+
+**Width-in-bars, finer sweep** (`research/pullback_width_sweep.py`, quintiles + specific
+`width<=N` thresholds): this REVERSED that read. The quintile breakdown showed a dead zone at
+12-16 bars (avg R +0.00, profit factor 1.00) sandwiched between two better-performing buckets
+on either side (5-12 bars and 16-23 bars both ~+0.29/+0.26 avg R) — not a smooth gradient. The
+threshold sweep confirmed it: `width<=15` was one of the WORST cutoffs in 3 of 4 windows
+(full +38% vs. +91% baseline; test -5% vs. +14% baseline), while the much more permissive
+`width<=25` (keeps 88% of all signals) was consistently among the BEST in every window. The
+tercile split's clean story was an artifact of exactly where its boundary happened to fall,
+not a real gradient — a caution about trusting a single coarse bucketing on a new feature
+before checking a finer one.
+
+**Decision: exposed as `PullbackWidthBars` for the Decision Agent's judgment, with explicitly
+hedged prompt language — no hard gate, no confident "shorter is better" framing.** The only
+thing that survived scrutiny is a weak, directional one: excluding just the most extreme long
+tail (past ~25-30 sessions) doesn't hurt and sometimes helps a little. `decision_agent.py`'s
+prompt reflects exactly that level of confidence — a tie-break nuance for very long
+(30+ session) pullbacks, never a standalone reason to rank a candidate down. Wired the same
+way as `TrendEMA200LongSlopePct`: computed in `core.trend_context.measure_swing_fib_retracement`
+(reuses the same swing-high pivot already found for `RetracementPct`/`InFibZone`, so no
+duplicate computation), surfaced via `market_data_agent.py`, persisted on every final pick via
+`pipeline.py::TREND_CONTEXT_PICK_FIELDS` and logged via `core/pick_tracking.py` for future
+calibration.
+
+**Depth regime**: real but messier evidence (deepest tercile underperformed in 3 of 4 windows,
+but which of moderate/shallow was best flipped between windows) — left alone for now.
+`PriceVsEMA200Pct` is already passed to the Decision Agent; no prompt guidance was added for
+it, since the signal isn't clean enough yet to say anything more useful than "it's already
+there for you to see."

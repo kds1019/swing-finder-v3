@@ -102,6 +102,16 @@ has stopped, not whether that's happening inside an uptrend or a downtrend:
   RetracementPct / InFibZone — where price sits in the most recent major (60-session) swing
       high-to-low leg; InFibZone means it's given back 38.2-61.8% of that leg, the classic
       pullback-continuation entry zone.
+  PullbackWidthBars — bars since that same swing high: how long the decline-to-here round trip
+      has taken (NOT how many days it's rested since its low — that's DaysSincePullbackLow
+      above). Treat this as a soft, exploratory nuance, not a rule: an isolated backtest found
+      long/grinding pullbacks underperformed short ones on average, but a closer look showed no
+      clean, consistent cutoff — a middle range performed worst in one cut of the data, not the
+      longest — so the relationship isn't well enough understood to gate or score mechanically.
+      Use it only as a tie-break nuance between otherwise-comparable candidates (a very long,
+      slow-forming base, say 30+ sessions, is a mild reason for extra scrutiny of whether the
+      rest of the research still supports the setup) — never as a standalone reason to rank a
+      candidate down, and never state it as if it were a validated finding.
   SetupType — "trend_continuation" (TrendState uptrend + InFibZone + the same stabilization
       signal KnifeRiskTier=="stabilising" reflects), "reversion_bounce" (same stabilization
       signal, but TrendState downtrend or transitional), or null (neither — e.g. the
