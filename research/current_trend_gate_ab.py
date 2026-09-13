@@ -125,18 +125,30 @@ def build_signals(settings) -> pd.DataFrame:
 def run(sig: pd.DataFrame, bars, spy_above, calendar, settings) -> dict:
     """Identical engine to research/g1_ab.py / research/portfolio_backtest.py — trailing
     exit, sector-capped position sizing, tier-then-depth pool ordering, SPY>200-SMA regime
-    filter. Only which signals are IN `sig` differs between variants."""
+    filter. Only which signals are IN `sig` differs between variants.
+
+    Mark-to-market carries forward each held position's last KNOWN close on a day its own
+    bar is missing, rather than dropping it from the day's total entirely. Confirmed live
+    (2026-09-12): research/data/bars/*.pkl has a real gap on 2021-10-25 for ~231 of ~480
+    cached tickers — not a caching bug (a fresh re-fetch from Alpaca still has no bar for
+    that date for those tickers; the free IEX feed simply never captured it) — so a held
+    position on that date would previously vanish from the day's total, producing a fake
+    one-day ~20-40% portfolio "crash" that fully reverses the instant the next real bar
+    arrives. That's a simulation artifact, not a real loss: the position's actual value
+    didn't change, the feed just has no observation for that one day. This generalizes to
+    any missing day for any ticker, not just this one known date."""
     d = sig.assign(_tr=sig.tier.map(TIER_ORDER).fillna(2))
     by_date = {dt: g.sort_values(["_tr", "depth"]) for dt, g in d.groupby("date")}
     frict = SLIP_BPS / 10000.0
     cash, positions, eq, closed = INITIAL, {}, [], []
     for dt in calendar:
         for t in list(positions):
-            if dt not in bars[t].index:
-                continue
             p = positions[t]
+            if dt not in bars[t].index:
+                continue  # no bar today -- can't check exits; p["last_close"] carries forward
             b = bars[t].loc[dt]
             hi, lo, cl = float(b["High"]), float(b["Low"]), float(b["Close"])
+            p["last_close"] = cl
             risk = p["entry"] - p["stop"]
             eff = max(p["stop"], p["peak"] - TRAIL_GIVEBACK_R * risk) if p["active"] else p["stop"]
             p["held"] += 1
@@ -155,8 +167,7 @@ def run(sig: pd.DataFrame, bars, spy_above, calendar, settings) -> dict:
                 closed.append({"exit_date": dt, "reason": xr, "r": (xp - p["entry"]) / risk,
                                "sector": p["sector"]})
                 del positions[t]
-        mtm = cash + sum(pp["shares"] * float(bars[tt].loc[dt, "Close"])
-                         for tt, pp in positions.items() if dt in bars[tt].index)
+        mtm = cash + sum(pp["shares"] * pp["last_close"] for pp in positions.values())
         eq.append((dt, mtm))
         if dt in by_date and bool(spy_above.get(dt, False)) and len(positions) < MAX_POS:
             sec = {}
@@ -176,7 +187,8 @@ def run(sig: pd.DataFrame, bars, spy_above, calendar, settings) -> dict:
                     continue
                 cash -= sh * entry
                 positions[t] = {"shares": sh, "entry": entry, "stop": s["stop"], "target": s["target"],
-                                "peak": entry, "active": False, "held": 0, "sector": s["sector"]}
+                                "peak": entry, "active": False, "held": 0, "sector": s["sector"],
+                                "last_close": entry}
                 sec[s["sector"]] = sec.get(s["sector"], 0) + 1
     return {"eq": pd.DataFrame(eq, columns=["date", "equity"]).set_index("date"),
             "tr": pd.DataFrame(closed)}

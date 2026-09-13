@@ -215,9 +215,10 @@ def run() -> dict:
         for t in list(positions.keys()):
             p = positions[t]
             if d not in bars[t].index:
-                continue
+                continue  # no bar today -- can't check exits; p["last_close"] carries forward
             bar = bars[t].loc[d]
             hi, lo, cl = float(bar["High"]), float(bar["Low"]), float(bar["Close"])
+            p["last_close"] = cl
             risk = p["entry"] - p["stop"]
             eff_stop = p["stop"]
             # reversion_bounce: trailing disabled — pure fixed stop/target (see module
@@ -251,10 +252,12 @@ def run() -> dict:
                 del positions[t]
 
         # --- mark to market ---
-        mtm = cash + sum(
-            pp["shares"] * float(bars[tt].loc[d, "Close"])
-            for tt, pp in positions.items() if d in bars[tt].index
-        )
+        # Carries forward each held position's last KNOWN close on a day its own bar is
+        # missing, rather than dropping it from the day's total entirely — a real, confirmed
+        # gap in the free IEX feed on 2021-10-25 for ~231 of ~480 cached tickers previously
+        # produced a fake one-day ~20-40% portfolio "crash" that fully reversed the next real
+        # bar. See research/current_trend_gate_ab.py::run() for the full writeup.
+        mtm = cash + sum(pp["shares"] * pp["last_close"] for pp in positions.values())
         equity_curve.append((d, mtm))
 
         # --- new entries ---
@@ -291,7 +294,7 @@ def run() -> dict:
                                 "target": s["target"], "peak": entry, "active": False,
                                 "held": 0, "entry_date": d, "sector": s["sector"],
                                 "weak_rr": s["weak_rr"], "setup_type": s["setup_type"],
-                                "trailing_enabled": not is_reversion}
+                                "trailing_enabled": not is_reversion, "last_close": entry}
                 sec_count[s["sector"]] = sec_count.get(s["sector"], 0) + 1
                 return True
 
@@ -323,14 +326,15 @@ def run() -> dict:
     # --- close anything still open at the last bar ---
     last_d = calendar[-1]
     for t, p in list(positions.items()):
-        if last_d in bars[t].index:
-            cl = float(bars[t].loc[last_d, "Close"])
-            cash += p["shares"] * cl * (1 - frict)
-            closed.append({"ticker": t, "entry_date": p["entry_date"], "exit_date": last_d,
-                           "reason": "open_at_end", "r_multiple": (cl - p["entry"]) / (p["entry"] - p["stop"]),
-                           "pnl": p["shares"] * (cl - p["entry"]), "held": p["held"],
-                           "sector": p["sector"], "weak_rr": p["weak_rr"],
-                           "setup_type": p["setup_type"]})
+        # Same missing-bar fallback as the mark-to-market fix above: use the real close if
+        # available, otherwise the last known price rather than dropping this position.
+        cl = float(bars[t].loc[last_d, "Close"]) if last_d in bars[t].index else p["last_close"]
+        cash += p["shares"] * cl * (1 - frict)
+        closed.append({"ticker": t, "entry_date": p["entry_date"], "exit_date": last_d,
+                       "reason": "open_at_end", "r_multiple": (cl - p["entry"]) / (p["entry"] - p["stop"]),
+                       "pnl": p["shares"] * (cl - p["entry"]), "held": p["held"],
+                       "sector": p["sector"], "weak_rr": p["weak_rr"],
+                       "setup_type": p["setup_type"]})
 
     eq = pd.DataFrame(equity_curve, columns=["date", "equity"]).set_index("date")
     tr = pd.DataFrame(closed)

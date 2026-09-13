@@ -10,10 +10,10 @@ Tests whether requiring the CURRENT 20-session EMA200 slope not be sharply negat
 
 | variant | ret | maxDD | Sharpe | trades | win% | avgR | PF | maxConsecLoss |
 |---|---|---|---|---|---|---|---|---|
-| no gate (current) | +89% | -40% | 0.48 | 937 | 36% | +0.22 | 1.34 | 16 |
-| slope>=-2% | +122% | -40% | 0.57 | 858 | 38% | +0.23 | 1.37 | 14 |
-| slope>=-0.5% (trend_context flat-band) | +57% | -32% | 0.47 | 831 | 38% | +0.22 | 1.36 | 14 |
-| slope>=0% | +45% | -50% | 0.36 | 941 | 37% | +0.26 | 1.42 | 22 |
+| no gate (current) | +91% | -24% | 0.73 | 938 | 36% | +0.22 | 1.34 | 16 |
+| slope>=-2% | +146% | -19% | 1.10 | 868 | 38% | +0.23 | 1.38 | 16 |
+| slope>=-0.5% (trend_context flat-band) | +49% | -25% | 0.59 | 826 | 38% | +0.23 | 1.38 | 15 |
+| slope>=0% | +45% | -31% | 0.57 | 942 | 37% | +0.26 | 1.42 | 22 |
 | slope>=2% | +13% | -11% | 0.34 | 299 | 30% | +0.13 | 1.19 | 14 |
 | SPY | +83% | | | | | | | |
 
@@ -21,10 +21,10 @@ Tests whether requiring the CURRENT 20-session EMA200 slope not be sharply negat
 
 | variant | ret | maxDD | Sharpe | trades | win% | avgR | PF | maxConsecLoss |
 |---|---|---|---|---|---|---|---|---|
-| no gate (current) | +66% | -40% | 0.51 | 574 | 36% | +0.21 | 1.33 | 17 |
-| slope>=-2% | +83% | -40% | 0.58 | 512 | 37% | +0.22 | 1.35 | 12 |
-| slope>=-0.5% (trend_context flat-band) | +29% | -32% | 0.39 | 533 | 37% | +0.20 | 1.32 | 16 |
-| slope>=0% | +25% | -50% | 0.37 | 615 | 35% | +0.22 | 1.35 | 25 |
+| no gate (current) | +66% | -24% | 0.85 | 574 | 36% | +0.21 | 1.33 | 17 |
+| slope>=-2% | +103% | -19% | 1.26 | 517 | 38% | +0.24 | 1.39 | 14 |
+| slope>=-0.5% (trend_context flat-band) | +29% | -25% | 0.58 | 528 | 37% | +0.22 | 1.34 | 14 |
+| slope>=0% | +25% | -31% | 0.53 | 615 | 35% | +0.22 | 1.35 | 25 |
 | slope>=2% | +8% | -9% | 0.34 | 157 | 29% | +0.05 | 1.07 | 14 |
 | SPY | +40% | | | | | | | |
 
@@ -32,10 +32,10 @@ Tests whether requiring the CURRENT 20-session EMA200 slope not be sharply negat
 
 | variant | ret | maxDD | Sharpe | trades | win% | avgR | PF | maxConsecLoss |
 |---|---|---|---|---|---|---|---|---|
-| no gate (current) | +13% | -18% | 0.47 | 363 | 37% | +0.23 | 1.37 | 12 |
-| slope>=-2% | +21% | -14% | 0.78 | 346 | 38% | +0.24 | 1.40 | 14 |
-| slope>=-0.5% (trend_context flat-band) | +22% | -13% | 0.83 | 298 | 39% | +0.26 | 1.43 | 13 |
-| slope>=0% | +16% | -12% | 0.65 | 326 | 40% | +0.34 | 1.58 | 10 |
+| no gate (current) | +14% | -18% | 0.49 | 364 | 37% | +0.22 | 1.36 | 10 |
+| slope>=-2% | +21% | -15% | 0.77 | 351 | 38% | +0.22 | 1.36 | 14 |
+| slope>=-0.5% (trend_context flat-band) | +15% | -13% | 0.61 | 298 | 40% | +0.26 | 1.44 | 15 |
+| slope>=0% | +16% | -12% | 0.64 | 327 | 40% | +0.34 | 1.57 | 10 |
 | slope>=2% | +7% | -8% | 0.46 | 142 | 31% | +0.22 | 1.32 | 10 |
 | SPY | +31% | | | | | | | |
 
@@ -44,8 +44,8 @@ Tests whether requiring the CURRENT 20-session EMA200 slope not be sharply negat
 | variant | ret | maxDD | Sharpe | trades | win% | avgR | PF | maxConsecLoss |
 |---|---|---|---|---|---|---|---|---|
 | no gate (current) | -14% | -15% | -1.19 | 85 | 22% | -0.25 | 0.68 | 17 |
-| slope>=-2% | -9% | -13% | -0.79 | 59 | 31% | -0.04 | 0.95 | 10 |
-| slope>=-0.5% (trend_context flat-band) | -15% | -30% | -0.31 | 57 | 21% | -0.33 | 0.58 | 9 |
-| slope>=0% | -16% | -46% | 0.11 | 68 | 16% | -0.45 | 0.46 | 25 |
+| slope>=-2% | -9% | -14% | -0.82 | 59 | 27% | -0.18 | 0.76 | 16 |
+| slope>=-0.5% (trend_context flat-band) | -16% | -17% | -2.00 | 58 | 22% | -0.32 | 0.59 | 10 |
+| slope>=0% | -16% | -16% | -1.82 | 68 | 16% | -0.45 | 0.46 | 25 |
 | slope>=2% | -3% | -4% | -1.77 | 7 | 0% | -1.00 | 0.00 | 7 |
 | SPY | -20% | | | | | | | |
