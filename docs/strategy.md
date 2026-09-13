@@ -425,3 +425,46 @@ alongside heavy/rising short interest reinforces rather than offsets the bear ca
 raw counts/net_value land on every final pick in `results/*.json` regardless of the LLM's
 prose. Caveat: filing-date lag (Form 4s can be filed up to a few days after the actual trade)
 and the 90-day window are both first-cut choices, not independently tuned.
+
+## Sector-trend read — tested and REJECTED (2026-09-13)
+
+Hypothesis raised directly: a pick that clears every individual-stock gate while its own
+SECTOR is rolling over is less likely to produce a strong return — trading against the
+group, not with it (the standard "trade with the group, not against it" relative-strength/
+group-rotation principle). Tested with `research/sector_trend_ab.py` before touching
+`decision_agent.py`'s ranking, per this project's usual backtest-first convention.
+
+Method: each signal's FMP/GICS sector label mapped 1:1 to its SPDR Select Sector ETF
+(Technology→XLK, Financial Services→XLF, Healthcare→XLV, Consumer Cyclical→XLY, Consumer
+Defensive→XLP, Energy→XLE, Industrials→XLI, Basic Materials→XLB, Real Estate→XLRE,
+Utilities→XLU, Communication Services→XLC), then that ETF's `trend_state` computed the exact
+same way `core.trend_context.compute_trend_state()` reads an individual stock (EMA50/EMA200,
+20-session EMA200 slope, ±0.5% flat band → uptrend/downtrend/transitional), merged onto every
+signal in `research/data/current_trend_signals.pkl` (today's live gate, unmodified) by
+(date, sector).
+
+**Result: the opposite of the hypothesis.** One portfolio run of today's actual live-gate
+signals, bucketed by the sector's own trend_state at entry:
+
+| sector_trend_state at entry | trades | win% | avg R | profit factor |
+|---|---|---|---|---|
+| downtrend | 78 | 42% | **+0.45** | **1.81** |
+| transitional | 305 | 33% | +0.13 | 1.19 |
+| uptrend | 555 | 37% | +0.23 | 1.37 |
+
+Picks taken while the stock's own sector was in a DOWNTREND performed BEST — roughly double
+the avg R and profit factor of picks where the sector was uptrending. Adding a portfolio-level
+gate on this (excluding sector-downtrend signals, or requiring sector-uptrend-only) made the
+blended portfolio worse in every window except the shortest/most recent one: full return
++91%→+79%→+58%, 2021-2024 +66%→+65%→+24%, 2022 bear -14%→-12%→-20% (no gate → exclude
+sector-downtrend → sector-uptrend-only, respectively).
+
+Why the general principle doesn't transfer here: this screener's own gate already requires
+the STOCK ITSELF to have cleared a strong confirmed 126-session uptrend (G1) before ever
+looking at a pullback. A stock doing that while its own sector is broadly weak is a genuine
+relative-strength standout — being bought despite sector-wide headwinds — which is a
+stronger signal here, not a warning sign. "Trade with the group" is a real effect for
+breakout/momentum entries; it doesn't hold for this system's mean-reversion-within-an-
+already-confirmed-uptrend pattern. **Decision: not wired into `decision_agent.py` or any
+gate.** Documented here so the question doesn't get re-litigated from instinct alone next
+time it comes up; revisit only if the live gate's own pattern changes materially.
