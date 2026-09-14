@@ -628,17 +628,35 @@ Went through three rounds before being trusted:
    own numbers (avg R +0.23, PF 1.36). Portfolio-level return is modest (+15% full vs. the
    live gate's own +146%) purely because the pattern is rare (318 signals across 160 tickers
    over 5+ years) — a frequency limit, not an edge problem; per-trade math is real.
+4. **Threshold sweep — was 10 days actually the best cutoff?**
+   (`research/ema_band_stabilization_sweep.py`): swept specific day-count thresholds
+   (no minimum, >=5, >=7, >=8, >=10, >=12, >=15), each as its own isolated backtest, on the
+   same "is 10 days doing real work" question the pullback-width-in-bars sweep raised earlier
+   — a single coarse cutoff can look clean without being the real optimum. It wasn't: **8
+   days is MORE robust than 10, not less.**
+
+   | threshold | full PF | train PF | test PF | 2022 PF | passes every window? |
+   |---|---|---|---|---|---|
+   | >=8 days | 1.41 | 1.39 | 1.44 | 1.55 | yes, comfortably, on 287 trades |
+   | >=10 days (first guess) | 1.39 | 1.50 | 1.21 | 1.32 | yes, but softer in test |
+   | >=12 days | 1.53 | 1.84 | 0.98 | 1.39 | **no — fails test window** |
+   | >=15 days | 1.53 | 1.46 | 1.69 | 0.34 | **no — fails bear year** (tiny n=6) |
+
+   Going shorter than 8 (no minimum, >=5, >=7) technically stays positive everywhere too but
+   with a visibly weaker 2022 bear-year showing (PF 1.02-1.17) than 8+ days gets (PF 1.55).
+   Going longer than 8 breaks outright in at least one window. 8 is the actual sweet spot,
+   not a compromise between "patient" and "fast."
 
 **Decision: promoted to a third, genuine `SetupType`**, `core.trend_context.classify_setup_type`
 checked in priority order `trend_continuation > ema_band_pullback > reversion_bounce`,
 mutually exclusive (a candidate that already qualifies for `trend_continuation` is never
-reclassified). `EMA_BAND_STABILIZATION_MIN_DAYS = 10` lives in `core/trend_context.py`, reusing
-`core.pullback_reversal.PRICE_VS_EMA200_MIN_PCT` for the depth floor rather than a new
-constant. `agents/decision_agent.py`'s prompt treats it as roughly on par with
-`reversion_bounce` in ranking (clearly below `trend_continuation`, and flagged as validated on
-a much smaller sample — 175 trades vs. hundreds for the other two — so not to be treated as
-equally proven). Trade management: default (trailing exit, full size) — same as
-`trend_continuation` and null, NOT the `reversion_bounce` fixed-target/half-size override,
+reclassified). `EMA_BAND_STABILIZATION_MIN_DAYS = 8` lives in `core/trend_context.py` (lowered
+from the first-cut 10 after the sweep above), reusing `core.pullback_reversal.PRICE_VS_EMA200_MIN_PCT`
+for the depth floor rather than a new constant. `agents/decision_agent.py`'s prompt treats it
+as roughly on par with `reversion_bounce` in ranking (clearly below `trend_continuation`, and
+flagged as validated on a smaller sample — 287 trades vs. hundreds for the other two — so not
+to be treated as equally proven). Trade management: default (trailing exit, full size) — same
+as `trend_continuation` and null, NOT the `reversion_bounce` fixed-target/half-size override,
 matching exactly what was backtested (`pipeline.py`'s and `core/pick_tracking.py`'s
 `is_reversion` checks are an exact string match on `"reversion_bounce"`, so this new value
 falls through to default treatment automatically, no code change needed there).

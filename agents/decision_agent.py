@@ -119,15 +119,18 @@ has stopped, not whether that's happening inside an uptrend or a downtrend:
           (win rate ~38-39% vs ~25-28%, profit factor ~1.26-1.32 vs ~1.07-1.12).
       "ema_band_pullback" — TrendState uptrend + stabilising, but OUTSIDE the Fib zone,
           sitting at/below the 50-EMA and no worse than -20% vs the 200-EMA, with the base
-          having held >= 10 sessions (not just the moment stabilising first triggered). Added
+          having held >= 8 sessions (not just the moment stabilising first triggered — a
+          threshold sweep, research/ema_band_stabilization_sweep.py, found 8 days MORE
+          robust than a first-cut 10-day guess, not less: PF 1.39-1.55 in every window vs.
+          10 days' softer 1.21 in the test window, while going higher than 8 breaks). Added
           2026-09-13 after a live case (IRM, UAL, MIRM) showed real, healthy-looking uptrend
           pullbacks the Fib-zone check was missing purely because a small recent swing made
-          the retracement math read "too deep." Isolated backtest (175 trades, 160 tickers,
+          the retracement math read "too deep." Isolated backtest (287 trades, 160+ tickers,
           research/ema_band_pullback_isolated_ab.py): positive in every window tested
-          (full/train/test/2022 bear), win rate ~36-37%, profit factor 1.21-1.50 — comparable
-          to reversion_bounce. Treat it as roughly ON PAR with reversion_bounce in your
-          ranking, clearly below trend_continuation — it is validated but on a much smaller
-          sample (175 trades vs. hundreds for the other two), so don't treat it as
+          (full/train/test/2022 bear), win rate ~34-40%, profit factor 1.39-1.55 — comparable
+          to or better than reversion_bounce. Treat it as roughly ON PAR with reversion_bounce
+          in your ranking, clearly below trend_continuation — it is validated but on a
+          smaller sample (287 trades vs. hundreds for the other two), so don't treat it as
           equally proven.
       "reversion_bounce" — the stabilization signal, but TrendState downtrend or transitional.
           A real but much weaker setup, closer to breakeven, than either bucket above.

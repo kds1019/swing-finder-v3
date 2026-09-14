@@ -50,12 +50,16 @@ from core.pullback_reversal import PRICE_VS_EMA200_MIN_PCT
 # meaning the short-term "stabilising" read was too easily triggered by a base that hadn't
 # actually held yet. Requiring the base to have held >= EMA_BAND_STABILIZATION_MIN_DAYS
 # sessions (core.pullback_reversal.measure_stabilization's days_since_pullback_low) fixed
-# this: research/ema_band_pullback_isolated_ab.py's isolated backtest (175 trades, 160
-# tickers) came back positive in EVERY window tested (full/train/test/2022 bear), PF 1.21-1.50,
-# comparable to or better than reversion_bounce's own numbers. Reuses
-# core.pullback_reversal.PRICE_VS_EMA200_MIN_PCT (the live screener's own -20% depth floor)
-# rather than inventing a new one.
-EMA_BAND_STABILIZATION_MIN_DAYS = 10
+# this. First validated at 10 days (research/ema_band_pullback_isolated_ab.py: 175 trades,
+# positive every window, PF 1.21-1.50) — then swept across specific day-count thresholds
+# (research/ema_band_stabilization_sweep.py) to check whether 10 was actually the best
+# cutoff rather than just a reasonable-looking one. It wasn't: 8 days is MORE robust, not
+# less — PF 1.39-1.55 in every window (full/train/test/2022 bear) on a larger sample (287
+# trades), while 10 days had a softer test-window PF (1.21) and going higher (12+ days)
+# actually breaks (12 days goes slightly negative in the test window; 15 days collapses in
+# the bear year). Reuses core.pullback_reversal.PRICE_VS_EMA200_MIN_PCT (the live screener's
+# own -20% depth floor) rather than inventing a new one.
+EMA_BAND_STABILIZATION_MIN_DAYS = 8
 
 # How far back the 200-EMA slope is measured to call it "rising" / "falling". Deliberately
 # much shorter than core.pullback_reversal's 126-day EMA200 trend check — the whole point of
