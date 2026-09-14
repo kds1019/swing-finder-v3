@@ -38,6 +38,24 @@ from __future__ import annotations
 import pandas as pd
 
 from core.indicators import find_pivot_points
+from core.pullback_reversal import PRICE_VS_EMA200_MIN_PCT
+
+# EMA-band pullback: a THIRD setup_type, between trend_continuation and reversion_bounce.
+# Motivated 2026-09-13 by a live case (IRM, UAL, MIRM, et al.) — all confirmed uptrend +
+# stabilising but outside the Fib zone (already retraced 63-84% of a small recent 60-session
+# swing), while sitting only mildly below their 50-EMA and still comfortably above their
+# 200-EMA. A first isolated backtest with no minimum stabilization duration
+# (research/ema_band_pullback_ab.py) was a net loser (PF 0.95) — NOT from a bad reward side
+# (winners averaged +1.5R to +3.7R) but because 68% of trades were stopped out directly,
+# meaning the short-term "stabilising" read was too easily triggered by a base that hadn't
+# actually held yet. Requiring the base to have held >= EMA_BAND_STABILIZATION_MIN_DAYS
+# sessions (core.pullback_reversal.measure_stabilization's days_since_pullback_low) fixed
+# this: research/ema_band_pullback_isolated_ab.py's isolated backtest (175 trades, 160
+# tickers) came back positive in EVERY window tested (full/train/test/2022 bear), PF 1.21-1.50,
+# comparable to or better than reversion_bounce's own numbers. Reuses
+# core.pullback_reversal.PRICE_VS_EMA200_MIN_PCT (the live screener's own -20% depth floor)
+# rather than inventing a new one.
+EMA_BAND_STABILIZATION_MIN_DAYS = 10
 
 # How far back the 200-EMA slope is measured to call it "rising" / "falling". Deliberately
 # much shorter than core.pullback_reversal's 126-day EMA200 trend check — the whole point of
@@ -203,23 +221,44 @@ def measure_swing_fib_retracement(df: pd.DataFrame, lookback: int = SWING_LOOKBA
 
 
 def classify_setup_type(
-    trend_state: str | None, in_fib_zone: bool | None, stabilization_signal: bool
+    trend_state: str | None, in_fib_zone: bool | None, stabilization_signal: bool,
+    price_above_ema50: bool | None = None, price_vs_ema200_pct: float | None = None,
+    days_since_pullback_low: int | None = None,
 ) -> str | None:
-    """setup_type per the trend-continuation / reversion-bounce split (docs/strategy.md):
+    """setup_type — three buckets, checked in priority order (docs/strategy.md):
       "trend_continuation" — trend_state == "uptrend" AND in_fib_zone AND stabilization_signal
+      "ema_band_pullback"  — trend_state == "uptrend" AND stabilization_signal AND price at/
+                              below the 50-EMA (price_above_ema50 is False) AND no worse than
+                              PRICE_VS_EMA200_MIN_PCT vs the 200-EMA AND the base has held for
+                              >= EMA_BAND_STABILIZATION_MIN_DAYS sessions. Checked only when
+                              trend_continuation doesn't already apply (mutually exclusive) —
+                              catches the "shallow dip in a real uptrend" shape the Fib-zone
+                              check misses (see EMA_BAND_STABILIZATION_MIN_DAYS's comment
+                              above for why the duration requirement is load-bearing, not
+                              optional — without it this bucket backtested as a net loser).
       "reversion_bounce"   — stabilization_signal True AND trend_state in
                               ("downtrend", "transitional")
-      None — stabilization_signal is False (neither bucket applies — the short-term signal
-             itself hasn't fired), or trend_state couldn't be computed (insufficient history)
+      None — stabilization_signal is False (no bucket applies — the short-term signal itself
+             hasn't fired), trend_state couldn't be computed, or (for the uptrend case) none
+             of the three uptrend conditions above are satisfied
 
-    stabilization_signal is the caller's existing higher-low/contracting-range/volume read
-    (core.pullback_reversal's KnifeRiskTier == "stabilising") — this module doesn't
-    recompute it, so there's exactly one definition of "has it stabilised" shared between
-    setup_type and support_status, not two that could quietly drift apart."""
+    The three new params are optional (default None, meaning "the EMA-band bucket can never
+    match") so existing callers that only care about trend_continuation/reversion_bounce don't
+    need to change. stabilization_signal is the caller's existing higher-low/contracting-
+    range/volume read (core.pullback_reversal's KnifeRiskTier == "stabilising") — this module
+    doesn't recompute it, so there's exactly one definition of "has it stabilised" shared
+    across every setup_type and support_status, not several that could quietly drift apart."""
     if trend_state is None or not stabilization_signal:
         return None
     if trend_state == "uptrend" and in_fib_zone:
         return "trend_continuation"
+    if (
+        trend_state == "uptrend"
+        and price_above_ema50 is False
+        and price_vs_ema200_pct is not None and price_vs_ema200_pct >= PRICE_VS_EMA200_MIN_PCT
+        and days_since_pullback_low is not None and days_since_pullback_low >= EMA_BAND_STABILIZATION_MIN_DAYS
+    ):
+        return "ema_band_pullback"
     if trend_state in ("downtrend", "transitional"):
         return "reversion_bounce"
     return None

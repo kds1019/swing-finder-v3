@@ -583,3 +583,72 @@ Wired in: `scan_universe`'s sort key changed from `["_tier_rank", "PriceVsEMA200
 trend_continuation=0, reversion_bounce=1, null=2). This is the ordering used for
 pre-Decision-Agent triage only — the Decision Agent still ranks everything it actually
 receives on its own judgment, same as always.
+
+## Third setup_type: `ema_band_pullback` (added 2026-09-13)
+
+Motivated by a live case: IRM, UAL, MIRM (and 6 others) were all confirmed uptrend +
+stabilising but fell through to `SetupType=null` because none was in the 38.2-61.8%
+Fib-retracement zone of its own recent 60-session swing. Checked why: all 9 sit below their
+50-EMA (-1.5% to -10.1%) but still above their 200-EMA (+0.7% to +2.7%) — a genuinely shallow,
+healthy-looking dip in a confirmed uptrend that the Fib-zone math misread as "too deep"
+relative to a small recent swing (they'd already retraced 63-84% of THAT swing, a different
+and here misleading reference frame from the broader EMA200 trend).
+
+Went through three rounds before being trusted:
+1. **First isolated test, no duration requirement** (`research/ema_band_pullback_ab.py`):
+   price <= 50-EMA, no worse than -20% vs 200-EMA (reusing the live gate's own
+   `PRICE_VS_EMA200_MIN_PCT` floor), uptrend, stabilising. Net loser, PF 0.95 — but the
+   exit-reason breakdown showed why: 68% of trades were stopped out directly, NOT a bad
+   reward side (winners averaged +1.5R to +3.7R, in line with sane trade plans like UAL's own
+   real 3.15 R:R). The short-term "stabilising" read was firing before the base had actually
+   held.
+2. **10-day stabilization split** (`research/ema_band_pullback_v2_ab.py`): split the same
+   zone by `core.pullback_reversal.measure_stabilization`'s `days_since_pullback_low` (bars
+   since the pullback's LOW, not since its peak — already computed live, never gated on).
+   The >=10-day sub-bucket flipped to +0.20 avg R / PF 1.31 (comparable to reversion_bounce);
+   the <10-day "fresh" sub-bucket stayed a loser (-0.16 avg R / PF 0.77) — confirming the
+   losses were concentrated in premature entries. But only 11 trades in the >=10-day
+   sub-bucket within the blended portfolio run — too small a sample to trust, because these
+   signals were competing for capacity against reversion_bounce and mostly losing (see the
+   candidate-pool diagnostic above — same mechanism).
+3. **Isolated backtest, no capacity competition** (`research/ema_band_pullback_isolated_ab.py`):
+   all 318 raw >=10-day signals (160 tickers) on their own dedicated capital — 175 real
+   trades. **Positive in every window tested**, the same bar the current-trend gate and
+   `trend_continuation` had to clear:
+
+   | window | ret | maxDD | trades | win% | avgR | PF |
+   |---|---|---|---|---|---|---|
+   | full | +15% | -9% | 175 | 37% | +0.25 | 1.39 |
+   | 2021-2024 | +5% | -6% | 108 | 36% | +0.32 | 1.50 |
+   | 2025-2026 | +9% | -5% | 67 | 37% | +0.13 | 1.21 |
+   | 2022 (bear) | -4% | -4% | 16 | 31% | +0.22 | 1.32 |
+
+   Exit reasons: 111 stop_hit (-1.00R), 41 trail_stop (+1.88R avg), 18 target_hit (+3.99R
+   avg), 5 expired (+1.05R avg) — comparable to or slightly better than `reversion_bounce`'s
+   own numbers (avg R +0.23, PF 1.36). Portfolio-level return is modest (+15% full vs. the
+   live gate's own +146%) purely because the pattern is rare (318 signals across 160 tickers
+   over 5+ years) — a frequency limit, not an edge problem; per-trade math is real.
+
+**Decision: promoted to a third, genuine `SetupType`**, `core.trend_context.classify_setup_type`
+checked in priority order `trend_continuation > ema_band_pullback > reversion_bounce`,
+mutually exclusive (a candidate that already qualifies for `trend_continuation` is never
+reclassified). `EMA_BAND_STABILIZATION_MIN_DAYS = 10` lives in `core/trend_context.py`, reusing
+`core.pullback_reversal.PRICE_VS_EMA200_MIN_PCT` for the depth floor rather than a new
+constant. `agents/decision_agent.py`'s prompt treats it as roughly on par with
+`reversion_bounce` in ranking (clearly below `trend_continuation`, and flagged as validated on
+a much smaller sample — 175 trades vs. hundreds for the other two — so not to be treated as
+equally proven). Trade management: default (trailing exit, full size) — same as
+`trend_continuation` and null, NOT the `reversion_bounce` fixed-target/half-size override,
+matching exactly what was backtested (`pipeline.py`'s and `core/pick_tracking.py`'s
+`is_reversion` checks are an exact string match on `"reversion_bounce"`, so this new value
+falls through to default treatment automatically, no code change needed there).
+
+## RSI14 / RelVolume surfaced to the Decision Agent (added 2026-09-13)
+
+Both were already computed by `core.indicators.compute_indicators` (used internally
+elsewhere) but never surfaced downstream. Added to `market_data_agent.py`'s row output and
+`decision_agent.py`'s prompt as plain informational context — no gate, no independent
+backtest, same treatment as `ShortInterest`/`InsiderActivity`: conventional interpretation
+(RSI14 <30 oversold / >70 overbought; RelVolume >1 above-average participation strengthens a
+move's credibility, <1 weakens it) offered as light supporting color, never a standalone
+reason to rank a candidate up or down.

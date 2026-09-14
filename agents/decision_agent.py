@@ -112,22 +112,43 @@ has stopped, not whether that's happening inside an uptrend or a downtrend:
       slow-forming base, say 30+ sessions, is a mild reason for extra scrutiny of whether the
       rest of the research still supports the setup) — never as a standalone reason to rank a
       candidate down, and never state it as if it were a validated finding.
-  SetupType — "trend_continuation" (TrendState uptrend + InFibZone + the same stabilization
-      signal KnifeRiskTier=="stabilising" reflects), "reversion_bounce" (same stabilization
-      signal, but TrendState downtrend or transitional), or null (neither — e.g. the
-      stabilization signal hasn't fired, or it's an uptrend pullback outside the Fib zone).
-      Backtested separately (research/trend_context_backtest.py, see docs/strategy.md's Phase 2
-      results): trend_continuation showed a real, repeatable edge over reversion_bounce across
-      independent backtest runs (win rate ~38-39% vs ~25-28%, profit factor ~1.26-1.32 vs
-      ~1.07-1.12) — reversion_bounce is a real but much weaker setup, closer to breakeven.
-Use SetupType in your ranking (point 2): all else equal, a "trend_continuation" candidate should
-rank above a comparable "reversion_bounce" candidate that only has the short-term stabilization
-signal without the uptrend/Fib-zone backdrop — the deterministic version of "the overlap between
-the two signals ranks higher than either alone." This is a genuine ranking input like
-support_status, not a hard filter — a reversion_bounce candidate with a strong fundamentals/
-catalyst case can still rank well; it should just not out-rank an otherwise-comparable
-trend_continuation candidate on setup quality alone. Note in the rationale when SetupType broke
-a tie between two similar candidates.
+  SetupType — three buckets, in priority order:
+      "trend_continuation" — TrendState uptrend + InFibZone + the stabilization signal
+          (KnifeRiskTier=="stabilising"). Backtested (research/trend_context_backtest.py,
+          docs/strategy.md's Phase 2 results): a real, repeatable edge over reversion_bounce
+          (win rate ~38-39% vs ~25-28%, profit factor ~1.26-1.32 vs ~1.07-1.12).
+      "ema_band_pullback" — TrendState uptrend + stabilising, but OUTSIDE the Fib zone,
+          sitting at/below the 50-EMA and no worse than -20% vs the 200-EMA, with the base
+          having held >= 10 sessions (not just the moment stabilising first triggered). Added
+          2026-09-13 after a live case (IRM, UAL, MIRM) showed real, healthy-looking uptrend
+          pullbacks the Fib-zone check was missing purely because a small recent swing made
+          the retracement math read "too deep." Isolated backtest (175 trades, 160 tickers,
+          research/ema_band_pullback_isolated_ab.py): positive in every window tested
+          (full/train/test/2022 bear), win rate ~36-37%, profit factor 1.21-1.50 — comparable
+          to reversion_bounce. Treat it as roughly ON PAR with reversion_bounce in your
+          ranking, clearly below trend_continuation — it is validated but on a much smaller
+          sample (175 trades vs. hundreds for the other two), so don't treat it as
+          equally proven.
+      "reversion_bounce" — the stabilization signal, but TrendState downtrend or transitional.
+          A real but much weaker setup, closer to breakeven, than either bucket above.
+      null — none of the above (e.g. the stabilization signal hasn't fired at all).
+Use SetupType in your ranking (point 2): all else equal, rank trend_continuation above
+ema_band_pullback and reversion_bounce, and treat ema_band_pullback/reversion_bounce as roughly
+comparable to each other rather than one clearly above the other — the deterministic version of
+"the overlap between signals ranks higher than either alone." This is a genuine ranking input
+like support_status, not a hard filter — a reversion_bounce or ema_band_pullback candidate with
+a strong fundamentals/catalyst case can still rank well; it should just not out-rank an
+otherwise-comparable trend_continuation candidate on setup quality alone. Note in the rationale
+when SetupType broke a tie between two similar candidates.
+  RSI14 / RelVolume — plain technical context, informational only (no gate, no independent
+      backtest — these are supplementary reads, not validated signals like SetupType above).
+      RSI14 below ~30 is conventionally "oversold" (can support a bounce thesis, but can also
+      just mean a real downtrend), above ~70 is "overbought" (caution on a continuation entry).
+      RelVolume is today's volume vs. its own 20-day average — above 1 means above-average
+      participation (a stronger tell that a move is real, not thin/noisy), below 1 means
+      below-average (weigh any single day's price action less). Use both as light supporting
+      color when they line up with the rest of the research, not as standalone reasons to rank
+      a candidate up or down.
 Then a 3-per-sector diversification cap is applied to YOUR ranking (after you rank), and each
 ticker has a pre-computed trade plan
 (Entry/Stop/Target/RRRatio from core/trade_plan.py — swing-low/EMA-anchored stop,

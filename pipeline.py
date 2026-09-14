@@ -70,6 +70,8 @@ TREND_CONTEXT_PICK_FIELDS = {
     "SwingHigh": "swing_high",
     "SwingLow": "swing_low",
     "PullbackWidthBars": "pullback_width_bars",
+    "RSI14": "rsi14",
+    "RelVolume": "rel_volume",
 }
 
 

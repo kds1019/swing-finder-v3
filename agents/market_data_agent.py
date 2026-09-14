@@ -260,7 +260,17 @@ class MarketDataAgent:
             setup_type = classify_setup_type(
                 trend.get("trend_state"), fib.get("in_fib_zone"),
                 stab.get("knife_risk_tier") == "stabilising",
+                price_above_ema50=trend.get("price_above_ema50"),
+                price_vs_ema200_pct=result["price_vs_ema200_pct"],
+                days_since_pullback_low=stab.get("days_since_pullback_low"),
             )
+
+            # RSI14/RelVolume (core.indicators.compute_indicators) — computed for every
+            # ticker already, just never surfaced before. Informational only, same treatment
+            # as ShortInterest/InsiderActivity: raw numbers for the Decision Agent's judgment,
+            # not a screener gate.
+            rsi14 = float(df["RSI14"].iloc[-1]) if pd.notna(df["RSI14"].iloc[-1]) else None
+            rel_volume = float(df["RelVolume"].iloc[-1]) if pd.notna(df["RelVolume"].iloc[-1]) else None
 
             rows.append({
                 "Ticker": ticker,
@@ -305,6 +315,8 @@ class MarketDataAgent:
                 "InFibZone": fib.get("in_fib_zone"),
                 "PullbackWidthBars": fib.get("pullback_width_bars"),
                 "SetupType": setup_type,
+                "RSI14": round(rsi14, 1) if rsi14 is not None else None,
+                "RelVolume": round(rel_volume, 2) if rel_volume is not None else None,
                 "Stop": trade_plan["stop"] if trade_plan else None,
                 "Target": trade_plan["target"] if trade_plan else None,
                 "RRRatio": trade_plan["rr_ratio"] if trade_plan else None,

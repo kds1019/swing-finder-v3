@@ -70,6 +70,8 @@ SCREENER_FEATURE_COLUMNS = {
     "InFibZone": "in_fib_zone",
     "PullbackWidthBars": "pullback_width_bars",
     "SetupType": "setup_type",
+    "RSI14": "rsi14",
+    "RelVolume": "rel_volume",
 }
 
 LOG_COLUMNS = [
