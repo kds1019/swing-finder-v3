@@ -535,3 +535,51 @@ but which of moderate/shallow was best flipped between windows) — left alone f
 `PriceVsEMA200Pct` is already passed to the Decision Agent; no prompt guidance was added for
 it, since the signal isn't clean enough yet to say anything more useful than "it's already
 there for you to see."
+
+## Candidate-pool ordering — SetupType promoted ahead of KnifeRiskTier (2026-09-13)
+
+A live run came back with zero `trend_continuation` picks among the 30 tickers the Decision
+Agent actually reviewed, despite `market_bias: Uptrend` that day — worth checking whether that
+was just an unlucky day or a structural problem, since `trend_continuation` is the one setup
+type this system has backtested as having a real, meaningfully better edge over
+`reversion_bounce` (Phase 2 results above: ~38-39% win rate / ~1.26-1.32 profit factor vs.
+~25-28% / ~1.07-1.12).
+
+Root cause found: `agents/market_data_agent.py::scan_universe`'s candidate ordering — the one
+that decides who survives the pre-research sector cap (8/sector, cost control) and the
+30-candidate `CANDIDATE_POOL_SIZE` cut, both of which run BEFORE the Decision Agent ever sees
+anything — sorted by `KnifeRiskTier` then pullback depth only. `SetupType` played no role, so
+a `trend_continuation` candidate sitting behind a deeper or more-stabilised
+`reversion_bounce` candidate for the same sector or pool slot got silently dropped before the
+Decision Agent (which DOES already know to rank `trend_continuation` higher) ever got a
+chance to weigh in.
+
+Quantified via `research/candidate_pool_diagnostic.py` — a zero-cost, pure price-data
+diagnostic (today's live-gate signal set, tagged retroactively with TrendState/SetupType,
+zero FMP/Anthropic calls) replaying the funnel across 1,231 historical screener-match days,
+376 of which (31%) had at least one genuine `trend_continuation` match that day:
+
+| ordering | reaches research pool | reaches final list (structural proxy) |
+|---|---|---|
+| old: tier, then depth | 86% | **64%** |
+| new: setup type, then tier, then depth | 100% | **100%** |
+
+**36% of the time a real trend_continuation candidate existed, it never reached the final
+list** under the old ordering — 14 points lost before research even started, another 22 lost
+at the final 3/sector cap (which reuses the same order). Moving SetupType first eliminates
+this entirely with no observed downside in the same diagnostic (it's a free reordering, not a
+filter — nothing else gets excluded to make room).
+
+Same diagnostic checked whether the pre-research sector cap itself was the problem instead —
+it isn't. Sector concentration in the raw daily matches is rarely severe (mean max-sector-share
+30%, only 5% of days exceed 50%), and removing the cap barely moves the final list size either
+way (15.2 -> 15.1 candidates on average; 10.3 -> 10.1 even restricted to the most
+sector-concentrated quartile of days). The cap is neither the cause of the trend_continuation
+loss nor doing much protective work either way — **left unchanged**, only the ordering was
+fixed.
+
+Wired in: `scan_universe`'s sort key changed from `["_tier_rank", "PriceVsEMA200Pct"]` to
+`["_setup_rank", "_tier_rank", "PriceVsEMA200Pct"]` (`_setup_rank`:
+trend_continuation=0, reversion_bounce=1, null=2). This is the ordering used for
+pre-Decision-Agent triage only — the Decision Agent still ranks everything it actually
+receives on its own judgment, same as always.

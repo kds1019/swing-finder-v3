@@ -314,17 +314,27 @@ class MarketDataAgent:
 
         ranked_df = pd.DataFrame(rows)
         if not ranked_df.empty:
-            # Order the candidate pool by KNIFE-RISK TIER first, then deepest-pullback within
-            # a tier. This only decides which candidates survive the pre-research sector cap
-            # and the CANDIDATE_POOL_SIZE cut before the Decision Agent — the DA still ranks
-            # everything it receives. The point is that when more candidates match than fit
-            # the pool, the ones squeezed out are the still-falling ones, not stabilised-but-
-            # shallower setups (the old pure-deepest-first sort did the opposite). Pullback
-            # depth stays the tie-breaker inside a tier — the one technical gradient the
-            # calibration found real (deeper -> better realised R). See docs/strategy.md.
+            # Order the candidate pool by SETUP TYPE first, then KNIFE-RISK TIER, then
+            # deepest-pullback within a tier. This only decides which candidates survive the
+            # pre-research sector cap and the CANDIDATE_POOL_SIZE cut before the Decision
+            # Agent — the DA still ranks everything it receives. SetupType leads as of
+            # 2026-09-13: research/candidate_pool_diagnostic.py found the OLD tier-then-depth
+            # order (SetupType-blind) let a real trend_continuation candidate reach the final
+            # watchlist only 64% of the time it existed in a day's raw matches — lost partly
+            # before research (86% reached the pool), partly at the final 3/sector cap, which
+            # reuses this same order. trend_continuation is the one setup this system has
+            # backtested as having a real, meaningfully better edge than reversion_bounce (see
+            # docs/strategy.md's Phase 2 results) — the Decision Agent already knows to rank it
+            # higher, but can't do that for a candidate that never reaches it. Moving SetupType
+            # first fixed this to 100%/100% in the same diagnostic with no observed downside
+            # (it's a free reordering, not a filter). KnifeRiskTier then pullback depth remain
+            # the tie-breakers within a SetupType tier, same reasoning as before: the ones
+            # squeezed out at equal setup quality should be the still-falling / shallower ones.
+            _setup_order = {"trend_continuation": 0, "reversion_bounce": 1}
             _tier_order = {"stabilising": 0, "forming": 1, "still_falling": 3}
+            ranked_df["_setup_rank"] = ranked_df["SetupType"].map(_setup_order).fillna(2)
             ranked_df["_tier_rank"] = ranked_df["KnifeRiskTier"].map(_tier_order).fillna(2)
-            ranked_df = (ranked_df.sort_values(["_tier_rank", "PriceVsEMA200Pct"])
-                         .drop(columns="_tier_rank").reset_index(drop=True))
+            ranked_df = (ranked_df.sort_values(["_setup_rank", "_tier_rank", "PriceVsEMA200Pct"])
+                         .drop(columns=["_setup_rank", "_tier_rank"]).reset_index(drop=True))
 
         return ranked_df, bars_by_ticker
