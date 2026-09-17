@@ -57,7 +57,6 @@ from core.pullback_reversal import (
     MAX_PRICE_VS_VALUE_AREA_HIGH_PCT,
     MIN_BARS_FOR_SCREENER,
     MIN_BOUNCE_OFF_LOW_PCT,
-    PRICE_VS_EMA200_MAX_PCT,
     PRICE_VS_EMA200_MIN_PCT,
     measure_pullback_reversal,
 )
@@ -72,13 +71,20 @@ BARS_CACHE_DIR = DATA_DIR / "bars"
 DEFAULT_OUT = DATA_DIR / "calibration_dataset.csv"
 
 # Wide net: only bars in a rising-200-EMA name somewhere near the pullback region are
-# labelled. Deliberately looser than the live screener's -12%/+8% / 15% / 3% gates so
-# Stage 2 has room to move every cutoff in either direction — but not so loose that the
-# dataset fills with bars nowhere near the pattern (and the per-bar trade-plan cost
-# explodes). The current thresholds sit comfortably inside this net.
+# labelled. Deliberately looser than the live screener's gates so Stage 2 has room to
+# move every cutoff in either direction — but not so loose that the dataset fills with
+# bars nowhere near the pattern (and the per-bar trade-plan cost explodes). The current
+# thresholds sit comfortably inside this net.
+#
+# NET_PRICE_VS_EMA200_MAX_PCT raised 14.0 -> 30.0 on 2026-09-17 alongside the EMA50-ceiling
+# change in core/pullback_reversal.py (see that module's CALIBRATION note): the old +3%
+# hard ceiling meant no row above +14% could ever matter, so the net was never widened past
+# it. The new ceiling is EMA50-based with no fixed EMA200-distance cap — a live scan the same
+# day found genuine trend_continuation matches up to +18% above EMA200 — so the net has to
+# reach further out or this dataset would silently reproduce the old ceiling's blind spot.
 NET_MIN_EMA200_UPTREND_PCT = 0.0
 NET_PRICE_VS_EMA200_MIN_PCT = -22.0
-NET_PRICE_VS_EMA200_MAX_PCT = 14.0
+NET_PRICE_VS_EMA200_MAX_PCT = 30.0
 NET_MAX_CONSOLIDATION_RANGE_PCT = 25.0
 NET_MIN_BOUNCE_OFF_LOW_PCT = 0.0
 
@@ -86,11 +92,19 @@ NET_MIN_BOUNCE_OFF_LOW_PCT = 0.0
 def _current_verdict(m: dict) -> tuple[bool, str | None]:
     """Apply the CURRENT core.pullback_reversal thresholds to an already-computed
     measurement dict — same gate order as detect_pullback_reversal(), without paying
-    to recompute the volume profile."""
+    to recompute the volume profile.
+
+    Updated 2026-09-17 to match detect_pullback_reversal()'s EMA50-based ceiling (replacing
+    the old fixed +3% price_vs_ema200_pct band) — see core/pullback_reversal.py's
+    CALIBRATION note. This is what makes this dataset an actual backtest of that change."""
     if m["ema200_uptrend_pct"] < EMA200_MIN_UPTREND_PCT:
         return False, "no_long_term_uptrend"
-    if not (PRICE_VS_EMA200_MIN_PCT <= m["price_vs_ema200_pct"] <= PRICE_VS_EMA200_MAX_PCT):
-        return False, "price_too_far_from_ema200"
+    if m["price_vs_ema200_pct"] < PRICE_VS_EMA200_MIN_PCT:
+        return False, "price_too_far_below_ema200"
+    if m["price_above_ema50"] is None:
+        return False, "insufficient_data"
+    if m["price_above_ema50"] is True:
+        return False, "price_above_ema50"
     if m["consolidation_range_pct"] > CONSOLIDATION_MAX_RANGE_PCT:
         return False, "not_consolidating"
     if m["bounce_off_low_pct"] < MIN_BOUNCE_OFF_LOW_PCT:
@@ -318,6 +332,7 @@ def label_ticker(symbol: str, df: pd.DataFrame, spy_close: pd.Series, settings) 
             "price_vs_poc_pct": m["price_vs_poc_pct"],
             "price_vs_value_area_high_pct": m["price_vs_value_area_high_pct"],
             "volume_profile_available": m["volume_profile_available"],
+            "price_above_ema50": m["price_above_ema50"],
             # --- candidate features ---
             "atr_pct": float(vec["atr_pct"].iloc[i]),
             "rs_vs_spy_63d_pct": float(vec["rs_vs_spy_63d_pct"].iloc[i]),

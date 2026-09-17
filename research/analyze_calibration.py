@@ -41,7 +41,10 @@ DEFAULT_OUT = Path(__file__).resolve().parent / "calibration_findings.md"
 # Features to profile, with fixed human-meaningful bin edges where the shape matters
 # more than equal-population deciles. None -> use deciles.
 FEATURE_BINS: dict[str, list[float] | None] = {
-    "price_vs_ema200_pct": [-25, -15, -10, -7, -4, -2, 0, 2, 4, 8, 15],
+    # Upper edges extended past 15 on 2026-09-17 (EMA50-ceiling change) — the old +3%
+    # hard ceiling meant nothing above ~15 could ever appear in this dataset; the new
+    # EMA50-based ceiling has no fixed EMA200-distance cap.
+    "price_vs_ema200_pct": [-25, -15, -10, -7, -4, -2, 0, 2, 4, 8, 15, 22, 30],
     "ema200_uptrend_pct": [0, 3, 5, 8, 12, 18, 25, 40, 100],
     "consolidation_range_pct": [0, 4, 6, 8, 10, 13, 16, 20, 30],
     "bounce_off_low_pct": [0, 1, 2, 3, 4, 6, 8, 12, 30],
@@ -161,6 +164,16 @@ def main() -> None:
         out += ["### ema50_gt_ema200 (boolean)", "",
                 "| value | n | hit_rate | avg_R | median_R | PF |", "|---|---|---|---|---|---|"]
         for val, g in df.groupby(df["ema50_gt_ema200"].astype(bool)):
+            out.append(_fmt_row(str(val), _metrics(g)))
+        out.append("")
+
+    # price_above_ema50 (boolean) — the new screener ceiling (2026-09-17, replacing the old
+    # fixed +3% price_vs_ema200_pct band). False/NaN-safe rows are what the live screener
+    # would now let through; True rows are what it rejects.
+    if "price_above_ema50" in df.columns:
+        out += ["### price_above_ema50 (boolean) — new EMA50 ceiling", "",
+                "| value | n | hit_rate | avg_R | median_R | PF |", "|---|---|---|---|---|---|"]
+        for val, g in df.groupby(df["price_above_ema50"].astype("boolean"), dropna=False):
             out.append(_fmt_row(str(val), _metrics(g)))
         out.append("")
 
