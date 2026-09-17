@@ -58,6 +58,28 @@ Caveats: ~one market cycle of IEX history; survivorship-biased to today's
 universe; weak-RR trade plans excluded from the calibration numbers. Treat the
 output as a modest-edge candidate filter, re-run the calibration as more history
 and resolved live picks (pick_outcomes.csv) accumulate. See docs/strategy.md.
+
+CALIBRATION (2026-09-17): replaced the hard +3% price-vs-EMA200 ceiling
+(PRICE_VS_EMA200_MAX_PCT) with an EMA50-based ceiling. Live case: DAL was
+rejected at +3.11% vs EMA200 despite sitting in a clean 38.2-61.8% Fibonacci
+pullback with price back at its 50-day EMA — a genuine uptrend pullback that
+the old absolute-distance-from-EMA200 ceiling had no way to distinguish from a
+stock simply extended far above its long-term average. The screener now
+rejects only when price is currently ABOVE its EMA50 (see price_above_ema50
+below); the -20% EMA200 depth floor (PRICE_VS_EMA200_MIN_PCT) is unchanged.
+This lets a real ema_band_pullback candidate like DAL reach
+core/trend_context.py's classify_setup_type() instead of being rejected
+upstream of it.
+
+IMPORTANT — NOT backtested: this exact rule combination (existing -20% EMA200
+floor + new "must be at/below EMA50" ceiling) has not been run through the
+calibration pipeline. research/pullback_to_50_ema_ab.py tested a related but
+stricter pattern (price below EMA50 AND above EMA200, i.e. a 0% EMA200 floor)
+and found PF 1.35 full-period but PF 0.69 in the 2022 bear year — a
+meaningfully worse standalone result in a drawdown regime, and it used a 0%
+EMA200 floor rather than this module's -20%. That result does not directly
+validate this looser combination; treat this change as a live-case-motivated
+fix, not a calibrated one, until it's re-run through the calibration dataset.
 """
 
 from __future__ import annotations
@@ -96,11 +118,12 @@ EMA200_MIN_UPTREND_PCT = 5.0
 EMA200_CURRENT_SLOPE_LOOKBACK_DAYS = 20
 EMA200_CURRENT_SLOPE_MIN_PCT = -2.0
 
-# Price must sit within this band of EMA200. Calibrated: the realised edge is
-# monotonic in pullback DEPTH (deeper is better, all the way down to ~-25%), and
-# fades to nothing above ~+3%. This is deliberately a deep-pullback filter.
+# Price must not sit too far BELOW EMA200 (depth floor). Calibrated: the realised
+# edge is monotonic in pullback DEPTH (deeper is better, all the way down to ~-25%).
+# The former hard ceiling above EMA200 (PRICE_VS_EMA200_MAX_PCT) has been replaced
+# by an EMA50-based ceiling — see CALIBRATION note (2026-09-17) above and the
+# price_above_ema50 gate in detect_pullback_reversal().
 PRICE_VS_EMA200_MIN_PCT = -20.0
-PRICE_VS_EMA200_MAX_PCT = 3.0
 
 # Consolidation window. Calibrated: a wider recent range was, if anything, slightly
 # better — so this is a loose sanity bound, not a "must be quiet" gate.
@@ -153,6 +176,12 @@ def measure_pullback_reversal(df: pd.DataFrame) -> dict | None:
     ema200_uptrend_pct = round((current_ema200 - ema200_then) / ema200_then * 100, 2)
     price_vs_ema200_pct = round((current_close - current_ema200) / current_ema200 * 100, 2)
 
+    price_above_ema50 = None
+    if "EMA50" in df.columns:
+        current_ema50 = float(df["EMA50"].iloc[-1])
+        if not pd.isna(current_ema50) and current_ema50 > 0:
+            price_above_ema50 = current_close > current_ema50
+
     ema200_current_slope_pct = None
     if len(ema200) > EMA200_CURRENT_SLOPE_LOOKBACK_DAYS:
         ema200_recent = float(ema200.iloc[-1 - EMA200_CURRENT_SLOPE_LOOKBACK_DAYS])
@@ -188,6 +217,7 @@ def measure_pullback_reversal(df: pd.DataFrame) -> dict | None:
         "ema200_uptrend_pct": ema200_uptrend_pct,
         "ema200_current_slope_pct": ema200_current_slope_pct,
         "price_vs_ema200_pct": price_vs_ema200_pct,
+        "price_above_ema50": price_above_ema50,
         "consolidation_range_pct": consolidation_range_pct,
         "bounce_off_low_pct": bounce_off_low_pct,
         "poc": poc,
@@ -347,6 +377,7 @@ def detect_pullback_reversal(df: pd.DataFrame) -> dict:
         "ema200_uptrend_pct": m["ema200_uptrend_pct"],
         "ema200_current_slope_pct": m["ema200_current_slope_pct"],
         "price_vs_ema200_pct": m["price_vs_ema200_pct"],
+        "price_above_ema50": m["price_above_ema50"],
         "consolidation_range_pct": m["consolidation_range_pct"],
         "bounce_off_low_pct": m["bounce_off_low_pct"],
     }
@@ -361,10 +392,21 @@ def detect_pullback_reversal(df: pd.DataFrame) -> dict:
                 "ema200_uptrend_pct": m["ema200_uptrend_pct"],
                 "ema200_current_slope_pct": m["ema200_current_slope_pct"]}
 
-    if not (PRICE_VS_EMA200_MIN_PCT <= m["price_vs_ema200_pct"] <= PRICE_VS_EMA200_MAX_PCT):
-        return {"detected": False, "reason": "price_too_far_from_ema200",
+    if m["price_vs_ema200_pct"] < PRICE_VS_EMA200_MIN_PCT:
+        return {"detected": False, "reason": "price_too_far_below_ema200",
                 "ema200_uptrend_pct": m["ema200_uptrend_pct"],
                 "price_vs_ema200_pct": m["price_vs_ema200_pct"]}
+
+    if m["price_above_ema50"] is None:
+        return {"detected": False, "reason": "insufficient_data",
+                "ema200_uptrend_pct": m["ema200_uptrend_pct"],
+                "price_vs_ema200_pct": m["price_vs_ema200_pct"]}
+
+    if m["price_above_ema50"] is True:
+        return {"detected": False, "reason": "price_above_ema50",
+                "ema200_uptrend_pct": m["ema200_uptrend_pct"],
+                "price_vs_ema200_pct": m["price_vs_ema200_pct"],
+                "price_above_ema50": m["price_above_ema50"]}
 
     if m["consolidation_range_pct"] > CONSOLIDATION_MAX_RANGE_PCT:
         return {"detected": False, "reason": "not_consolidating",
@@ -388,6 +430,7 @@ def detect_pullback_reversal(df: pd.DataFrame) -> dict:
         "ema200_uptrend_pct": m["ema200_uptrend_pct"],
         "ema200_current_slope_pct": m["ema200_current_slope_pct"],
         "price_vs_ema200_pct": m["price_vs_ema200_pct"],
+        "price_above_ema50": m["price_above_ema50"],
         "consolidation_range_pct": m["consolidation_range_pct"],
         "bounce_off_low_pct": m["bounce_off_low_pct"],
         "poc": m["poc"],
