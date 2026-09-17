@@ -1,0 +1,62 @@
+name: SwingFinder Calibration
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Random sample size from the live universe (0 = full universe)"
+        required: false
+        default: "0"
+      start:
+        description: "History start date (YYYY-MM-DD)"
+        required: false
+        default: "2020-01-01"
+      weak_rr:
+        description: "Include or exclude weak_rr rows in the analysis pass"
+        required: false
+        default: "keep"
+        type: choice
+        options:
+          - keep
+          - exclude
+
+permissions:
+  contents: write
+
+jobs:
+  calibrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build calibration dataset (Stage 1)
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+        run: |
+          set -eo pipefail
+          python -m research.build_calibration_dataset --start "${{ inputs.start }}" --limit "${{ inputs.limit }}"
+
+      - name: Analyze calibration dataset (Stage 2)
+        run: |
+          set -eo pipefail
+          python -m research.analyze_calibration --weak-rr ${{ inputs.weak_rr }}
+
+      - name: Commit findings
+        run: |
+          set -eo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add research/calibration_findings.md
+          git diff --cached --quiet && echo "No changes to commit" || \
+            git commit -m "Calibration findings: $(date -u +%Y-%m-%d\ %H:%M)Z"
+          git push
