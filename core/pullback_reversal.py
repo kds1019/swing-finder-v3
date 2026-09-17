@@ -71,15 +71,27 @@ This lets a real ema_band_pullback candidate like DAL reach
 core/trend_context.py's classify_setup_type() instead of being rejected
 upstream of it.
 
-IMPORTANT — NOT backtested: this exact rule combination (existing -20% EMA200
-floor + new "must be at/below EMA50" ceiling) has not been run through the
-calibration pipeline. research/pullback_to_50_ema_ab.py tested a related but
-stricter pattern (price below EMA50 AND above EMA200, i.e. a 0% EMA200 floor)
-and found PF 1.35 full-period but PF 0.69 in the 2022 bear year — a
-meaningfully worse standalone result in a drawdown regime, and it used a 0%
-EMA200 floor rather than this module's -20%. That result does not directly
-validate this looser combination; treat this change as a live-case-motivated
-fix, not a calibrated one, until it's re-run through the calibration dataset.
+BACKTESTED (2026-09-17, same day, after the fix above): ran through
+research/build_calibration_dataset.py + research/analyze_calibration.py
+(full universe, 1,059 tickers, 2021-10-01..2026-08-05, 557,936 wide-net rows —
+the net's own price_vs_ema200_pct ceiling was widened 14%->30% for this run,
+since the old net was sized around the dead +3% ceiling and would have
+silently clipped the exact region this fix opens up). Verdict: the fix holds.
+  - "current thresholds" (this module's live gates, EMA50 ceiling included):
+    n=152,123, hit_rate 26.2%, avg_R +0.166, PF 1.26 — matches the pre-fix
+    headline PF ~1.27 (train 1.24 / test 1.33) essentially unchanged, despite
+    the reachable price_vs_ema200_pct range roughly tripling.
+  - price_above_ema50 boolean split (the gate itself, isolated): False (passes
+    the new ceiling) -> n=249,711, hit_rate 25.9%, avg_R +0.169, PF 1.26. True
+    (rejected) -> n=308,225, hit_rate 10.2%, avg_R +0.050, PF 1.08. Confirms
+    the gate is doing real separating work, not just admitting noise.
+  - Walk-forward by year (current thresholds): every year PF >= 1.18 except
+    2022 (PF 0.90, still a loss but a smaller one than research/
+    pullback_to_50_ema_ab.py's stricter 0%-floor variant saw in the same year,
+    PF 0.69) — 2024 1.48, 2025 1.21, 2026 (partial) 1.54.
+  - Caveat carried over from every calibration note in this file: ~one market
+    cycle of IEX history, survivorship-biased to today's universe. See
+    research/calibration_findings.md for the full per-feature/per-year tables.
 """
 
 from __future__ import annotations
