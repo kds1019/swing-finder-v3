@@ -58,6 +58,40 @@ Caveats: ~one market cycle of IEX history; survivorship-biased to today's
 universe; weak-RR trade plans excluded from the calibration numbers. Treat the
 output as a modest-edge candidate filter, re-run the calibration as more history
 and resolved live picks (pick_outcomes.csv) accumulate. See docs/strategy.md.
+
+CALIBRATION (2026-09-17): replaced the hard +3% price-vs-EMA200 ceiling
+(PRICE_VS_EMA200_MAX_PCT) with an EMA50-based ceiling. Live case: DAL was
+rejected at +3.11% vs EMA200 despite sitting in a clean 38.2-61.8% Fibonacci
+pullback with price back at its 50-day EMA — a genuine uptrend pullback that
+the old absolute-distance-from-EMA200 ceiling had no way to distinguish from a
+stock simply extended far above its long-term average. The screener now
+rejects only when price is currently ABOVE its EMA50 (see price_above_ema50
+below); the -20% EMA200 depth floor (PRICE_VS_EMA200_MIN_PCT) is unchanged.
+This lets a real ema_band_pullback candidate like DAL reach
+core/trend_context.py's classify_setup_type() instead of being rejected
+upstream of it.
+
+BACKTESTED (2026-09-17, same day, after the fix above): ran through
+research/build_calibration_dataset.py + research/analyze_calibration.py
+(full universe, 1,059 tickers, 2021-10-01..2026-08-05, 557,936 wide-net rows —
+the net's own price_vs_ema200_pct ceiling was widened 14%->30% for this run,
+since the old net was sized around the dead +3% ceiling and would have
+silently clipped the exact region this fix opens up). Verdict: the fix holds.
+  - "current thresholds" (this module's live gates, EMA50 ceiling included):
+    n=152,123, hit_rate 26.2%, avg_R +0.166, PF 1.26 — matches the pre-fix
+    headline PF ~1.27 (train 1.24 / test 1.33) essentially unchanged, despite
+    the reachable price_vs_ema200_pct range roughly tripling.
+  - price_above_ema50 boolean split (the gate itself, isolated): False (passes
+    the new ceiling) -> n=249,711, hit_rate 25.9%, avg_R +0.169, PF 1.26. True
+    (rejected) -> n=308,225, hit_rate 10.2%, avg_R +0.050, PF 1.08. Confirms
+    the gate is doing real separating work, not just admitting noise.
+  - Walk-forward by year (current thresholds): every year PF >= 1.18 except
+    2022 (PF 0.90, still a loss but a smaller one than research/
+    pullback_to_50_ema_ab.py's stricter 0%-floor variant saw in the same year,
+    PF 0.69) — 2024 1.48, 2025 1.21, 2026 (partial) 1.54.
+  - Caveat carried over from every calibration note in this file: ~one market
+    cycle of IEX history, survivorship-biased to today's universe. See
+    research/calibration_findings.md for the full per-feature/per-year tables.
 """
 
 from __future__ import annotations
@@ -96,11 +130,12 @@ EMA200_MIN_UPTREND_PCT = 5.0
 EMA200_CURRENT_SLOPE_LOOKBACK_DAYS = 20
 EMA200_CURRENT_SLOPE_MIN_PCT = -2.0
 
-# Price must sit within this band of EMA200. Calibrated: the realised edge is
-# monotonic in pullback DEPTH (deeper is better, all the way down to ~-25%), and
-# fades to nothing above ~+3%. This is deliberately a deep-pullback filter.
+# Price must not sit too far BELOW EMA200 (depth floor). Calibrated: the realised
+# edge is monotonic in pullback DEPTH (deeper is better, all the way down to ~-25%).
+# The former hard ceiling above EMA200 (PRICE_VS_EMA200_MAX_PCT) has been replaced
+# by an EMA50-based ceiling — see CALIBRATION note (2026-09-17) above and the
+# price_above_ema50 gate in detect_pullback_reversal().
 PRICE_VS_EMA200_MIN_PCT = -20.0
-PRICE_VS_EMA200_MAX_PCT = 3.0
 
 # Consolidation window. Calibrated: a wider recent range was, if anything, slightly
 # better — so this is a loose sanity bound, not a "must be quiet" gate.
@@ -153,6 +188,12 @@ def measure_pullback_reversal(df: pd.DataFrame) -> dict | None:
     ema200_uptrend_pct = round((current_ema200 - ema200_then) / ema200_then * 100, 2)
     price_vs_ema200_pct = round((current_close - current_ema200) / current_ema200 * 100, 2)
 
+    price_above_ema50 = None
+    if "EMA50" in df.columns:
+        current_ema50 = float(df["EMA50"].iloc[-1])
+        if not pd.isna(current_ema50) and current_ema50 > 0:
+            price_above_ema50 = current_close > current_ema50
+
     ema200_current_slope_pct = None
     if len(ema200) > EMA200_CURRENT_SLOPE_LOOKBACK_DAYS:
         ema200_recent = float(ema200.iloc[-1 - EMA200_CURRENT_SLOPE_LOOKBACK_DAYS])
@@ -188,6 +229,7 @@ def measure_pullback_reversal(df: pd.DataFrame) -> dict | None:
         "ema200_uptrend_pct": ema200_uptrend_pct,
         "ema200_current_slope_pct": ema200_current_slope_pct,
         "price_vs_ema200_pct": price_vs_ema200_pct,
+        "price_above_ema50": price_above_ema50,
         "consolidation_range_pct": consolidation_range_pct,
         "bounce_off_low_pct": bounce_off_low_pct,
         "poc": poc,
@@ -347,6 +389,7 @@ def detect_pullback_reversal(df: pd.DataFrame) -> dict:
         "ema200_uptrend_pct": m["ema200_uptrend_pct"],
         "ema200_current_slope_pct": m["ema200_current_slope_pct"],
         "price_vs_ema200_pct": m["price_vs_ema200_pct"],
+        "price_above_ema50": m["price_above_ema50"],
         "consolidation_range_pct": m["consolidation_range_pct"],
         "bounce_off_low_pct": m["bounce_off_low_pct"],
     }
@@ -361,10 +404,21 @@ def detect_pullback_reversal(df: pd.DataFrame) -> dict:
                 "ema200_uptrend_pct": m["ema200_uptrend_pct"],
                 "ema200_current_slope_pct": m["ema200_current_slope_pct"]}
 
-    if not (PRICE_VS_EMA200_MIN_PCT <= m["price_vs_ema200_pct"] <= PRICE_VS_EMA200_MAX_PCT):
-        return {"detected": False, "reason": "price_too_far_from_ema200",
+    if m["price_vs_ema200_pct"] < PRICE_VS_EMA200_MIN_PCT:
+        return {"detected": False, "reason": "price_too_far_below_ema200",
                 "ema200_uptrend_pct": m["ema200_uptrend_pct"],
                 "price_vs_ema200_pct": m["price_vs_ema200_pct"]}
+
+    if m["price_above_ema50"] is None:
+        return {"detected": False, "reason": "insufficient_data",
+                "ema200_uptrend_pct": m["ema200_uptrend_pct"],
+                "price_vs_ema200_pct": m["price_vs_ema200_pct"]}
+
+    if m["price_above_ema50"] is True:
+        return {"detected": False, "reason": "price_above_ema50",
+                "ema200_uptrend_pct": m["ema200_uptrend_pct"],
+                "price_vs_ema200_pct": m["price_vs_ema200_pct"],
+                "price_above_ema50": m["price_above_ema50"]}
 
     if m["consolidation_range_pct"] > CONSOLIDATION_MAX_RANGE_PCT:
         return {"detected": False, "reason": "not_consolidating",
@@ -388,6 +442,7 @@ def detect_pullback_reversal(df: pd.DataFrame) -> dict:
         "ema200_uptrend_pct": m["ema200_uptrend_pct"],
         "ema200_current_slope_pct": m["ema200_current_slope_pct"],
         "price_vs_ema200_pct": m["price_vs_ema200_pct"],
+        "price_above_ema50": m["price_above_ema50"],
         "consolidation_range_pct": m["consolidation_range_pct"],
         "bounce_off_low_pct": m["bounce_off_low_pct"],
         "poc": m["poc"],
