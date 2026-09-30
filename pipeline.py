@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from typing import Optional
 
@@ -270,9 +271,51 @@ def compute_precomputed_flags(row, swing_sectors: set, open_order_symbols: set) 
     return flags
 
 
+# Support ("has the pullback stopped falling?") checks — the user's chosen rule (2026-09-30):
+# downgrade the pre-computed KnifeRiskTier one level when TWO of the three checks fail, or
+# ONE fails severely. Down-volume alone never counts as severe: DownUpVolumeRatio spans 12
+# bars, so a single sell-off day (e.g. CGNX's acquisition-day drop) can dominate it. Tuned
+# against the 2026-09-30 prompt A/B, where a one-failure rule pushed CSCO/CGNX (strong
+# trend_continuation names, contracting range, positive returns) below every reversion
+# bounce on down-volume alone, while PNW (range 1.65), SWX/WERN (-5% 10-day plus heavy
+# selling) and ALGT (still sliding on both horizons) clearly deserved the downgrade.
+SUPPORT_RANGE_FAIL, SUPPORT_RANGE_SEVERE = 1.1, 1.5          # RangeContractionRatio
+SUPPORT_DOWNVOL_FAIL = 1.3                                   # DownUpVolumeRatio
+SUPPORT_TREND_FAIL_10D, SUPPORT_TREND_SEVERE_10D = -3.0, -4.0  # Last10dReturnPct (%)
+_TIER_TO_SUPPORT = {"stabilising": "confirmed", "forming": "forming", "still_falling": "still_falling"}
+_SUPPORT_DOWNGRADE = {"confirmed": "forming", "forming": "still_falling", "still_falling": "still_falling"}
+
+
+def compute_support_check(row) -> dict:
+    """{"range"/"volume"/"trend": "pass"|"fail"|"severe"|"n/a", "failures": int,
+    "severe": bool, "tier_support", "suggested_support"} for one shortlist row — see the
+    SUPPORT_* constants above for the rule."""
+    rcr, duv = _num(row.get("RangeContractionRatio")), _num(row.get("DownUpVolumeRatio"))
+    r5, r10 = _num(row.get("Last5dReturnPct")), _num(row.get("Last10dReturnPct"))
+    rng = ("n/a" if rcr is None else "severe" if rcr >= SUPPORT_RANGE_SEVERE
+           else "fail" if rcr > SUPPORT_RANGE_FAIL else "pass")
+    vol = "n/a" if duv is None else "fail" if duv > SUPPORT_DOWNVOL_FAIL else "pass"
+    if r10 is None:
+        trend = "n/a"
+    elif r10 <= SUPPORT_TREND_SEVERE_10D and r5 is not None and r5 < 0:
+        trend = "severe"
+    elif r10 <= SUPPORT_TREND_FAIL_10D:
+        trend = "fail"
+    else:
+        trend = "pass"
+    checks = (rng, vol, trend)
+    failures = sum(c in ("fail", "severe") for c in checks)
+    severe = "severe" in checks
+    tier = _TIER_TO_SUPPORT.get(row.get("KnifeRiskTier"), "forming")
+    suggested = _SUPPORT_DOWNGRADE[tier] if (failures >= 2 or severe) else tier
+    return {"range": rng, "volume": vol, "trend": trend, "failures": failures, "severe": severe,
+            "tier_support": tier, "suggested_support": suggested}
+
+
 def attach_precomputed_flags(final_df: pd.DataFrame, portfolio_context: dict,
                              sector_lookup: dict, excluded_tickers) -> pd.DataFrame:
-    """Adds a PrecomputedFlags column (see compute_precomputed_flags). SectorOverlap counts
+    """Adds PrecomputedFlags (see compute_precomputed_flags) and SupportCheck (see
+    compute_support_check) columns. SectorOverlap counts
     only current SWING positions — the user's long-term holds (settings.excluded_tickers)
     are not swing exposure."""
     if final_df.empty:
@@ -282,8 +325,9 @@ def attach_precomputed_flags(final_df: pd.DataFrame, portfolio_context: dict,
                      if sym and sym not in set(excluded_tickers or ())} - {None}
     open_syms = {o.get("symbol") for o in portfolio_context.get("open_orders") or []} - {None}
     out = final_df.copy()
-    out["PrecomputedFlags"] = [compute_precomputed_flags(r, swing_sectors, open_syms)
-                               for r in out.to_dict(orient="records")]
+    records = out.to_dict(orient="records")
+    out["PrecomputedFlags"] = [compute_precomputed_flags(r, swing_sectors, open_syms) for r in records]
+    out["SupportCheck"] = [compute_support_check(r) for r in records]
     return out
 
 
@@ -310,6 +354,26 @@ def finalize_pick_fields(picks: list[dict], final_df: pd.DataFrame) -> None:
             print(f"[pipeline] {p.get('ticker')}: dropped non-judgment model flags {dropped}",
                   file=sys.stderr)
         p["flags"] = flags
+
+
+def annotate_summary_names(result: dict, pool_tickers) -> None:
+    """In place, after the sector cap: the Decision Agent writes overall_recommendation BEFORE
+    the cap runs and is told not to name tickers, but did so in 1 of 3 prompt-A/B samples
+    (2026-09-30). If it names any candidate that isn't in the final ranked_picks, append a
+    note saying so — so a summary can never silently recommend a name the cap removed (the
+    CSCO case from the 9/30 live run). Never raises."""
+    summary = result.get("overall_recommendation")
+    if not isinstance(summary, str) or not summary:
+        return
+    final = {p.get("ticker") for p in result.get("ranked_picks") or []}
+    named = [t for t in pool_tickers if isinstance(t, str) and re.search(rf"\b{re.escape(t)}\b", summary)]
+    dropped = [t for t in named if t not in final]
+    if dropped:
+        result["overall_recommendation"] = (
+            f"{summary} [Pipeline note: {', '.join(dropped)} "
+            f"{'is' if len(dropped) == 1 else 'are'} named above but not in the final list "
+            f"(removed by the sector cap or excluded).]"
+        )
 
 
 def attach_price_context(enriched_df: pd.DataFrame, bars_by_ticker: dict) -> pd.DataFrame:
@@ -488,6 +552,7 @@ def run_pipeline(
         )
         result["ranked_picks"] = kept[:FINAL_WATCHLIST_SIZE]
         result["sector_capped_out"] = sector_capped_out
+        annotate_summary_names(result, final_df["Ticker"].tolist())
         print(f"[pipeline] Sector cap ({settings.sector_cap}/sector) on Decision Agent ranking: "
               f"{len(result['ranked_picks'])} final picks ({len(sector_capped_out)} capped out)",
               file=sys.stderr)

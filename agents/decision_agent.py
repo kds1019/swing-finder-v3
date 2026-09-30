@@ -128,6 +128,7 @@ fresh momentum. A negative headline the stock shrugged off is weaker than it rea
 ## Portfolio context and pre-computed flags
 - existing_positions / existing_sector_exposure / existing_open_orders: the user's
   current book. Use them to note overlap in the rationale or bear case.
+- SupportCheck (per candidate): see support_status below.
 - PrecomputedFlags (per candidate, computed in Python from the fields above — already
   correct, do not recompute or re-add them): HeavilyShorted (short % of float >= 10 or
   days to cover >= 5), ShortsAdding (short interest +10% or more vs prior report),
@@ -175,17 +176,14 @@ SetupType level. Say so in its rationale whenever you do this.
 
 # Per-candidate judgments
 - support_status: buying a pullback that is still falling is the main way this setup
-  loses, and KnifeRiskTier is a weak signal on its own (whole pools are often entirely
-  "stabilising") — so check EVERY candidate rather than copying the tier. Start from it
-  (stabilising -> "confirmed", forming -> "forming", still_falling -> "still_falling"),
-  then test three confirmations: RangeContractionRatio at or below ~1.0 (the range is
-  settling), DownUpVolumeRatio at or below ~1.0 (selling is drying up), and
-  Last5d/Last10dReturnPct no longer sharply negative. When they clearly fail — e.g. the
-  range still expanding (RangeContractionRatio ~1.3+), heavy down-volume (~1.3+), or a
-  still-sliding 10-day return — downgrade one level (confirmed -> "forming", forming ->
-  "still_falling"); RecentDailyBars can confirm either way. Keep the tier when a failure
-  is marginal or the research explains it (e.g. one earnings gap, flat since). State every
-  override, with the numbers, in the rationale.
+  loses. Each candidate carries SupportCheck, computed in Python: three checks — range
+  settling (RangeContractionRatio), selling drying up (DownUpVolumeRatio), price no longer
+  sliding (Last5d/Last10dReturnPct) — each "pass" / "fail" / "severe", and a
+  suggested_support that downgrades KnifeRiskTier one level when two checks fail or one is
+  severe. Use suggested_support. Deviate only for a specific, stated reason found in the
+  data — e.g. the heavy down-volume or the 10-day drop is a single earnings-gap or news day
+  and RecentDailyBars show price flat or rising since — and give the numbers in the
+  rationale. When suggested_support differs from the tier, say which checks failed.
 - catalyst_status: "recent" = a genuinely material item (earnings surprise, M&A,
   contract, regulatory decision, guidance change, executive change) whose OWN age_days is
   <= 7 — routine coverage being recent does not make an older catalyst recent.

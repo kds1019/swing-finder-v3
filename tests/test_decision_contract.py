@@ -8,7 +8,8 @@ Run: python -m tests.test_decision_contract   (or pytest, if installed)
 
 import pandas as pd
 
-from pipeline import attach_precomputed_flags, compute_precomputed_flags, finalize_pick_fields
+from pipeline import (annotate_summary_names, attach_precomputed_flags, compute_precomputed_flags,
+                      compute_support_check, finalize_pick_fields)
 
 
 def _row(**kw):
@@ -76,6 +77,40 @@ def test_nan_cells_do_not_crash_or_false_flag():
     r = _row(ShortInterest=float("nan"), InsiderActivity=np.nan, AnalystRating=None,
              EarningsProximityTier=np.nan, WeakRR=np.True_)
     assert compute_precomputed_flags(r, set(), set()) == ["WeakRR"]
+
+
+def _stab(t, rcr, duv, r5, r10, tier="stabilising"):
+    return {"Ticker": t, "KnifeRiskTier": tier, "RangeContractionRatio": rcr,
+            "DownUpVolumeRatio": duv, "Last5dReturnPct": r5, "Last10dReturnPct": r10}
+
+
+def test_support_check_matches_user_rule_on_real_930_values():
+    # one non-severe failure -> keep confirmed (the CSCO/CGNX case the user chose option 1 for)
+    assert compute_support_check(_stab("CSCO", 0.73, 1.45, 1.25, 0.05))["suggested_support"] == "confirmed"
+    assert compute_support_check(_stab("CGNX", 0.66, 1.62, 4.31, 0.90))["suggested_support"] == "confirmed"
+    assert compute_support_check(_stab("WTTR", 1.30, 0.99, 2.28, -2.76))["suggested_support"] == "confirmed"
+    # severe range alone -> downgrade
+    assert compute_support_check(_stab("PNW", 1.65, 0.81, 1.58, -1.55))["suggested_support"] == "forming"
+    # still sliding on both horizons (severe trend) -> downgrade
+    algt = compute_support_check(_stab("ALGT", 0.96, 0.99, -2.69, -4.54))
+    assert algt["trend"] == "severe" and algt["suggested_support"] == "forming"
+    # two failures -> downgrade; forming tier drops to still_falling
+    assert compute_support_check(_stab("GEO", 1.25, 1.66, -0.46, -3.02))["suggested_support"] == "forming"
+    assert compute_support_check(_stab("X", 1.2, 1.4, 1.0, 1.0, tier="forming"))["suggested_support"] == "still_falling"
+    # missing data never fails a check
+    assert compute_support_check(_stab("N", None, None, None, None))["suggested_support"] == "confirmed"
+
+
+def test_summary_names_not_in_final_list_get_a_note():
+    r = {"overall_recommendation": "Favor CSCO and FLEX; avoid WERN.",
+         "ranked_picks": [{"ticker": "FLEX"}]}
+    annotate_summary_names(r, ["CSCO", "FLEX", "WERN", "ON"])
+    assert r["overall_recommendation"].endswith(
+        "[Pipeline note: CSCO, WERN are named above but not in the final list "
+        "(removed by the sector cap or excluded).]"), r
+    clean = {"overall_recommendation": "Gate open; ONE theme dominates.", "ranked_picks": []}
+    annotate_summary_names(clean, ["ON"])           # word boundary: "ONE" is not "ON"
+    assert "Pipeline note" not in clean["overall_recommendation"]
 
 
 if __name__ == "__main__":

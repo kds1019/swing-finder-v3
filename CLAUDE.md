@@ -45,9 +45,13 @@ flag (the model's original label is kept in `catalyst_status_model`). A `Catalys
 the stock has already given back the move since a positive catalyst (the news was sold) — surface
 both flags, they are exactly the "looks clean but isn't" signals the user wants to see.
 
-`Support:` is the `support_status` field (`confirmed` / `forming` / `still_falling`) — the Decision
-Agent's read of whether the pullback has actually stopped falling. Always show it; a `still_falling`
-that made it into the list at all is worth the user's scrutiny.
+`Support:` is the `support_status` field (`confirmed` / `forming` / `still_falling`) — whether the
+pullback has actually stopped falling. Always show it; a `still_falling` that made it into the list
+at all is worth the user's scrutiny. It follows a Python-computed rule (pipeline.py
+`compute_support_check`, the user's choice): KnifeRiskTier is downgraded one level when two of
+three checks fail (range still expanding, heavy down-volume, 10-day return still sliding) or one
+fails severely (range ratio >= 1.5, or down on both the 5- and 10-day with 10-day <= -4%). The
+Decision Agent follows that suggestion unless the data gives a stated reason not to.
 
 `Setup:` is the `setup_type` field (`trend_continuation` / `ema_band_pullback` / `reversion_bounce` / `null`) — a
 DETERMINISTIC, Python-computed read (core/trend_context.py), separate from `Support:`/

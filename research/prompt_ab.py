@@ -46,8 +46,13 @@ RAW_OUT = HERE / "prompt_ab_raw.json"
 SUPPORT_ORDER = {"confirmed": 0, "forming": 1, "still_falling": 2}
 SETUP_ORDER = {"trend_continuation": 0, "ema_band_pullback": 1, "reversion_bounce": 2, None: 3}
 # (?<!-) skips compounds like "routine-sized"/"mid-size" — a false positive in the first A/B run
-SIZING_RE = re.compile(r"(?<!-)\b(siz(e|ed|ing)|shares?\b.*\$|position value|risk_amount|position_shares)",
-                       re.IGNORECASE)
+# Sizing ADVICE only. The first two runs matched plain uses of "size"/"sized"/"sizeable"
+# ("the size of insider selling", "routine-sized", "a sizeable purchase") — false positives.
+SIZING_RE = re.compile(
+    r"position[- ]siz|\bsiz(e|ed|ing) (it |them |this |the position |positions )?"
+    r"(conservatively|smaller|down|modestly|lightly)|(smaller|modest|reduced|half|lighter|full)"
+    r"[- ]?(position[- ]?)?siz(e|ing)\b|\bshare count|\bposition value|\brisk_amount|\bposition_shares",
+    re.IGNORECASE)
 ALLOWED_V2_FLAGS = {"CatalystFaded", "EarningsCatalyst"}
 
 
@@ -88,13 +93,17 @@ def audit(out: dict, payload: dict, as_of: pd.Timestamp, label: str) -> dict:
                 stale_recent.append(f"{p['ticker']}({p.get('catalyst_date')})")
 
     tier_map = {"stabilising": "confirmed", "forming": "forming", "still_falling": "still_falling"}
-    overrides, unexplained = [], []
+    overrides, unexplained, vs_check = [], [], []
     for p in picks:
-        tier = shortlist.get(p.get("ticker"), {}).get("KnifeRiskTier")
+        rec = shortlist.get(p.get("ticker"), {})
+        tier = rec.get("KnifeRiskTier")
         if tier in tier_map and p.get("support_status") != tier_map[tier]:
             overrides.append(f"{p['ticker']}:{tier}->{p.get('support_status')}")
-            if not re.search(r"overrid|downgrad|upgrad|KnifeRisk|stabilis", str(p.get("rationale", "")), re.I):
+            if not re.search(r"overrid|downgrad|upgrad|KnifeRisk|stabilis|fail|check", str(p.get("rationale", "")), re.I):
                 unexplained.append(p["ticker"])
+        sugg = (rec.get("SupportCheck") or {}).get("suggested_support")
+        if sugg and p.get("support_status") != sugg:
+            vs_check.append(f"{p['ticker']}:{sugg}->{p.get('support_status')}")
 
     bad_flags = sorted({f for p in picks for f in (p.get("flags") or [])} - ALLOWED_V2_FLAGS)
     return {
@@ -104,7 +113,7 @@ def audit(out: dict, payload: dict, as_of: pd.Timestamp, label: str) -> dict:
         "still_falling_violations": len(sf_violations),
         "sizing_picks": sizing, "summary_sizing": summary_sizing, "summary_names": summary_names,
         "stale_recent": stale_recent, "support_overrides": overrides,
-        "support_overrides_unexplained": unexplained, "flags_outside_judgment_set": bad_flags,
+        "support_overrides_unexplained": unexplained, "support_vs_supportcheck": vs_check, "flags_outside_judgment_set": bad_flags,
         "catalyst_counts": pd.Series([p.get("catalyst_status") for p in picks]).value_counts().to_dict(),
         "support_counts": pd.Series([p.get("support_status") for p in picks]).value_counts().to_dict(),
         "order": ranked,
@@ -155,6 +164,7 @@ def main():
             ("still_falling above others", "still_falling_violations"),
             ("support overrides vs KnifeRiskTier", "support_overrides"),
             ("  ...not explained in rationale", "support_overrides_unexplained"),
+            ("deviations from SupportCheck (v1 never saw it)", "support_vs_supportcheck"),
             ("sizing talk (picks)", "sizing_picks"), ("sizing talk (summary)", "summary_sizing"),
             ("tickers named in summary", "summary_names"), ("'recent' older than 7d", "stale_recent"),
             ("flags outside judgment set", "flags_outside_judgment_set"),
