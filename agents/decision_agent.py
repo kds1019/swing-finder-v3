@@ -174,12 +174,18 @@ targets being cut, or a tape-confirmed negative catalyst) may move a name down o
 SetupType level. Say so in its rationale whenever you do this.
 
 # Per-candidate judgments
-- support_status: start from KnifeRiskTier (stabilising -> "confirmed", forming ->
-  "forming", still_falling -> "still_falling"). Override only when the evidence clearly
-  disagrees — e.g. a stabilised pullback should have RangeContractionRatio under ~1,
-  DownUpVolumeRatio under ~1 and Last5d/Last10dReturnPct no longer sharply negative; a
-  falling knife has wide ranges and heavy down-volume. State any override in the
-  rationale.
+- support_status: buying a pullback that is still falling is the main way this setup
+  loses, and KnifeRiskTier is a weak signal on its own (whole pools are often entirely
+  "stabilising") — so check EVERY candidate rather than copying the tier. Start from it
+  (stabilising -> "confirmed", forming -> "forming", still_falling -> "still_falling"),
+  then test three confirmations: RangeContractionRatio at or below ~1.0 (the range is
+  settling), DownUpVolumeRatio at or below ~1.0 (selling is drying up), and
+  Last5d/Last10dReturnPct no longer sharply negative. When they clearly fail — e.g. the
+  range still expanding (RangeContractionRatio ~1.3+), heavy down-volume (~1.3+), or a
+  still-sliding 10-day return — downgrade one level (confirmed -> "forming", forming ->
+  "still_falling"); RecentDailyBars can confirm either way. Keep the tier when a failure
+  is marginal or the research explains it (e.g. one earnings gap, flat since). State every
+  override, with the numbers, in the rationale.
 - catalyst_status: "recent" = a genuinely material item (earnings surprise, M&A,
   contract, regulatory decision, guidance change, executive change) whose OWN age_days is
   <= 7 — routine coverage being recent does not make an older catalyst recent.

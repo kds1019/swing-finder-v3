@@ -17,7 +17,7 @@ on:
       runs:
         description: "Runs per prompt (each is one sample)"
         required: false
-        default: "1"
+        default: "2"
 
 permissions:
   contents: write
@@ -71,7 +71,7 @@ jobs:
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
         run: |
           set -eo pipefail
-          python -m research.prompt_ab --input decision_input.json --runs "${{ inputs.runs || '1' }}"
+          python -m research.prompt_ab --input decision_input.json --runs "${{ inputs.runs || '2' }}"
           mkdir -p research/prompt_ab_inputs
           cp decision_input.json "research/prompt_ab_inputs/$(date -u +%Y-%m-%d_%H%M)Z.json"
 
