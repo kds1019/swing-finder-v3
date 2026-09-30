@@ -9,7 +9,10 @@ plus `utils/target_calculator.py::calculate_fibonacci_target()` and
 Stop: swing-low/EMA-anchored, not a flat ATR multiple.
     base_stop = min(10-day swing low, EMA20 - 1.3*ATR14)
     falls back to (price - 1.2*ATR14) if that isn't below price
-    then tightened to nearest support cluster if one exists within 3*ATR
+    then moved to just below the nearest support cluster if one exists within 3*ATR —
+    live, only when that LOWERS the stop (settings.stop_support_can_tighten=False; see
+    research/stop_floor_ab.md). compute_trade_plan's own default still allows raising it,
+    so research scripts that pass no knobs reproduce the pre-2026-09-30 behavior.
 Target: Fibonacci 1.618 extension of the most recent 20-bar swing, floored
     at `min_rr_ratio` (settings.min_risk_reward) if the raw extension doesn't
     clear it, and capped at MAX_RISK_REWARD_RATIO if it overshoots (see that
