@@ -1,0 +1,60 @@
+name: Stop-floor A/B (research)
+
+# Research-only: runs research/stop_floor_ab.py and commits research/stop_floor_ab.md back to
+# the branch it ran on. Triggered on push (not only workflow_dispatch) because
+# workflow_dispatch can only start a workflow file that already exists on the default branch —
+# this lets the A/B run from a feature branch before anything is merged to main.
+on:
+  push:
+    branches: [ccr-3234a2da-m34vhy]
+    paths:
+      - research/stop_floor_ab.py
+      - core/trade_plan.py
+      - .github/workflows/stop_floor_ab.yml
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Random sample size from the live universe"
+        required: false
+        default: "500"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stop-floor-ab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run stop-floor A/B
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+        run: |
+          set -eo pipefail
+          python -m research.stop_floor_ab --limit "${{ inputs.limit || '500' }}" --rebuild
+
+      - name: Commit findings
+        run: |
+          set -eo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add research/stop_floor_ab.md
+          if git diff --cached --quiet; then echo "No changes to commit"; exit 0; fi
+          git commit -m "Stop-floor A/B results: $(date -u +%Y-%m-%d\ %H:%M)Z"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
