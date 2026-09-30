@@ -29,7 +29,7 @@ Actions run), present **every** ranked pick returned (up to `FINAL_WATCHLIST_SIZ
 top-N subset or a condensed table. For each pick, show the full detail:
 
 ```
-**N. TICKER** — Entry $X / Stop $X / Target $X / R:R X.XX | N sh, risk $X, value $X | Sentiment: X | Catalyst: X | Support: X | Setup: X | Exit: X | Short: X | Insider: X
+**N. TICKER** — Entry $X / Stop $X / Target $X / R:R X.XX | Sentiment: X | Catalyst: X | Support: X | Setup: X | Exit: X | Short: X | Insider: X
 Highlight: <research_highlight>
 Rationale: <rationale>
 Bear case: <bear_case>
@@ -65,9 +65,7 @@ pullback outside the Fib zone) — treat it like any other technically-clean-but
 
 `Exit:` is the `exit_mode` field (`trailing` / `fixed_target`), set from `setup_type`:
 `reversion_bounce` picks get `fixed_target` (trailing disabled — treat the quoted `Stop`/`Target`
-as real, fixed levels for a quick in-and-out; `position_shares`/`risk_amount`/`position_value`
-for these are already sized at `reversion_bounce_size_mult` — normally half — of a normal pick,
-not the full `risk_per_trade_pct`). Everything else (`trend_continuation`, `null`) gets
+as real, fixed levels for a quick in-and-out). Everything else (`trend_continuation`, `null`) gets
 `trailing`: `Target` is a ceiling only, the live exit is the +2R-activated trailing stop, so
 realised R:R normally lands below the quoted `R:R` — this is the unchanged pre-existing behavior.
 
@@ -95,18 +93,22 @@ interest (`HeavilyShorted`/`ShortsAdding` + `InsiderSelling`) reinforces rather 
 the bear case. Zero activity either way is genuinely uninformative, not a signal.
 
 Also surface, before the per-ticker list: market bias, VIX/gate status, and — if present in the
-output — `pick_track_record` (the system's own historical win rate) and any account-balance /
-buying-power caveat the Decision Agent's `overall_recommendation` raises about position sizing not
-being executable at current cash levels. These are not optional footnotes — the user has been
-burned before by picks that look clean technically but come with a weak track record or unusable
-sizing, and wants that surfaced prominently, not buried.
+output — `pick_track_record` (the system's own historical win rate). This is not an optional
+footnote — the user has been burned before by picks that look clean technically but come with a
+weak track record, and wants that surfaced prominently, not buried.
+
+**Never include position sizing** — no share counts, dollar risk, position value, "size
+conservatively" advice, or buying-power math — in results or recommendations. The pipeline no
+longer computes it (removed 2026-09-30 per user instruction): the user sizes every trade
+themselves at entry, based on their open positions, their risk tolerance, and the trade type.
 
 Do not default to a short "top 3/5" summary or a compressed markdown table — that is not what this
 user wants, regardless of how a fresh session might otherwise choose to summarize a large result set.
 
 ## Account / risk configuration (do not change without explicit request)
 
-- `config/settings.py::risk_per_trade_pct = 4.0` — user's chosen risk-per-trade percentage.
+- `config/settings.py::risk_per_trade_pct = 4.0` — used only by the research/ portfolio
+  backtests' simulated sizing; the live pipeline does no position sizing (see above).
 - `config/settings.py::excluded_tickers = ("HELP", "CYBN")` — the user's existing long-term
   holds (same company, renamed ticker); never swing candidates, always excluded pre-screener.
 - `agents/decision_agent.py::MODEL = "claude-sonnet-5"` — **rejects any non-default sampling

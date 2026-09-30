@@ -338,13 +338,10 @@ Your job:
    of "confirmed" / "forming" / "still_falling" for every ticker. A "still_falling" ticker
    should be excluded or ranked at the very bottom regardless of how good its fundamentals look
    — this is a distinct axis from the fundamental read in point 2, not a tiebreaker. "forming"
-   is acceptable but ranks below "confirmed" all else equal. account_balance's
-   total_net_liquidation_value is the account's total equity, risk_per_trade_pct is the
-   configured max % of that to risk on any single trade. risk_amount =
-   total_net_liquidation_value * risk_per_trade_pct / 100; position_shares =
-   floor(risk_amount / abs(entry - stop)); position_value = position_shares * entry. If
-   total_net_liquidation_value is missing, non-numeric, or zero, set these three fields to
-   null rather than guessing.
+   is acceptable but ranks below "confirmed" all else equal. Position sizing is NOT part of
+   your job or your output — the user sizes each trade themselves at entry, based on their
+   open positions, their risk tolerance, and the trade type. Do not recommend share counts,
+   dollar amounts, or sizing tone ("size conservatively", "smaller size") anywhere.
 4. Flag risks for each selected pick: sector concentration relative to EXISTING Webull
    positions (not just this run's candidates), an existing pending order on the same ticker
    (existing_open_orders lists symbol/side/status/order_type/quantity/prices not yet filled —
@@ -413,8 +410,7 @@ support_status (point 2b) ARE part of your job, not given inputs. When support_s
   "tickers_reviewed": int,
   "ranked_picks": [
     {{"ticker": str, "rank": int, "entry": number, "stop": number, "target": number,
-     "rr_ratio": number, "position_shares": number, "risk_amount": number,
-     "position_value": number, "research_highlight": str,
+     "rr_ratio": number, "research_highlight": str,
      "news_sentiment": "Positive" | "Negative" | "Neutral" | "Mixed" | null,
      "catalyst_status": "recent" | "upcoming" | "none",
      "catalyst_date": "YYYY-MM-DD" | null,
@@ -441,18 +437,15 @@ class DecisionAgent:
         portfolio_context: dict,
         market_gate_open: bool,
         pick_track_record: Optional[dict] = None,
-        risk_per_trade_pct: Optional[float] = None,
     ) -> str:
         shortlist_records = json.loads(research_data.to_json(orient="records")) if not research_data.empty else []
         payload = {
             "market_gate_open": market_gate_open,
             "shortlist": shortlist_records,
             "existing_positions": portfolio_context.get("positions", []),
-            "account_balance": portfolio_context.get("balance", {}),
             "existing_sector_exposure": portfolio_context.get("sector_exposure", {}),
             "existing_open_orders": portfolio_context.get("open_orders", []),
             "pick_track_record": pick_track_record,
-            "risk_per_trade_pct": risk_per_trade_pct,
         }
         return json.dumps(payload, default=str, indent=2)
 
@@ -462,10 +455,9 @@ class DecisionAgent:
         portfolio_context: dict,
         market_gate_open: bool,
         pick_track_record: Optional[dict] = None,
-        risk_per_trade_pct: Optional[float] = None,
     ) -> dict:
         user_prompt = self._build_user_prompt(
-            research_data, portfolio_context, market_gate_open, pick_track_record, risk_per_trade_pct,
+            research_data, portfolio_context, market_gate_open, pick_track_record,
         )
 
         # Scaled to candidate-pool size (every technically-screened ticker passed in here — the
@@ -473,7 +465,7 @@ class DecisionAgent:
         # the whole candidate pool, which can be well over FINAL_WATCHLIST_SIZE; the 3/sector
         # cap in pipeline.py trims it to the final list afterward).
         # 4000/ticker + 4000 overhead is the per-ticker budget prior prompt growth settled on
-        # (see git history) once FMP research, position sizing, and open-order checks were all
+        # (see git history) once FMP research, (since-removed) position sizing, and open-order checks were all
         # in the prompt. Ceiling raised from an earlier, too-low 32000 to MODEL_MAX_OUTPUT_TOKENS
         # after a real 24-candidate run got cut off mid-JSON at 32000 tokens ("truncated": true,
         # stop_reason="max_tokens") — CANDIDATE_POOL_SIZE=40's worst case (4000*40+4000=164000)

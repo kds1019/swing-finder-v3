@@ -137,49 +137,19 @@ def attach_insider_activity(picks: list[dict], features_df: pd.DataFrame) -> Non
         p["insider_most_recent_sale_date"] = _na_to_none(ia.get("most_recent_sale_date"))
 
 
-def apply_trend_context_trade_management(
-    picks: list[dict], portfolio_context: dict, settings,
-) -> None:
-    """Phase 3 (docs/strategy.md): setup_type-aware trade management, applied in place AFTER
+def apply_trend_context_trade_management(picks: list[dict]) -> None:
+    """Phase 3 (docs/strategy.md): setup_type-aware exit mode, applied in place AFTER
     attach_trend_context() has already put `setup_type` on each pick.
       - exit_mode: "fixed_target" for reversion_bounce (trailing disabled downstream in
         core.pick_tracking.score_due_picks — a quick in-and-out, matching
         research/trend_context_backtest.py's bucketed exit); "trailing" for everything else
         (unchanged live default: +2R activate / trail peak-1R, never loosens). Target is
         still a ceiling in both modes; only whether the stop trails differs.
-      - sizing: reversion_bounce picks get position_shares/risk_amount/position_value
-        recomputed at settings.reversion_bounce_size_mult of the normal risk_per_trade_pct,
-        overriding the Decision Agent's own numbers for just those three fields (same formula
-        it uses — see agents/decision_agent.py point 3). Done here in Python, deterministically,
-        rather than asked of the LLM, for the same reason setup_type itself isn't part of its
-        JSON contract — see attach_trend_context above.
-    A first-cut, uncalibrated split (see docs/strategy.md's Phase 2 results) — not itself
-    independently tuned. Never raises; leaves sizing fields untouched (as the Decision Agent
-    set them) if account balance isn't available or a pick's entry/stop are missing."""
-    if not picks:
-        return
-    balance = portfolio_context.get("balance") or {}
-    try:
-        total_equity = float(balance.get("total_net_liquidation_value"))
-    except (TypeError, ValueError):
-        total_equity = None
-
-    for p in picks:
-        is_reversion = p.get("setup_type") == "reversion_bounce"
-        p["exit_mode"] = "fixed_target" if is_reversion else "trailing"
-        if not is_reversion:
-            continue
-        entry, stop = p.get("entry"), p.get("stop")
-        if total_equity is None or entry is None or stop is None:
-            continue
-        risk_per_share = abs(entry - stop)
-        if risk_per_share <= 0:
-            continue
-        risk_amount = total_equity * settings.risk_per_trade_pct * settings.reversion_bounce_size_mult / 100.0
-        position_shares = int(risk_amount // risk_per_share)
-        p["risk_amount"] = round(risk_amount, 2)
-        p["position_shares"] = position_shares
-        p["position_value"] = round(position_shares * entry, 2)
+    Position sizing is deliberately NOT done here or anywhere in the pipeline (removed
+    2026-09-30 per user instruction): the user sizes each trade at entry from their open
+    positions, risk tolerance, and trade type. Never raises."""
+    for p in picks or []:
+        p["exit_mode"] = "fixed_target" if p.get("setup_type") == "reversion_bounce" else "trailing"
 
 # ~1 quarter of calendar-day news — enough to judge the latest earnings reaction and any
 # recent catalyst/trend, without the ~2yr blob the old 270 (+ a stale *2.5 buffer in
@@ -355,10 +325,9 @@ def run_pipeline(
     print(f"[pipeline] After earnings buffer: {len(final_df)} tickers "
           f"({len(earnings_excluded_df)} excluded)", file=sys.stderr)
 
-    # --- Portfolio Agent: existing positions/balance/open-orders context ---
+    # --- Portfolio Agent: existing positions/sector-exposure/open-orders context ---
     portfolio_agent = PortfolioAgent(settings)
     positions_df = portfolio_agent.get_positions()
-    balance = portfolio_agent.get_account_balance()
     open_orders_df = portfolio_agent.get_open_orders()
     open_orders = portfolio_agent.flatten_open_orders(open_orders_df)
     sector_lookup = dict(zip(universe["Ticker"], universe["Sector"]))
@@ -366,7 +335,6 @@ def run_pipeline(
 
     portfolio_context = {
         "positions": json.loads(positions_df.to_json(orient="records")) if not positions_df.empty else [],
-        "balance": balance,
         "sector_exposure": sector_exposure,
         "open_orders": open_orders,
     }
@@ -381,7 +349,7 @@ def run_pipeline(
     # --- Decision Agent: research-driven RANKING of every candidate ---
     decision_agent = DecisionAgent(settings)
     result = decision_agent.synthesize(
-        final_df, portfolio_context, market_gate_open, pick_track_record, settings.risk_per_trade_pct,
+        final_df, portfolio_context, market_gate_open, pick_track_record,
     )
 
     # --- Diversification cap: keep the 3 highest-RANKED names per sector, then take the top
@@ -411,7 +379,7 @@ def run_pipeline(
         attach_short_interest(result["sector_capped_out"], final_df)
         attach_insider_activity(result["ranked_picks"], final_df)
         attach_insider_activity(result["sector_capped_out"], final_df)
-        apply_trend_context_trade_management(result["ranked_picks"], portfolio_context, settings)
+        apply_trend_context_trade_management(result["ranked_picks"])
 
     # --- Pick outcome tracking (part 2): log this run's final (post-cap) picks for scoring. ---
     ranked_picks = result.get("ranked_picks", []) if isinstance(result, dict) else []
