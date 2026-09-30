@@ -45,7 +45,7 @@ import pandas as pd
 from config.settings import load_settings
 from core.indicators import compute_indicators
 from core.pullback_reversal import (
-    MIN_BARS_FOR_SCREENER, PRICE_VS_EMA200_MAX_PCT, PRICE_VS_EMA200_MIN_PCT,
+    MIN_BARS_FOR_SCREENER, PRICE_VS_EMA200_MIN_PCT,
     EMA200_MIN_UPTREND_PCT, detect_pullback_reversal, measure_stabilization,
 )
 from core.trade_plan import (
@@ -145,7 +145,7 @@ def build_signals(tickers, sectors, settings):
         ema200 = df["EMA200"]
         pvs = (df["Close"] / ema200 - 1.0) * 100.0
         upt = (ema200 / ema200.shift(126) - 1.0) * 100.0
-        net = (upt >= EMA200_MIN_UPTREND_PCT) & pvs.between(PRICE_VS_EMA200_MIN_PCT - 2, PRICE_VS_EMA200_MAX_PCT + 2)
+        net = (upt >= EMA200_MIN_UPTREND_PCT) & (pvs >= PRICE_VS_EMA200_MIN_PCT - 2) & (df["Close"] <= df["EMA50"] * 1.02)
         first = max(MIN_BARS_FOR_SCREENER - 1, 300)
         for i in np.where(net.to_numpy())[0]:
             if i < first or i >= len(df) - 1:

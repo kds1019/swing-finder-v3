@@ -52,13 +52,9 @@ from alpaca.data.timeframe import TimeFrame
 from config.settings import load_settings
 from core.indicators import compute_indicators
 from core.pullback_reversal import (
-    CONSOLIDATION_MAX_RANGE_PCT,
-    EMA200_MIN_UPTREND_PCT,
-    MAX_PRICE_VS_VALUE_AREA_HIGH_PCT,
     MIN_BARS_FOR_SCREENER,
-    MIN_BOUNCE_OFF_LOW_PCT,
-    PRICE_VS_EMA200_MIN_PCT,
     measure_pullback_reversal,
+    screener_gate,
 )
 from core.trade_plan import compute_trade_plan, resolve_trade_plan_outcome
 from core.universe import build_universe
@@ -90,31 +86,11 @@ NET_MIN_BOUNCE_OFF_LOW_PCT = 0.0
 
 
 def _current_verdict(m: dict) -> tuple[bool, str | None]:
-    """Apply the CURRENT core.pullback_reversal thresholds to an already-computed
-    measurement dict — same gate order as detect_pullback_reversal(), without paying
-    to recompute the volume profile.
-
-    Updated 2026-09-17 to match detect_pullback_reversal()'s EMA50-based ceiling (replacing
-    the old fixed +3% price_vs_ema200_pct band) — see core/pullback_reversal.py's
-    CALIBRATION note. This is what makes this dataset an actual backtest of that change."""
-    if m["ema200_uptrend_pct"] < EMA200_MIN_UPTREND_PCT:
-        return False, "no_long_term_uptrend"
-    if m["price_vs_ema200_pct"] < PRICE_VS_EMA200_MIN_PCT:
-        return False, "price_too_far_below_ema200"
-    if m["price_above_ema50"] is None:
-        return False, "insufficient_data"
-    if m["price_above_ema50"] is True:
-        return False, "price_above_ema50"
-    if m["consolidation_range_pct"] > CONSOLIDATION_MAX_RANGE_PCT:
-        return False, "not_consolidating"
-    if m["bounce_off_low_pct"] < MIN_BOUNCE_OFF_LOW_PCT:
-        return False, "no_reversal_yet"
-    if not m["volume_profile_available"]:
-        return False, "insufficient_data"
-    vah_pct = m["price_vs_value_area_high_pct"]
-    if vah_pct is None or vah_pct > MAX_PRICE_VS_VALUE_AREA_HIGH_PCT:
-        return False, "extended_above_value_area"
-    return True, None
+    """The CURRENT live screener verdict for an already-computed measurement dict, via
+    core.pullback_reversal.screener_gate — the single gate definition. This used to be a
+    hand-maintained copy that had drifted (it lacked the 2026-09-11 current-slope gate)."""
+    reason = screener_gate(m)
+    return reason is None, reason
 
 
 def _fetch_one(client: StockHistoricalDataClient, symbol: str, start: datetime) -> pd.DataFrame | None:

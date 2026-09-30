@@ -29,12 +29,7 @@ import pandas as pd
 from config.settings import load_settings
 from core.indicators import compute_indicators
 from core.pullback_reversal import (
-    CONSOLIDATION_MAX_RANGE_PCT,
-    EMA200_MIN_UPTREND_PCT,
-    MAX_PRICE_VS_VALUE_AREA_HIGH_PCT,
     MIN_BARS_FOR_SCREENER,
-    PRICE_VS_EMA200_MAX_PCT,
-    PRICE_VS_EMA200_MIN_PCT,
 )
 from core.trade_plan import compute_trade_plan, resolve_trade_plan_outcome
 
@@ -90,12 +85,8 @@ def main() -> None:
     d = pd.read_csv(DATASET, parse_dates=["date"])
 
     any_dip = d
-    deep_pb = d[
-        (d.ema200_uptrend_pct >= EMA200_MIN_UPTREND_PCT)
-        & d.price_vs_ema200_pct.between(PRICE_VS_EMA200_MIN_PCT, PRICE_VS_EMA200_MAX_PCT)
-        & (d.consolidation_range_pct <= CONSOLIDATION_MAX_RANGE_PCT)
-        & (d.price_vs_value_area_high_pct <= MAX_PRICE_VS_VALUE_AREA_HIGH_PCT)
-    ]
+    # the live screener's verdict, as recorded by build_calibration_dataset (screener_gate)
+    deep_pb = d[d["detected"].astype(bool)]
 
     ds_tickers = set(d["ticker"].unique())
     caches = sorted(x for x in BARS_DIR.glob("*.pkl") if x.stem != "SPY" and x.stem in ds_tickers)

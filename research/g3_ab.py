@@ -31,7 +31,7 @@ import pandas as pd
 from config.settings import load_settings
 from core.indicators import compute_indicators
 from core.pullback_reversal import (
-    MIN_BARS_FOR_SCREENER, PRICE_VS_EMA200_MAX_PCT, PRICE_VS_EMA200_MIN_PCT,
+    MIN_BARS_FOR_SCREENER, PRICE_VS_EMA200_MIN_PCT,
     MAX_PRICE_VS_VALUE_AREA_HIGH_PCT, EMA200_MIN_UPTREND_PCT,
     measure_pullback_reversal, classify_knife_risk,
 )
@@ -77,7 +77,7 @@ def build_signals(settings) -> pd.DataFrame:
         pvs = (df["Close"] / ema200 - 1.0) * 100.0
         upt = (ema200 / ema200.shift(126) - 1.0) * 100.0
         # net: G1 held at current (>=5), G2 band held; G3 removed (varied downstream)
-        net = (upt >= EMA200_MIN_UPTREND_PCT) & pvs.between(PRICE_VS_EMA200_MIN_PCT, PRICE_VS_EMA200_MAX_PCT)
+        net = (upt >= EMA200_MIN_UPTREND_PCT) & (pvs >= PRICE_VS_EMA200_MIN_PCT) & (df["Close"] <= df["EMA50"])
         first = max(MIN_BARS_FOR_SCREENER - 1, 300)
         for i in np.where(net.to_numpy())[0]:
             if i < first or i >= len(df) - 1 or str(df["Date"].iloc[i].date()) < START:
