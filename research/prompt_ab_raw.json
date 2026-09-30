@@ -1,0 +1,867 @@
+{
+ "v1 (old) run1": {
+  "market_gate_open": true,
+  "overall_recommendation": "VIX gate is open, but this system's own recent track record is weak (8% win rate, avg return -1.25% over 25 tracked picks) \u2014 that argues for a conservative, selective posture even though several setups below look clean technically. Favor the top few trend_continuation names with genuine beat records and fresh catalysts (FLEX, KMT, CSCO, ASTH) over the long tail of reversion_bounce utility/REIT names with no catalyst. Three tickers were excluded outright as 'do not touch': WERN (missed 3 of last 4 EPS estimates, an active negative diesel-cost industry catalyst, and a still-falling technical read despite the stabilising label), SYRE (a material failed-trial catalyst followed by broad, continuing insider selling with zero buying), and ALGT (targets being cut and shorts actively adding into a setup that hasn't actually bounced off its low yet). Given the weak track record, treat all of the below as watchlist candidates for confirmation, not automatic entries.",
+  "tickers_reviewed": 30,
+  "ranked_picks": [
+   {
+    "ticker": "FLEX",
+    "rank": 1,
+    "entry": 110.46,
+    "stop": 104.89,
+    "target": 135.59,
+    "rr_ratio": 4.51,
+    "research_highlight": "Flex has beaten EPS estimates in every one of the last 8 reported quarters with steady revenue/EPS growth (6%/13% most recent quarter), and just announced a $4.4B EPC Power acquisition (Sept 4) plus an AI-infrastructure spin-off (Sept 15) \u2014 both aged past the 7-day 'recent' window but reinforce a genuine growth narrative.",
+    "news_sentiment": "Positive",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Best combination here: trend_continuation setup, confirmed stabilisation (positive 10d/20d returns, strong higher-low), and the strongest fundamental beat streak in the pool. Minor caution: RangeContractionRatio is slightly >1 (1.08), so the pullback base is still a touch wide.",
+    "bear_case": "A single officer sale ($332k) is minor, but the stock is absorbing two large capital-allocation moves (M&A + spin-off) at once \u2014 integration/dilution risk from the EPC Power deal is the main thing that could derail an otherwise clean setup.",
+    "flags": [
+     "InsiderSelling",
+     "SectorOverlap"
+    ]
+   },
+   {
+    "ticker": "KMT",
+    "rank": 2,
+    "entry": 30.89,
+    "stop": 29.24,
+    "target": 38.0,
+    "rr_ratio": 4.32,
+    "research_highlight": "Kennametal has beaten EPS estimates in 6 of the last 8 quarters with accelerating growth (EPS +292% most recent quarter), and an insider bought $355k of stock on Sept 10 \u2014 genuinely recent buying that partially offsets two officer sales the same week.",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "reversion_bounce (downtrend on the slower 200-EMA read), but all three return horizons are strongly positive (+3%/+4%/+6%), EMA20 has turned up, and the insider buy is a real positive signal \u2014 this is a case where fundamentals/insider activity justify ranking a reversion_bounce setup above several trend_continuation names.",
+    "bear_case": "Consensus rating is actually 'Hold' with 6 sells among 24 analysts despite the strong operating momentum \u2014 the Street isn't fully buying the acceleration yet, and RangeContractionRatio (1.25) shows the base is still a bit wide.",
+    "flags": [
+     "InsiderBuying",
+     "AboveVolumePOC",
+     "SectorOverlap"
+    ]
+   },
+   {
+    "ticker": "CSCO",
+    "rank": 3,
+    "entry": 107.95,
+    "stop": 104.51,
+    "target": 124.66,
+    "rr_ratio": 4.86,
+    "research_highlight": "Cisco beat EPS/revenue estimates in every recent quarter shown including a Aug 12 double beat with raised FY27 guidance, but the stock sold off -8.4% on 2.9x volume that very session on margin concerns and hasn't recovered (still -12.9% since); Piper Sandler cut its price target again on Sept 22 (session -4.5%).",
+    "news_sentiment": "Mixed",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Strong beat record and improving EPS/revenue growth support the trend_continuation setup, and the pullback shows contracting range (0.73) with 5d returns turning positive. Ranked below FLEX/KMT because of the earnings-day 'sell the beat' reaction and a real (if just-under-threshold, -7.1%) recent target cut.",
+    "bear_case": "Heavy, broad officer selling (CEO, President, CFO, CLO all sold in Aug-Sept) right alongside the Piper Sandler target cut is a real alignment of insider and analyst caution, not just routine liquidity.",
+    "flags": [
+     "InsiderSelling",
+     "SectorOverlap"
+    ]
+   },
+   {
+    "ticker": "ASTH",
+    "rank": 4,
+    "entry": 35.24,
+    "stop": 32.26,
+    "target": 50.14,
+    "rr_ratio": 5.0,
+    "research_highlight": "Astrana has beaten EPS in the last 2 quarters after missing in 3 of the prior 4, with recent net-income growth strong (+37%, +140%) though lumpy; no News items are on file for this ticker, so there's no fresh catalyst driving the setup.",
+    "news_sentiment": null,
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "One of the cleanest stabilisation reads in the pool: DownUpVolumeRatio 0.74 (<1, selling drying up), RangeContractionRatio 0.8, and a strong +6.9% higher low. trend_continuation setup with decent recent fundamentals, but no catalyst caps it below names with genuine news flow.",
+    "bear_case": "No insider activity either way (uninformative), and the earnings record before the last two quarters was choppy (a big Q4 2025 miss) \u2014 this is a purely technical/fundamental-momentum bet with nothing concrete driving continued upside beyond the pattern itself.",
+    "flags": [
+     "HeavilyShorted"
+    ]
+   },
+   {
+    "ticker": "EBAY",
+    "rank": 5,
+    "entry": 106.66,
+    "stop": 103.27,
+    "target": 123.59,
+    "rr_ratio": 5.0,
+    "research_highlight": "eBay has beaten EPS estimates in every recent quarter with steady revenue growth (1-5%), including an Aug 5 'double beat' Q2 print; most of its News flow is actually about GameStop's activist $4.9B stake and Ryan Cohen's continued insider buying in GME, not EBAY-specific catalysts.",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Confirmed trend_continuation setup with consistent EPS execution. The GameStop activist overhang is a persistent background theme (potential for further stake-building or M&A speculation) but not a fresh, dated catalyst, so it doesn't lift catalyst_status.",
+    "bear_case": "CEO Iannone sold $7.2M of stock on Sept 9, the largest insider sale in the dataset for this name, right as the GME stake story keeps the ticker volatile \u2014 a reminder management isn't buying into the current price.",
+    "flags": [
+     "InsiderSelling",
+     "SectorOverlap"
+    ]
+   },
+   {
+    "ticker": "PVH",
+    "rank": 6,
+    "entry": 74.86,
+    "stop": 71.7,
+    "target": 90.24,
+    "rr_ratio": 4.87,
+    "research_highlight": "PVH has beaten EPS estimates in every recent quarter (3.70 vs 3.08 most recently), and an insider bought $1.0M of stock on Sept 11 \u2014 genuinely recent buying that supports the bull case despite very volatile net-income growth (likely one-time charges masking the adjusted EPS beats).",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "reversion_bounce (downtrend, and the longer-horizon EMA200 slope is actually negative, a real caution per the TrendEMA200LongSlopePct guidance), but the stabilisation read is strong (HigherLowPct +9.7%, contracting range, DownUpVolumeRatio 0.8) and the insider buy is a concrete positive that a plain technical bounce wouldn't have.",
+    "bear_case": "Net income growth swung -217% in the latest quarter despite the EPS beat, implying real one-time charges under the hood; medium-term analyst target revisions are down -19.4%, suggesting some erosion of longer-term confidence even as near-term numbers beat.",
+    "flags": [
+     "InsiderBuying",
+     "SectorOverlap"
+    ]
+   },
+   {
+    "ticker": "CGNX",
+    "rank": 7,
+    "entry": 60.835,
+    "stop": 57.1,
+    "target": 76.02,
+    "rr_ratio": 4.07,
+    "research_highlight": "Cognex has beaten EPS estimates in every recent quarter with improving net-income growth (+41%, +58%), but its Sept 22 $500M RealSense acquisition was sold off hard (-4.9% on 2.5x volume) and remains net negative since (-1.9%) \u2014 the market is skeptical of the capital allocation even as the core business executes well.",
+    "news_sentiment": "Mixed",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "trend_continuation setup with a strong beat record, but consensus is 'Hold' (14 buy/15 hold/2 sell) despite a solid overall score, and DownUpVolumeRatio is elevated (1.64) \u2014 likely a residual of the acquisition-day selling \u2014 so this ranks behind names with cleaner volume confirmation.",
+    "bear_case": "The CEO sold $1.5M of stock in August, and the market's clear near-term skepticism about the RealSense deal (immediate -4.9% reaction) is a concrete headwind on top of the already-crowded short interest (4.5% float, DTC 5.0).",
+    "flags": [
+     "HeavilyShorted",
+     "InsiderSelling",
+     "SectorOverlap"
+    ]
+   },
+   {
+    "ticker": "KIM",
+    "rank": 8,
+    "entry": 22.315,
+    "stop": 22.07,
+    "target": 23.54,
+    "rr_ratio": 5.0,
+    "research_highlight": "Kimco has beaten EPS estimates in every quarter shown with steady, modest growth \u2014 a clean, boring beat record for a grocery-anchored REIT, with RSI14 at 28.6 (genuinely oversold) and no notable recent news.",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "reversion_bounce/downtrend, but both RangeContractionRatio (0.90) and DownUpVolumeRatio (0.77) confirm selling is drying up, and the beat consistency is better than most names in this pool \u2014 a reasonable defensive complement to the more speculative names above it.",
+    "bear_case": "Analysts cut the recent price target -13.2%, though on only 1 analyst (a weak sample per the guidance) \u2014 still worth watching since it's a large single-shot cut, and there's no fresh catalyst to drive upside beyond mean reversion.",
+    "flags": []
+   },
+   {
+    "ticker": "SBUX",
+    "rank": 9,
+    "entry": 94.77,
+    "stop": 92.77,
+    "target": 104.77,
+    "rr_ratio": 5.0,
+    "research_highlight": "Starbucks beat its EPS estimate strongly on Jul 29 (0.85 vs 0.66, part of its 'Back to Starbucks' turnaround) after four straight prior-quarter misses, and just announced select North America store closures on Sept 25 \u2014 the market largely shrugged this off (+1.3% that session, +1.2% since), suggesting the news was read as cost discipline rather than a fresh negative.",
+    "news_sentiment": "Mixed",
+    "catalyst_status": "recent",
+    "catalyst_date": "2026-09-25",
+    "support_status": "confirmed",
+    "rationale": "reversion_bounce/transitional trend with RSI14 at 32.9 (oversold) and both RangeContractionRatio (0.74) and DownUpVolumeRatio (0.82) confirming stabilisation. The store-closure news is a genuine, dated, material catalyst that the market didn't punish \u2014 a real positive signal of sentiment.",
+    "bear_case": "This is a turnaround story, not a confirmed one \u2014 three of the last four quarters before July missed estimates, and the 20-day return is still -10.7%; the store closures could also be read as a sign same-store performance is worse than headline numbers suggest.",
+    "flags": [
+     "HeavilyShorted",
+     "InsiderSelling",
+     "SectorOverlap"
+    ]
+   },
+   {
+    "ticker": "TKR",
+    "rank": 10,
+    "entry": 117.34,
+    "stop": 114.62,
+    "target": 130.94,
+    "rr_ratio": 5.0,
+    "research_highlight": "Timken has beaten EPS estimates in the last 4 reported quarters (1.83 vs 1.62 most recently) with positive revenue growth, but net-income growth cratered -70% in the latest quarter despite the EPS beat \u2014 likely a one-time item worth watching, not a clean acceleration story.",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "trend_continuation, confirmed (contracting range, recovering 5d/10d returns), but no company-specific catalyst in the News feed and the net-income decline is a real fundamental caution relative to the cleaner beat stories ranked above it.",
+    "bear_case": "A director sold $1.7M of stock in August with zero offsetting purchases, and the -70% net-income growth print, even if EPS-beat-driven, raises a question about earnings quality that the pullback-reversal pattern alone doesn't answer.",
+    "flags": [
+     "InsiderSelling",
+     "SectorOverlap"
+    ]
+   },
+   {
+    "ticker": "WLY",
+    "rank": 11,
+    "entry": 48.055,
+    "stop": 46.28,
+    "target": 56.08,
+    "rr_ratio": 4.51,
+    "research_highlight": "Wiley beat its EPS estimate on Sept 3 (0.44 vs 0.40) and in each of the prior 3 quarters, but the same quarter showed revenue down -13.7% YoY and net income down over 100% \u2014 a real deceleration under a thin analyst-coverage beat.",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Technically one of the cleanest stabilisations in the pool (RangeContractionRatio 0.49, DownUpVolumeRatio 0.92, both strongly supportive), but the underlying revenue/income decline is a genuine fundamental concern that keeps this mid-pack despite the technical read.",
+    "bear_case": "Thin analyst coverage (only 3 analysts) means there's little independent confirmation of the beat-vs-decline picture, and a -13.7% revenue decline is a real headwind regardless of how the stock trades near-term.",
+    "flags": []
+   },
+   {
+    "ticker": "WTTR",
+    "rank": 12,
+    "entry": 19.74,
+    "stop": 18.64,
+    "target": 23.73,
+    "rr_ratio": 3.62,
+    "research_highlight": "Select Water Solutions has beaten EPS estimates in 4 of the last 5 quarters with strong recent net-income growth, but was downgraded back on Aug 6 (session -6.9% on 1.3x volume, still -11.2% since) \u2014 that catalyst is stale now but explains the current depth of the pullback.",
+    "news_sentiment": "Negative",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "forming",
+    "rationale": "Overriding KnifeRiskTier's 'stabilising' to 'forming': RangeContractionRatio is 1.30 (base still wide, not contracting) despite decent recent 5-day returns, so treat this as an acceptable but not yet fully confirmed base.",
+    "bear_case": "No insider activity data either way, and the only real catalyst on file (the August downgrade) was negative \u2014 there's nothing fresh confirming the beat streak will continue to be rewarded by the market.",
+    "flags": []
+   },
+   {
+    "ticker": "SNDX",
+    "rank": 13,
+    "entry": 18.58,
+    "stop": 17.1,
+    "target": 25.98,
+    "rr_ratio": 5.0,
+    "research_highlight": "Syndax has a mixed beat/miss record (beat, miss, beat, beat over the last 4 quarters) with genuinely improving revenue growth, and carries the highest short interest in the pool (25.75% of float, DTC 14.73) with shorts recently covering (-4.7%) \u2014 a mild positive against the crowded position.",
+    "news_sentiment": null,
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "reversion_bounce/downtrend, but the last 5/10-day returns are strongly positive (+5.3%/+7.6%) and RangeContractionRatio is <1 \u2014 however RelVolume is only 0.33, so this bounce isn't yet confirmed by strong participation, tempering conviction.",
+    "bear_case": "No News at all to explain the move, and the extreme short interest (25.75% of float) cuts both ways \u2014 without volume confirmation, this could just as easily be a low-conviction short-covering bounce that stalls.",
+    "flags": [
+     "HeavilyShorted",
+     "InsiderSelling",
+     "AboveVolumePOC"
+    ]
+   },
+   {
+    "ticker": "IDA",
+    "rank": 14,
+    "entry": 131.385,
+    "stop": 126.83,
+    "target": 154.13,
+    "rr_ratio": 5.0,
+    "research_highlight": "IDACORP has beaten EPS estimates in every recent quarter with reasonably consistent growth for a regulated utility, but has no News items on file and a -7.3% recent analyst target revision (on only 1 analyst, a weak sample).",
+    "news_sentiment": null,
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "forming",
+    "rationale": "Overriding to 'forming': RangeContractionRatio is 1.36 (still wide, disagreeing with the 'stabilising' tag) even though DownUpVolumeRatio (0.82) and the modest higher-low are supportive. reversion_bounce/downtrend with no catalyst caps the upside case.",
+    "bear_case": "No news, no insider activity, and no strong catalyst \u2014 purely a beat-record-plus-mean-reversion bet in a downtrending utility, which is a thin case on its own.",
+    "flags": []
+   },
+   {
+    "ticker": "ON",
+    "rank": 15,
+    "entry": 76.32,
+    "stop": 66.07,
+    "target": 107.07,
+    "rr_ratio": 3.0,
+    "research_highlight": "ON Semiconductor has beaten EPS estimates in the last 4 reported quarters with a strong AI data-center growth narrative (management targets $11B revenue by 2030, doubling AI data-center business in 2026), and Seaport Global initiated Buy coverage on Sept 23.",
+    "news_sentiment": "Positive",
+    "catalyst_status": "recent",
+    "catalyst_date": "2026-09-23",
+    "support_status": "confirmed",
+    "rationale": "reversion_bounce (downtrend, EMA200 slope right at the screener's -2% gate), and the bounce off the low is already large (+14.6% in 10 days) \u2014 less margin of safety at entry than other names, which combined with the weakest R:R in this set (3.0, still above the floor) ranks it mid-pack despite the strong AI narrative.",
+    "bear_case": "Price sits above its volume POC (thinner support underneath), and the stock has already made most of its recovery move \u2014 chasing this after a +14.6% run risks buying near-term exhaustion rather than a fresh pullback entry.",
+    "flags": [
+     "AboveVolumePOC",
+     "SectorOverlap"
+    ]
+   },
+   {
+    "ticker": "RCUS",
+    "rank": 16,
+    "entry": 25.935,
+    "stop": 23.86,
+    "target": 33.93,
+    "rr_ratio": 3.85,
+    "research_highlight": "Arcus Biosciences beat EPS estimates in 3 of the last 4 quarters with lumpy partnership-driven revenue, and an HC Wainwright target hike from July (73 days old) is now stale; no fresh catalyst is on file.",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "forming",
+    "rationale": "Overriding KnifeRiskTier's 'stabilising' to 'forming': RangeContractionRatio is 0.97 (essentially flat, not clearly contracting) and DownUpVolumeRatio is 1.22 (selling still somewhat elevated) despite a positive 10-day return and higher low.",
+    "bear_case": "The company's president sold $2.0M of stock in July with no purchases anywhere in the dataset, and this is a clinical-stage biotech (D+ rating) with no revenue durability \u2014 the bounce is fragile without a fresh catalyst.",
+    "flags": [
+     "InsiderSelling"
+    ]
+   },
+   {
+    "ticker": "SRRK",
+    "rank": 17,
+    "entry": 48.72,
+    "stop": 45.54,
+    "target": 62.87,
+    "rr_ratio": 4.45,
+    "research_highlight": "Scholar Rock's Isembyld won FDA approval on Sept 14 for spinal muscular atrophy \u2014 a real, material catalyst \u2014 but the stock closed that session -6.4% on 2.4x volume and sits -12% below its pre-news close over two weeks later: the market sold the news, and the catalyst has faded.",
+    "news_sentiment": "Mixed",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "trend_continuation on the screener, but the FDA approval reaction is a genuine warning sign (a real positive catalyst that got sold), revenue/income growth is flat-to-declining, and short interest is the second-highest in the pool.",
+    "bear_case": "20.1% of float is short with days-to-cover over 10, and six directors sold a combined ~$923k on the same date with zero purchases \u2014 insider selling alongside heavy short interest reinforces rather than offsets the bear case here, especially with the approval catalyst already sold.",
+    "flags": [
+     "HeavilyShorted",
+     "InsiderSelling",
+     "CatalystFaded"
+    ]
+   },
+   {
+    "ticker": "FLYW",
+    "rank": 18,
+    "entry": 17.4,
+    "stop": 16.68,
+    "target": 21.0,
+    "rr_ratio": 5.0,
+    "research_highlight": "Flywire missed its most recent EPS estimate (-0.07 vs -0.02) after a beat the quarter before, with volatile fintech revenue growth (-10.8% latest quarter); analysts did raise the recent target +14.8%, though on only 1 analyst (weak sample).",
+    "news_sentiment": "Negative",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "trend_continuation and technically stabilising (DownUpVolumeRatio 0.8, contracting range), but the last reported quarter missed and insider selling here is unusually broad and heavy for the size of the company.",
+    "bear_case": "Voss Capital (a 10%+ owner) sold $10.3M and CEO Massaro personally sold $4.4M in the same window with zero purchases anywhere \u2014 a fund exit plus CEO selling together is a more meaningful combination than either alone, even with the crowded short base (10.4% of float) theoretically offering squeeze fuel.",
+    "flags": [
+     "HeavilyShorted",
+     "InsiderSelling",
+     "AboveVolumePOC",
+     "SectorOverlap"
+    ]
+   },
+   {
+    "ticker": "PECO",
+    "rank": 19,
+    "entry": 37.3,
+    "stop": 36.57,
+    "target": 40.8,
+    "rr_ratio": 4.77,
+    "research_highlight": "Phillips Edison has beaten EPS estimates in its last 3 reported quarters with improving net-income growth after a rough patch, but short interest rose +16.1% in the latest bi-weekly settlement \u2014 shorts are actively adding into a name whose fundamentals are actually improving.",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "reversion_bounce/downtrend with decent stabilisation signals, but the ShortsAdding signal fighting improving fundamentals is a genuine point of tension worth resolving before sizing conviction \u2014 the improving earnings trend argues the shorts may be misplaced, but that's not yet proven.",
+    "bear_case": "Shorts adding +16.1% into a grocery-anchored REIT with no fresh catalyst is a real, current headwind; if the short thesis is right (rate-sensitivity, rent growth concerns), this bounce could stall exactly where the shorts are positioned.",
+    "flags": [
+     "HeavilyShorted",
+     "ShortsAdding"
+    ]
+   },
+   {
+    "ticker": "COGT",
+    "rank": 20,
+    "entry": 32.235,
+    "stop": 30.39,
+    "target": 41.44,
+    "rr_ratio": 5.0,
+    "research_highlight": "Cogent Biosciences has a mixed recent beat/miss record (narrow beat, met, miss, beat) typical of a clinical-stage name, with no material News catalyst \u2014 only generic '$100 invested' filler articles.",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "reversion_bounce with acceptable stabilisation signals, but no fundamental or catalyst edge beyond the technical pattern itself \u2014 a director sold $1.7M in August with no offsetting purchase.",
+    "bear_case": "No revenue business yet (clinical-stage), 12.2% of float is short, and without a fresh catalyst this is purely a technical mean-reversion bet in a name with thin fundamental visibility.",
+    "flags": [
+     "HeavilyShorted",
+     "InsiderSelling"
+    ]
+   },
+   {
+    "ticker": "AEP",
+    "rank": 21,
+    "entry": 119.155,
+    "stop": 116.71,
+    "target": 131.38,
+    "rr_ratio": 5.0,
+    "research_highlight": "American Electric Power missed its latest EPS estimate (1.36 vs 1.48) despite management calling hyperscaler power demand 'exceptionally strong,' and multiple July-September articles frame AEP as a beneficiary of the AI power-demand theme (including a Peter Thiel portfolio mention).",
+    "news_sentiment": "Positive",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "forming",
+    "rationale": "Overriding to 'forming': DownUpVolumeRatio is elevated (1.37) and the higher-low is razor-thin (+0.49%), even though RangeContractionRatio (0.94) is supportive. The AI-power secular tailwind is a real theme but not a dated, specific catalyst.",
+    "bear_case": "A missed EPS quarter right as the stock pulls back is a concrete near-term negative, and 4.7% of float short with days-to-cover 8.4 plus a recent officer sale adds modest caution on top of the thin technical confirmation.",
+    "flags": [
+     "HeavilyShorted",
+     "InsiderSelling"
+    ]
+   },
+   {
+    "ticker": "PTCT",
+    "rank": 22,
+    "entry": 64.71,
+    "stop": 61.24,
+    "target": 82.06,
+    "rr_ratio": 5.0,
+    "research_highlight": "PTC Therapeutics beat its latest EPS estimate strongly (0.92 vs 0.24) with growing revenue (+32% latest quarter) and announced a $111M Sangamo Fabry-disease program acquisition on Aug 13, but that catalyst is now 48 days stale and the stock has fallen -10.9% since.",
+    "news_sentiment": "Mixed",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "reversion_bounce/downtrend with decent stabilisation signals and a genuinely strong recent beat, but ranked low given the scale and recency of insider selling right into this pullback.",
+    "bear_case": "A director sold $6.3M of stock on Sept 17 \u2014 very recent and large relative to the company's size \u2014 alongside $12.7M in total insider sales and zero purchases; combined with 13.2% of float short, that alignment of insider and short positioning is a real concrete concern.",
+    "flags": [
+     "HeavilyShorted",
+     "InsiderSelling"
+    ]
+   },
+   {
+    "ticker": "GVA",
+    "rank": 23,
+    "entry": 115.83,
+    "stop": 110.35,
+    "target": 137.79,
+    "rr_ratio": 4.01,
+    "research_highlight": "Granite Construction missed its last two reported EPS estimates (2.16 vs 2.25; -0.96 vs -0.77) with highly volatile net-income growth typical of construction revenue recognition, despite one small insider purchase ($49.6k, Aug 6 \u2014 now fairly old).",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "forming",
+    "rationale": "Overriding to 'forming': RangeContractionRatio is 1.32 (base still wide/wild, directly disagreeing with 'stabilising'), even with a decent higher-low. reversion_bounce/downtrend with no catalyst and two consecutive misses is a weak overall case.",
+    "bear_case": "Two straight EPS misses plus genuinely wide, uncontracted range action argue this pullback hasn't actually stopped yet \u2014 the single small insider purchase from nearly two months ago is not a strong enough offsetting signal.",
+    "flags": [
+     "InsiderBuying",
+     "SectorOverlap"
+    ]
+   },
+   {
+    "ticker": "SWX",
+    "rank": 24,
+    "entry": 81.81,
+    "stop": 80.85,
+    "target": 85.88,
+    "rr_ratio": 4.26,
+    "research_highlight": "Southwest Gas has a roughly even beat/miss record across recent quarters with volatile seasonal utility revenue recognition; a Sept 28 listicle flagged it as oversold (RSI14 29.1) but that's commentary echoing the existing technical signal, not a fresh catalyst.",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "forming",
+    "rationale": "Overriding to 'forming': Last10d (-5.7%) and Last20d (-8.3%) returns remain meaningfully negative and DownUpVolumeRatio (1.36) is elevated, disagreeing with the 'stabilising' tag despite an oversold RSI.",
+    "bear_case": "An officer sold stock on Sept 28, the same day as the oversold commentary piece, and the technical evidence for a genuine stop in selling is thin \u2014 this could still be a falling knife being mislabeled as oversold value.",
+    "flags": [
+     "InsiderSelling"
+    ]
+   },
+   {
+    "ticker": "RLJ",
+    "rank": 25,
+    "entry": 11.08,
+    "stop": 10.73,
+    "target": 12.21,
+    "rr_ratio": 3.27,
+    "research_highlight": "RLJ Lodging beat its last reported EPS estimate after a prior-quarter miss, but was just downgraded on Sept 28 (2 days ago, session -1.1% on 2.1x volume) alongside PepsiCo and Braskem \u2014 a fresh, negative, dated catalyst right into this setup.",
+    "news_sentiment": "Negative",
+    "catalyst_status": "recent",
+    "catalyst_date": "2026-09-28",
+    "support_status": "confirmed",
+    "rationale": "trend_continuation on the screener with decent technical stabilisation, but a fresh analyst downgrade two days ago plus an already-bearish consensus spread (4 sells among 18 analysts) is a concrete reason for caution that overrides the setup quality; also has the weakest R:R (3.27) outside of ON.",
+    "bear_case": "The Sept 28 downgrade is the most recent, most dated negative catalyst in this entire pool \u2014 buying into a fresh downgrade on a name the Street is already split on (9 hold, 4 sell) is a real headwind the technical pattern doesn't address.",
+    "flags": [
+     "AboveVolumePOC"
+    ]
+   },
+   {
+    "ticker": "PNW",
+    "rank": 26,
+    "entry": 93.35,
+    "stop": 90.41,
+    "target": 108.05,
+    "rr_ratio": 5.0,
+    "research_highlight": "Pinnacle West's earnings record is volatile and seasonal with a mix of large beats and misses, and there is no News coverage on file at all for this ticker \u2014 a genuinely clean-slate, catalyst-free setup.",
+    "news_sentiment": null,
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "forming",
+    "rationale": "Overriding to 'forming': RangeContractionRatio is 1.65, the highest (widest) in the entire reviewed pool, a clear disagreement with the 'stabilising' tag despite a positive 5-day return.",
+    "bear_case": "No news and no insider buying to lean on, and the widest range-expansion reading in this batch suggests the pullback may not actually be done contracting yet \u2014 this is the weakest technical confirmation among the utilities reviewed.",
+    "flags": [
+     "InsiderSelling"
+    ]
+   },
+   {
+    "ticker": "BEAM",
+    "rank": 27,
+    "entry": 24.61,
+    "stop": 23.18,
+    "target": 31.74,
+    "rr_ratio": 5.0,
+    "research_highlight": "Beam Therapeutics missed its latest EPS estimate with highly erratic revenue (clinical-stage), and its Sept 8 'accelerated FDA approval' headline for BEAM-302 was actually sold hard by the market (-9.7% on 4.3x volume, still -17% below its pre-news close) \u2014 a headline that read positive but the tape says otherwise.",
+    "news_sentiment": "Mixed",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "reversion_bounce/downtrend; technical stabilisation signals are actually fine (positive 5d/10d returns, higher low), but this is ranked last among included names given the clear market rejection of the 'positive' clinical update and the extreme (29.3%) short interest in a name that just missed estimates.",
+    "bear_case": "The market's own reaction to the BEAM-302 data (-9.7% same day, still -17% since) is a much stronger signal than the bullish headline framing \u2014 combined with a missed quarter and zero insider buying against 29.3% short interest, the fundamentals don't clearly support this bounce continuing.",
+    "flags": [
+     "HeavilyShorted",
+     "InsiderSelling"
+    ]
+   }
+  ]
+ },
+ "v2 (new) run1": {
+  "market_gate_open": true,
+  "overall_recommendation": "Market gate is open, so new entries are permissible. This pool splits into a handful of genuine trend-continuation pullbacks in healthy uptrends (several Technology and Industrials names with very consistent multi-quarter beat records) and a larger tail of weaker reversion_bounce setups in utilities, REITs and beaten-down biotechs, several of which carry tape-confirmed negative catalysts (sold FDA approvals, a missed trial readout, a diesel-cost shock) that pushed them down in rank or out entirely. This system's own recent track record is weak (8% win rate, -1.25% average return over 25 tracked picks), which argues for lower conviction across the board rather than favoring any one name \u2014 even the top-ranked picks here should be treated cautiously.",
+  "tickers_reviewed": 30,
+  "ranked_picks": [
+   {
+    "ticker": "FLEX",
+    "rank": 1,
+    "research_highlight": "8 consecutive quarterly EPS beats with revenue growth 3.5%-6% and net income growth positive every quarter; the $4.4B EPC Power acquisition (Sep 4) and Axiom AI spin-off (Sep 15) both closed positive and remain modestly positive since.",
+    "news_sentiment": "Positive",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Strongest trend_continuation candidate: consistent beat record, clean accelerating growth, and catalysts that held rather than faded.",
+    "bear_case": "Officer selling ($332K) is routine-sized, not a red flag; main risk is a broader tech pullback given SectorOverlap with an existing Technology position.",
+    "flags": []
+   },
+   {
+    "ticker": "CSCO",
+    "rank": 2,
+    "research_highlight": "8/8 quarterly EPS beats with revenue growth accelerating from 1.4% to 8.9%; the Q4 double-beat (Aug 12) still sold off -8.41% on 2.9x volume on margin concerns, and Piper Sandler cut its target on Sep 22 (-4.51% on 3.2x volume).",
+    "news_sentiment": "Mixed",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Mega-cap quality and the most consistent growth trajectory in the pool place it near the top, just behind FLEX given the recent target cut.",
+    "bear_case": "Routine post-earnings officer selling plus a fresh analyst target cut suggest the market wants more margin visibility before rewarding the AI upgrade cycle.",
+    "flags": []
+   },
+   {
+    "ticker": "EBAY",
+    "rank": 3,
+    "research_highlight": "8/8 quarterly EPS beats with steady revenue growth (1.4%-5.1%); the ongoing GameStop takeover-interest saga (stake ~9.8%+, continued Cohen insider buying) keeps volatility elevated without a clean directional catalyst for EBAY itself.",
+    "news_sentiment": "Mixed",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Consistent beat record and growth support a solid rank; CEO Iannone's recent $7.2M sale is a mild caution that keeps it behind CSCO.",
+    "bear_case": "The CEO's large recent sale right after the GameStop story peaked is worth watching, and SectorOverlap exists with an existing Consumer Cyclical holding.",
+    "flags": []
+   },
+   {
+    "ticker": "WTTR",
+    "rank": 4,
+    "research_highlight": "6 of the last 8 quarters beat EPS estimates with revenue growing in 3 of 4 recent quarters, and the setup carries no precomputed caution flags at all.",
+    "news_sentiment": "Negative",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "No red flags and a solid beat history support a strong rank, held back only by thin analyst coverage versus the mega-caps above it.",
+    "bear_case": "Coverage is thin (1 recent target) and the only news is a stale (55-day) downgrade, so there is little independent confirmation beyond the technicals.",
+    "flags": []
+   },
+   {
+    "ticker": "TKR",
+    "rank": 5,
+    "research_highlight": "8/8 quarterly EPS beats, though the most recent quarter's net income fell 70.6% even as EPS beat, and recent analyst coverage is thin (2 analysts, -3.8% revision).",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Excellent beat record but the sharp net-income/EPS divergence and thin coverage keep it behind WTTR/EBAY.",
+    "bear_case": "The steep net income decline despite an EPS beat suggests one-time items may be propping up the headline number; SectorOverlap exists with an existing Industrials position.",
+    "flags": []
+   },
+   {
+    "ticker": "CGNX",
+    "rank": 6,
+    "research_highlight": "8/8 quarterly EPS beats, but the $500M RealSense acquisition (Sep 22) was sold hard: -4.86% on 2.5x volume and still -1.86% below that close, with the stock carrying only a Hold consensus.",
+    "news_sentiment": "Negative",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Strong beat history is offset by a tape-confirmed negative reaction to its most recent material catalyst, placing it mid-pack.",
+    "bear_case": "The market's negative verdict on the RealSense deal plus the CEO's $1.5M sale suggest skepticism about capital allocation even as earnings beat.",
+    "flags": []
+   },
+   {
+    "ticker": "ASTH",
+    "rank": 7,
+    "research_highlight": "Last two quarters beat EPS estimates (0.40 vs 0.336, 0.30 vs 0.29) following four straight misses in 2024-2025 including a swing to a loss; no news exists to independently confirm the turnaround.",
+    "news_sentiment": null,
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Recent execution turnaround is real but short, and the lack of any news or meaningful analyst sample (1 target) leaves this more speculative than peers above it.",
+    "bear_case": "The prior four-quarter miss streak (including an outright loss vs. an expected profit) is a recent-enough scar that one bad quarter could reopen it.",
+    "flags": []
+   },
+   {
+    "ticker": "RCUS",
+    "rank": 8,
+    "research_highlight": "6 of 8 quarters beat EPS estimates and HC Wainwright raised its target 33% in July, but that pop has fully faded (now -5.4% since); a D+ overall rating and an unexplained two-day plunge (-8.2%, -6.0% on 2.4x-2.7x volume) in mid-September add risk.",
+    "news_sentiment": "Mixed",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Weakest analyst quality score (D+) among the genuine trend_continuation names and a faded prior catalyst push it toward the bottom of this tier.",
+    "bear_case": "The heavy-volume September selloff has no clear news explanation, which is itself a caution sign, and officer selling ($2M) adds to the overhang.",
+    "flags": [
+     "CatalystFaded"
+    ]
+   },
+   {
+    "ticker": "WLY",
+    "rank": 9,
+    "research_highlight": "7 of 8 quarters beat EPS, but the most recent quarter saw net income growth collapse -108.7% with revenue down -13.7%; the 1-year EMA200 slope (10.7%) is under half the 6-month uptrend slope (25.1%), a caution flag for a V-shaped stall.",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "A deteriorating latest quarter and thin, stale analyst coverage push this toward the back of the trend_continuation group.",
+    "bear_case": "The sharp net income decline is a real fundamental wobble, not just noise, and there is no analyst revision data confirming market support.",
+    "flags": []
+   },
+   {
+    "ticker": "RLJ",
+    "rank": 10,
+    "research_highlight": "Beat-heavy but volatile EPS history for this hotel REIT with a Hold consensus (4 of 18 analysts at Sell); the most recent news (Sep 28) was an analyst downgrade closing -1.12% on 2.1x volume.",
+    "news_sentiment": "Negative",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Weakest analyst sentiment and the lowest RR ratio (3.27) among trend_continuation names, plus a recent negative analyst action, place it near the bottom of this tier.",
+    "bear_case": "A meaningful 4-sell contingent plus this week's downgrade suggest the market isn't fully behind the setup even though the base looks orderly.",
+    "flags": []
+   },
+   {
+    "ticker": "FLYW",
+    "rank": 11,
+    "research_highlight": "Mixed EPS record with the most recent quarter swinging to a larger-than-expected loss (-0.07 vs -0.025 est) and revenue declining -10.8%; insider selling totals $17M across 18 transactions including the CEO ($4.4M) and 10%-owner Voss Capital ($10.3M), zero buying.",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Deteriorating recent revenue/earnings combined with broad-based insider selling is the weakest fundamental picture among trend_continuation names.",
+    "bear_case": "HeavilyShorted (10.4% float) plus widespread insider selling reads as a genuine headwind given the concurrent earnings deterioration, not squeeze fuel.",
+    "flags": []
+   },
+   {
+    "ticker": "SRRK",
+    "rank": 12,
+    "research_highlight": "FDA approved lead drug ISEMBYLD on Sep 14, but the stock closed -6.41% on 2.36x volume that day and sits -12% below the pre-news close weeks later \u2014 a sold-the-news reaction; net income growth has also decelerated the last two quarters after two strong ones.",
+    "news_sentiment": "Negative",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "A genuine regulatory catalyst the tape rejected, plus decelerating income growth, moves this down one setup tier despite the technical stabilization holding.",
+    "bear_case": "20% of float is short and insiders (multiple directors) have only sold into the news with zero buying \u2014 the approval hasn't changed the short thesis.",
+    "flags": []
+   },
+   {
+    "ticker": "SYRE",
+    "rank": 13,
+    "research_highlight": "A rheumatoid arthritis program (SPY072) missed its internal benchmark Aug 26, sending the stock down -12.6% on 3.8x volume; insider selling since totals $13.3M across CEO, CFO and other officers with zero buying, against a C- overall rating.",
+    "news_sentiment": "Negative",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "A real clinical setback plus broad officer-level selling is demoted one setup tier despite the extreme EMA200 uptrend reading.",
+    "bear_case": "15.7% of float is short and multiple officers have sold since the trial miss with no offsetting buying, in a high-beta (3.0) clinical-stage name.",
+    "flags": []
+   },
+   {
+    "ticker": "KMT",
+    "rank": 14,
+    "research_highlight": "Highest overall analyst score (A) in the pool with revenue growth accelerating (+24.3%, +11.9%, +6.3% over the last three quarters); two insider purchases totaling $354,750 (most recent Sep 10) partially offset officer selling.",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "The strongest fundamental profile among reversion_bounce names \u2014 accelerating growth plus real insider buying \u2014 earns the top spot in this weaker-edge tier.",
+    "bear_case": "Consensus is only Hold (6 of 24 analysts at Sell), and the setup's fixed-target reversion_bounce edge is weak regardless of fundamentals.",
+    "flags": []
+   },
+   {
+    "ticker": "PVH",
+    "rank": 15,
+    "research_highlight": "8/8 quarterly EPS beats and a notable $1M insider purchase Sep 11, though net income growth swung sharply negative last quarter (-217%) even as EPS beat, suggesting buybacks flatter the per-share number.",
+    "news_sentiment": "Positive",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Consistent beats plus real insider buying place this near the top of the reversion_bounce tier despite the underlying net income volatility.",
+    "bear_case": "The steep net income decline behind the EPS beat is a real quality concern, and the fixed-target reversion_bounce edge is weak regardless.",
+    "flags": []
+   },
+   {
+    "ticker": "KIM",
+    "rank": 16,
+    "research_highlight": "8/8 quarterly EPS beats for this grocery-anchored REIT with no precomputed caution flags at all; RSI14 of 28.6 shows a technically oversold pullback.",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Clean beat record and flag-free profile support a mid-tier reversion_bounce rank, held back by the weaker setup type and Hold-leaning consensus.",
+    "bear_case": "22 of 35 analysts rate it only Hold, and the -13.2% target revision hints at fading enthusiasm even as earnings beat.",
+    "flags": []
+   },
+   {
+    "ticker": "ON",
+    "rank": 17,
+    "research_highlight": "6 of 8 quarters beat EPS, and a string of items (Sep 17: AI data-center revenue to more than double in 2026; Sep 23: new Buy initiation) coincide with a +14.6% 10-day return, though the most material items fall just outside the 7-day recency window.",
+    "news_sentiment": "Positive",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "The freshest, most credible growth narrative in this tier, tempered by the stock already being AboveVolumePOC after a large bounce.",
+    "bear_case": "The stock has already bounced 14.6% in 10 days off the low \u2014 a lot of good news may be priced in, and the underlying EMA200 slope is still negative.",
+    "flags": []
+   },
+   {
+    "ticker": "SBUX",
+    "rank": 18,
+    "research_highlight": "Two consecutive EPS beats (0.85 vs 0.66, 0.50 vs 0.425) reversing four straight misses; the Sep 25 store-closure/outlook-cut announcement closed +1.31% on 1.7x volume and remains +1.2% since \u2014 the market read the cost discipline positively.",
+    "news_sentiment": "Positive",
+    "catalyst_status": "recent",
+    "catalyst_date": "2026-09-25",
+    "support_status": "confirmed",
+    "rationale": "A tape-confirmed recent guidance-change catalyst that held, layered on an improving earnings trend, earns a solid rank despite the weaker setup type.",
+    "bear_case": "The earlier 'Back to Starbucks' rally has already faded once (still -9% below that beat-day close), so this recovery needs to prove durable, and HeavilyShorted interest could add pressure if it stalls.",
+    "flags": []
+   },
+   {
+    "ticker": "IDA",
+    "rank": 19,
+    "research_highlight": "7 of 8 quarters beat EPS estimates with a clean, flag-free profile and no news catalysts to complicate the read.",
+    "news_sentiment": null,
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Solid, unremarkable beat history in a defensive utility supports a middle-of-the-pack rank.",
+    "bear_case": "No insider or news signal to lean on; conviction rests almost entirely on the technical bounce in a still-downtrending name.",
+    "flags": []
+   },
+   {
+    "ticker": "PTCT",
+    "rank": 20,
+    "research_highlight": "7 of 8 quarters beat EPS with strong revenue growth (32%, 66%, 18% in three of the last four quarters); insider selling has been heavy (34 sales, $12.7M, including a director's $6.3M sale on Sep 17).",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Good underlying growth earns a mid-tier rank, but heavy, broad insider selling tempers it relative to KMT/PVH which show insider buying.",
+    "bear_case": "13.2% of float is short and insider selling (directors and officers, no buying) has continued through the pullback, reading as a genuine headwind.",
+    "flags": []
+   },
+   {
+    "ticker": "PECO",
+    "rank": 21,
+    "research_highlight": "The last three quarters all beat EPS estimates after a stretch of large misses; short interest rose 16.1% (ShortsAdding) even as the stock stabilizes.",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Decent recent execution is offset by shorts actively adding into the bounce, a more cautious combination than names without that flag.",
+    "bear_case": "ShortsAdding into a stabilizing pullback suggests sophisticated money doesn't yet believe the base will hold.",
+    "flags": []
+   },
+   {
+    "ticker": "AEP",
+    "rank": 22,
+    "research_highlight": "Roughly half of the last 8 quarters beat EPS estimates, but net income growth has been negative in 3 of the last 4 quarters despite management calling hyperscaler demand 'exceptionally strong'; Carl Icahn trimmed his AEP stake in Q2.",
+    "news_sentiment": "Mixed",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Mixed earnings execution and a declining net income trend keep this in the lower-middle of the reversion_bounce tier.",
+    "bear_case": "HeavilyShorted with shorts adding modestly, and the recent EPS miss despite bullish AI-power commentary suggests the demand story hasn't shown up in results yet.",
+    "flags": []
+   },
+   {
+    "ticker": "SWX",
+    "rank": 23,
+    "research_highlight": "Mixed beat/miss record for this regulated gas utility; RSI14 of 29.1 is the most oversold reading in the pool, though the one recent 'oversold opportunity' article (Sep 28) coincided with a -0.81% session.",
+    "news_sentiment": "Mixed",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "No major red flags but no confirming catalyst either \u2014 a purely technical, lower-conviction reversion play.",
+    "bear_case": "3 of 14 analysts rate it Sell, and the stock is technically 'transitional' with a negative 1-year EMA200 slope, so the bounce lacks strong fundamental backing.",
+    "flags": []
+   },
+   {
+    "ticker": "PNW",
+    "rank": 24,
+    "research_highlight": "Roughly 5 of 8 quarters beat EPS estimates with net income growth strongly positive in 2 of the last 3 quarters; no news exists to confirm or contest the setup.",
+    "news_sentiment": null,
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Reasonable utility fundamentals but a flag-light, catalyst-free profile keeps this in the lower half of the tier.",
+    "bear_case": "No insider or news signal to lean on; conviction rests almost entirely on the technical bounce in a still-downtrending name.",
+    "flags": []
+   },
+   {
+    "ticker": "SNDX",
+    "rank": 25,
+    "research_highlight": "5 of 8 quarters beat EPS estimates with revenue growing in 3 of the last 4 quarters, but the overall rating is a weak D+ and 25.75% of float is short (declining -4.7%).",
+    "news_sentiment": null,
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Growing revenue is a positive but the weak fundamental score and lack of any catalyst keep this in the bottom third.",
+    "bear_case": "A D+ rating despite decent revenue growth suggests broader concerns beyond the top line, and there's no insider buying to counter the large short position.",
+    "flags": []
+   },
+   {
+    "ticker": "COGT",
+    "rank": 26,
+    "research_highlight": "Mixed beat/miss EPS record with net income growth turning negative the last two quarters (-27%, -10%) for this pre-commercial biotech; no material news catalyst exists.",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "Declining recent income growth and a C- rating with no catalyst place this near the bottom of the pool.",
+    "bear_case": "12.2% of float is short and a director sold $1.7M with no offsetting buying \u2014 a soft backdrop for a reversion play.",
+    "flags": []
+   },
+   {
+    "ticker": "GVA",
+    "rank": 27,
+    "research_highlight": "5 of the last 8 quarters missed EPS estimates and net income growth has been sharply negative in 2 of the last 4 quarters (-567%, -180%), the weakest recent execution trend in the pool; one small insider purchase ($49,596, Aug 6) is the only positive signal.",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "A majority-miss recent earnings record and declining profitability trend make this one of the weaker fundamental stories, ranked near the bottom.",
+    "bear_case": "The pattern of recent misses plus declining net income growth suggests real operational deterioration, not just a technical pullback.",
+    "flags": []
+   },
+   {
+    "ticker": "ALGT",
+    "rank": 28,
+    "research_highlight": "Volatile EPS record with TargetsBeingCut (-13.6% recent revision) and ShortsAdding (+16.9%) both flagged \u2014 a genuinely bearish combination for an airline already in a technical downtrend.",
+    "news_sentiment": "Neutral",
+    "catalyst_status": "none",
+    "catalyst_date": null,
+    "support_status": "confirmed",
+    "rationale": "The combination of cooling analyst targets and shorts actively adding is the most fundamentally bearish signal among ranked names, placing it last.",
+    "bear_case": "TargetsBeingCut plus ShortsAdding together suggest the market and sophisticated short-sellers both see deteriorating prospects, and this setup has only a fixed, nearby target.",
+    "flags": []
+   }
+  ],
+  "excluded": [
+   {
+    "ticker": "BEAM",
+    "reason": "The Sep 8 Phase 1/2 data readout for BEAM-302, despite a positive-sounding headline, was sold hard on the tape (-9.67% on 4.26x volume, still -17.1% below the pre-news close) \u2014 a tape-confirmed negative catalyst layered on a weak C- rating and a mostly-miss EPS history, with no insider buying to counter 29.3%-of-float short interest."
+   },
+   {
+    "ticker": "WERN",
+    "reason": "Deteriorating fundamentals (6 of the last 8 quarters missed EPS, net income growth negative in 3 of 4 recent quarters) combined with a tape-confirmed negative catalyst (Sep 16 diesel-cost shock to trucking margins, -4.6% on 1.77x volume, still -9.6% below that close) meet the bar for exclusion rather than a low-ranked backup."
+   }
+  ]
+ }
+}
