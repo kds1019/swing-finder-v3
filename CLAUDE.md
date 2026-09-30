@@ -49,7 +49,7 @@ both flags, they are exactly the "looks clean but isn't" signals the user wants 
 Agent's read of whether the pullback has actually stopped falling. Always show it; a `still_falling`
 that made it into the list at all is worth the user's scrutiny.
 
-`Setup:` is the `setup_type` field (`trend_continuation` / `reversion_bounce` / `null`) — a
+`Setup:` is the `setup_type` field (`trend_continuation` / `ema_band_pullback` / `reversion_bounce` / `null`) — a
 DETERMINISTIC, Python-computed read (core/trend_context.py), separate from `Support:`/
 `support_status`, which only says whether the drop has stopped, not whether that's happening
 inside an uptrend or a downtrend. `trend_continuation` = uptrend pullback in the classic
@@ -91,6 +91,18 @@ excluded, since those aren't a voluntary market decision). It's the natural comp
 real evidence the short thesis may be wrong; insider selling alongside heavy or rising short
 interest (`HeavilyShorted`/`ShortsAdding` + `InsiderSelling`) reinforces rather than offsets
 the bear case. Zero activity either way is genuinely uninformative, not a signal.
+
+`Flags:` are computed in Python (pipeline.py `compute_precomputed_flags` / `finalize_pick_fields`)
+from fixed thresholds — HeavilyShorted, ShortsAdding, InsiderBuying, InsiderSelling,
+TargetsBeingCut, AtAnalystTarget, AboveVolumePOC, WeakRR, StopSanity, EarningsSoon,
+SectorOverlap (a current swing position is in the same sector), OpenOrder, StillFalling,
+CatalystStale. The Decision Agent adds only two judgment flags: CatalystFaded and
+EarningsCatalyst. The ranking itself follows a fixed priority: support_status, then setup type
+(trend_continuation > ema_band_pullback > reversion_bounce), then fundamentals/analyst
+direction, then a tape-confirmed catalyst.
+
+If the output has a non-empty `decision.excluded` list (candidates the Decision Agent chose not
+to rank, each with a reason), show it after the per-ticker list — one line per ticker.
 
 Also surface, before the per-ticker list: market bias, VIX/gate status, and — if present in the
 output — `pick_track_record` (the system's own historical win rate). This is not an optional

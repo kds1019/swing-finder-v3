@@ -205,6 +205,113 @@ def apply_earnings_buffer(enriched_df: pd.DataFrame, settings) -> tuple[pd.DataF
 CATALYST_RECENT_MAX_DAYS = 7
 
 
+# Flags the Decision Agent may add itself (judgment calls). Every other flag is computed in
+# Python — compute_precomputed_flags() before the model runs (it sees them as input), plus
+# StillFalling / CatalystStale after — so the flag vocabulary is closed and always correct.
+# Before 2026-09-30 the model applied ~8 threshold flags itself; an audit of the 9/30 run
+# found them correct but the rules cost ~15% of the prompt, and it invented ad-hoc flags
+# (e.g. "AboveVolumePOC") outside any definition.
+MODEL_JUDGMENT_FLAGS = ("CatalystFaded", "EarningsCatalyst")
+
+
+def _num(v) -> Optional[float]:
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if pd.isna(f) else f
+
+
+def compute_precomputed_flags(row, swing_sectors: set, open_order_symbols: set) -> list[str]:
+    """Deterministic, threshold-based flags for one enriched shortlist row. Thresholds are
+    the ones the Decision Agent prompt used to apply itself (unchanged), plus
+    AtAnalystTarget (split out of TargetsBeingCut), EarningsSoon, SectorOverlap, OpenOrder."""
+    flags: list[str] = []
+
+    def _dict(v):
+        return v if isinstance(v, dict) else {}   # a missing cell can arrive as NaN (truthy)
+
+    si = _dict(row.get("ShortInterest"))
+    spf, dtc, chg = (_num(si.get("short_percent_of_float")), _num(si.get("days_to_cover")),
+                     _num(si.get("short_interest_change_pct")))
+    if (spf is not None and spf >= 10) or (dtc is not None and dtc >= 5):
+        flags.append("HeavilyShorted")
+    if chg is not None and chg >= 10:
+        flags.append("ShortsAdding")
+
+    ia = _dict(row.get("InsiderActivity"))
+    buys, sells = int(_num(ia.get("purchase_count")) or 0), int(_num(ia.get("sale_count")) or 0)
+    if buys >= 1:
+        flags.append("InsiderBuying")
+    if sells >= 1 and buys == 0:
+        flags.append("InsiderSelling")
+
+    ar = _dict(row.get("AnalystRating"))
+    rev, n = _num(ar.get("targetRevisionRecentPct")), int(_num(ar.get("lastMonthTargetCount")) or 0)
+    if rev is not None and rev <= -8 and n >= 2:
+        flags.append("TargetsBeingCut")
+    tgt, px = _num(ar.get("lastMonthAvgTarget")), _num(row.get("Price"))
+    if tgt and px and n >= 1 and px >= tgt:
+        flags.append("AtAnalystTarget")
+
+    poc_pct = _num(row.get("PriceVsPOCPct"))
+    if poc_pct is not None and poc_pct > 0:
+        flags.append("AboveVolumePOC")
+    if row.get("WeakRR") in (True, 1) and not isinstance(row.get("WeakRR"), float):
+        flags.append("WeakRR")
+    if row.get("StopSanityFlag") in (True, 1) and not isinstance(row.get("StopSanityFlag"), float):
+        flags.append("StopSanity")
+    if isinstance(row.get("EarningsProximityTier"), str):
+        flags.append("EarningsSoon")
+    if row.get("Sector") in swing_sectors:
+        flags.append("SectorOverlap")
+    if row.get("Ticker") in open_order_symbols:
+        flags.append("OpenOrder")
+    return flags
+
+
+def attach_precomputed_flags(final_df: pd.DataFrame, portfolio_context: dict,
+                             sector_lookup: dict, excluded_tickers) -> pd.DataFrame:
+    """Adds a PrecomputedFlags column (see compute_precomputed_flags). SectorOverlap counts
+    only current SWING positions — the user's long-term holds (settings.excluded_tickers)
+    are not swing exposure."""
+    if final_df.empty:
+        return final_df
+    held = [pos.get("symbol") for pos in portfolio_context.get("positions") or []]
+    swing_sectors = {sector_lookup.get(sym) for sym in held
+                     if sym and sym not in set(excluded_tickers or ())} - {None}
+    open_syms = {o.get("symbol") for o in portfolio_context.get("open_orders") or []} - {None}
+    out = final_df.copy()
+    out["PrecomputedFlags"] = [compute_precomputed_flags(r, swing_sectors, open_syms)
+                               for r in out.to_dict(orient="records")]
+    return out
+
+
+def finalize_pick_fields(picks: list[dict], final_df: pd.DataFrame) -> None:
+    """In place, right after the Decision Agent returns: entry/stop/target/rr_ratio come
+    straight from the trade plan (the model no longer re-types numbers), and flags become
+    PrecomputedFlags + StillFalling (from the model's support_status) + only the
+    MODEL_JUDGMENT_FLAGS the model set. Any other model flag is dropped (logged)."""
+    if not picks or final_df.empty:
+        return
+    rows = {r["Ticker"]: r for r in final_df.to_dict(orient="records")}
+    for p in picks:
+        r = rows.get(p.get("ticker"))
+        model_flags = list(p.get("flags") or [])
+        flags = list(r.get("PrecomputedFlags") or []) if r else []
+        if r:
+            p["entry"] = round(float(r["Price"]), 2) if _num(r.get("Price")) is not None else None
+            p["stop"], p["target"], p["rr_ratio"] = r.get("Stop"), r.get("Target"), r.get("RRRatio")
+        if p.get("support_status") == "still_falling":
+            flags.append("StillFalling")
+        flags += [f for f in model_flags if f in MODEL_JUDGMENT_FLAGS and f not in flags]
+        dropped = [f for f in model_flags if f not in MODEL_JUDGMENT_FLAGS and f not in flags]
+        if dropped:
+            print(f"[pipeline] {p.get('ticker')}: dropped non-judgment model flags {dropped}",
+                  file=sys.stderr)
+        p["flags"] = flags
+
+
 def attach_price_context(enriched_df: pd.DataFrame, bars_by_ticker: dict) -> pd.DataFrame:
     """Adds RecentDailyBars and annotates every News item with its real price reaction
     (core.price_reaction) — so the Decision Agent reads what the tape did after a catalyst
@@ -248,7 +355,11 @@ def run_pipeline(
     skip_decision: bool = False,
     dry_run: bool = True,
     candidate_pool_size: int = CANDIDATE_POOL_SIZE,
+    decision_input_out: Optional[str] = None,
 ) -> dict:
+    """decision_input_out: if set, write the exact Decision Agent user payload to this path
+    and return BEFORE calling the model (no picks logged) — used by
+    .github/workflows/prompt_ab.yml to compare system prompts on identical input."""
     settings = load_settings()
 
     universe = build_universe(settings)
@@ -338,6 +449,7 @@ def run_pipeline(
         "sector_exposure": sector_exposure,
         "open_orders": open_orders,
     }
+    final_df = attach_precomputed_flags(final_df, portfolio_context, sector_lookup, settings.excluded_tickers)
 
     # --- Pick outcome tracking (part 1): score past picks before this run's synthesis, so
     # the Decision Agent can see its own historical win rate before making new calls. ---
@@ -345,6 +457,16 @@ def run_pipeline(
     pick_log = score_due_picks(pick_log, market_agent)
     pick_track_record = compute_pick_accuracy_summary(pick_log)
     print(f"[pipeline] Pick track record: {pick_track_record}", file=sys.stderr)
+
+    if decision_input_out:
+        payload = DecisionAgent._build_user_prompt(
+            final_df, portfolio_context, market_gate_open, pick_track_record,
+        )
+        with open(decision_input_out, "w", encoding="utf-8") as fh:
+            fh.write(payload)
+        print(f"[pipeline] Saved Decision Agent input ({len(final_df)} candidates) to "
+              f"{decision_input_out}; stopping before the model call.", file=sys.stderr)
+        return {"decision_input_saved": decision_input_out, "candidates": len(final_df)}
 
     # --- Decision Agent: research-driven RANKING of every candidate ---
     decision_agent = DecisionAgent(settings)
@@ -358,6 +480,7 @@ def run_pipeline(
     # technical screener happened to surface. ---
     sector_capped_out: list[dict] = []
     if isinstance(result, dict) and result.get("ranked_picks"):
+        finalize_pick_fields(result["ranked_picks"], final_df)
         enforce_catalyst_recency(result["ranked_picks"])
         sector_lookup = dict(zip(final_df["Ticker"], final_df["Sector"]))
         kept, sector_capped_out = apply_sector_cap_to_picks(
@@ -411,6 +534,8 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", default=True, help="Portfolio execution dry-run (default: True)")
     parser.add_argument("--candidate-pool-size", type=int, default=CANDIDATE_POOL_SIZE,
                          help="Max tickers (after screener + sector cap) carried into research/decision")
+    parser.add_argument("--save-decision-input", type=str, default=None, metavar="PATH",
+                        help="Write the Decision Agent's exact input payload to PATH and stop before calling it")
     args = parser.parse_args()
 
     # webull-openapi-python-sdk writes its auth/token diagnostic logs directly to a file
@@ -434,6 +559,7 @@ def main() -> None:
             skip_decision=args.skip_decision,
             dry_run=args.dry_run,
             candidate_pool_size=args.candidate_pool_size,
+            decision_input_out=args.save_decision_input,
         )
     finally:
         sys.stdout.flush()
