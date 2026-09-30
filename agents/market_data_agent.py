@@ -238,7 +238,9 @@ class MarketDataAgent:
             if not result.get("detected"):
                 continue
 
-            trade_plan = compute_trade_plan(df, settings)
+            trade_plan = compute_trade_plan(
+                df, settings, support_can_tighten=settings.stop_support_can_tighten,
+            )
             # Drop weak-RR setups at the screener (config toggle, default on): ~32% of matches
             # get a plan whose stop/target geometry fell below the R:R floor after the
             # support/resistance refinement. research/weak_rr_ab.py found these have negative

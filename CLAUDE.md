@@ -38,7 +38,12 @@ Flags: <flags, semicolon-separated>
 
 `Catalyst:` is the Decision Agent's `catalyst_status` field (`recent` / `upcoming` / `none`) — always
 show it, don't drop it for "recent"-only picks. A `none` catalyst on an otherwise-clean technical
-setup is exactly the kind of thing the user wants visible, not smoothed over.
+setup is exactly the kind of thing the user wants visible, not smoothed over. `recent` is
+date-checked in Python (pipeline.py `enforce_catalyst_recency`): the agent must report a
+`catalyst_date`, and a "recent" older than 7 days is downgraded to `none` with a `CatalystStale`
+flag (the model's original label is kept in `catalyst_status_model`). A `CatalystFaded` flag means
+the stock has already given back the move since a positive catalyst (the news was sold) — surface
+both flags, they are exactly the "looks clean but isn't" signals the user wants to see.
 
 `Support:` is the `support_status` field (`confirmed` / `forming` / `still_falling`) — the Decision
 Agent's read of whether the pullback has actually stopped falling. Always show it; a `still_falling`

@@ -9,7 +9,10 @@ plus `utils/target_calculator.py::calculate_fibonacci_target()` and
 Stop: swing-low/EMA-anchored, not a flat ATR multiple.
     base_stop = min(10-day swing low, EMA20 - 1.3*ATR14)
     falls back to (price - 1.2*ATR14) if that isn't below price
-    then tightened to nearest support cluster if one exists within 3*ATR
+    then moved to just below the nearest support cluster if one exists within 3*ATR —
+    live, only when that LOWERS the stop (settings.stop_support_can_tighten=False; see
+    research/stop_floor_ab.md). compute_trade_plan's own default still allows raising it,
+    so research scripts that pass no knobs reproduce the pre-2026-09-30 behavior.
 Target: Fibonacci 1.618 extension of the most recent 20-bar swing, floored
     at `min_rr_ratio` (settings.min_risk_reward) if the raw extension doesn't
     clear it, and capped at MAX_RISK_REWARD_RATIO if it overshoots (see that
@@ -233,9 +236,24 @@ def resolve_trade_plan_outcome(
     return None, None, None, None
 
 
-def compute_trade_plan(df: pd.DataFrame, settings) -> dict:
+def compute_trade_plan(
+    df: pd.DataFrame,
+    settings,
+    min_stop_atr: float | None = None,
+    support_can_tighten: bool = True,
+) -> dict:
     """Full stop/target/R:R for the most recent bar of `df` (must already have
-    compute_indicators() applied). Returns None if there isn't enough data."""
+    compute_indicators() applied). Returns None if there isn't enough data.
+
+    min_stop_atr / support_can_tighten are research knobs for
+    research/stop_floor_ab.py (defaults reproduce the live behavior exactly):
+      - support_can_tighten=False: the support refinement may only move the stop
+        LOWER than the base stop, never raise it closer to price.
+      - min_stop_atr=X: after refinement, the stop is never closer to price than
+        X * ATR14. Motivated by the live pick log (2026-09-30): 23 of 25 resolved
+        picks hit their stop, 16 on the very next bar, median stop distance 2.15%
+        (NJR 0.47%, FNB 0.57%) — the nearest-support refinement can pull the stop
+        inside a single day's normal range."""
     if df is None or len(df) < 20:
         return None
 
@@ -264,6 +282,11 @@ def compute_trade_plan(df: pd.DataFrame, settings) -> dict:
         nearest_support = sr["support"][0]
         if px - nearest_support < atr_val * 3:
             actual_stop = nearest_support * 0.995
+            if not support_can_tighten:
+                actual_stop = min(actual_stop, stop)
+    if min_stop_atr is not None:
+        actual_stop = min(actual_stop, px - min_stop_atr * atr_val)
+    actual_stop = max(0.01, actual_stop)
 
     actual_target = target
     actual_risk = abs(px - actual_stop)
