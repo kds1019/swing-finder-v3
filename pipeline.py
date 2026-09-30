@@ -31,6 +31,7 @@ from agents.market_data_agent import MarketDataAgent, compute_market_bias
 from agents.research_agent import ResearchAgent
 from agents.portfolio_agent import PortfolioAgent
 from agents.decision_agent import DecisionAgent, FINAL_WATCHLIST_SIZE
+from core.price_reaction import annotate_news_with_reaction, recent_daily_bars
 
 # Max tickers carried into the research/decision step, after the technical screener and the
 # loose pre-research sector cap (settings.pre_research_sector_cap). DecisionAgent RANKS all of
@@ -228,6 +229,49 @@ def apply_earnings_buffer(enriched_df: pd.DataFrame, settings) -> tuple[pd.DataF
     return kept, excluded
 
 
+# A catalyst the Decision Agent labels "recent" must be at most this many calendar days old
+# (by the catalyst_date it reports). Matches the prompt's own ~7-day definition, which it
+# was observed ignoring (SRRK 2026-09-30: a 19-day-old FDA approval labelled "recent").
+CATALYST_RECENT_MAX_DAYS = 7
+
+
+def attach_price_context(enriched_df: pd.DataFrame, bars_by_ticker: dict) -> pd.DataFrame:
+    """Adds RecentDailyBars and annotates every News item with its real price reaction
+    (core.price_reaction) — so the Decision Agent reads what the tape did after a catalyst
+    instead of inferring it from a headline. Pure passthrough of already-fetched bars; no
+    extra API calls. Tickers without bars get [] / None fields rather than an error."""
+    if enriched_df.empty:
+        return enriched_df
+    out = enriched_df.copy()
+    out["RecentDailyBars"] = out["Ticker"].map(lambda t: recent_daily_bars(bars_by_ticker.get(t)))
+    if "News" in out.columns:
+        out["News"] = [
+            annotate_news_with_reaction(news or [], bars_by_ticker.get(t))
+            for t, news in zip(out["Ticker"], out["News"])
+        ]
+    return out
+
+
+def enforce_catalyst_recency(picks: list[dict], now: Optional[pd.Timestamp] = None) -> None:
+    """Deterministic check on the Decision Agent's catalyst_status, in place: a "recent"
+    label needs a catalyst_date within CATALYST_RECENT_MAX_DAYS. Otherwise it's downgraded
+    to "none" with a "CatalystStale" flag, and the model's original label is kept in
+    catalyst_status_model for auditing. Never raises."""
+    now = (now or pd.Timestamp.now()).normalize()
+    for p in picks:
+        if p.get("catalyst_status") != "recent":
+            continue
+        d = pd.to_datetime(p.get("catalyst_date"), errors="coerce")
+        if pd.notna(d) and (now - d.normalize()).days <= CATALYST_RECENT_MAX_DAYS:
+            continue
+        p["catalyst_status_model"] = "recent"
+        p["catalyst_status"] = "none"
+        flags = list(p.get("flags") or [])
+        if "CatalystStale" not in flags:
+            flags.append("CatalystStale")
+        p["flags"] = flags
+
+
 def run_pipeline(
     limit: int | None = None,
     random_sample: bool = False,
@@ -306,6 +350,7 @@ def run_pipeline(
     enriched_df = research_agent.enrich_shortlist(
         shortlist_df, market_agent=market_agent, news_lookback_days=NEWS_LOOKBACK_DAYS
     )
+    enriched_df = attach_price_context(enriched_df, bars_by_ticker)
     final_df, earnings_excluded_df = apply_earnings_buffer(enriched_df, settings)
     print(f"[pipeline] After earnings buffer: {len(final_df)} tickers "
           f"({len(earnings_excluded_df)} excluded)", file=sys.stderr)
@@ -345,6 +390,7 @@ def run_pipeline(
     # technical screener happened to surface. ---
     sector_capped_out: list[dict] = []
     if isinstance(result, dict) and result.get("ranked_picks"):
+        enforce_catalyst_recency(result["ranked_picks"])
         sector_lookup = dict(zip(final_df["Ticker"], final_df["Sector"]))
         kept, sector_capped_out = apply_sector_cap_to_picks(
             result["ranked_picks"], sector_lookup, settings.sector_cap

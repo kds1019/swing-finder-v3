@@ -241,6 +241,25 @@ actually happened or is expected to happen) isn't mistaken for one with genuine 
 just because both have a News array. Use it, don't just eyeball timestamps across the whole
 quarter's blob yourself.
 
+PRICE REACTION — read the tape, not the headline. Every News item carries fields computed in
+Python from real daily bars (core/price_reaction.py):
+  age_days           — calendar days since the item was published
+  reaction_session   — the regular session it could first move (after-close/weekend items roll
+                       to the next session)
+  session_chg_pct    — that session's ACTUAL close-to-close move
+  session_rel_vol    — that session's volume vs its 20-day average (> ~2 = a real event)
+  chg_since_pct      — latest close vs the close BEFORE that session: has the stock held,
+                       extended, or given back the move since
+Each ticker also carries RecentDailyBars (last ~30 sessions: date, close, chg_pct, rel_vol;
+the last row may be today's still-forming bar). A headline's own claim about the move
+("shares up 12% premarket", "stock soars") is NOT the reaction — premarket moves routinely
+reverse by the close. Always judge a catalyst by session_chg_pct / chg_since_pct. A real,
+confirmed case (SRRK, 2026-09): an FDA approval with a "+12% premarket" headline closed that
+session -6.4% on 4x volume and sat -11% below its pre-news close 2.5 weeks later — the market
+sold the news. A positive catalyst whose chg_since_pct is now negative has been priced in or
+sold: it is NOT fresh upside momentum, say so, and add "CatalystFaded" to flags. Conversely a
+negative headline the stock shrugged off (session_chg_pct flat/up) is weaker than it reads.
+
 Your job:
 
 1. For every ticker provided, write a short (1-3 sentence) research highlight covering: is
@@ -273,13 +292,18 @@ Your job:
    real positive and negative items are present, not just uncertainty; "Neutral" means the news
    is routine, no real positive or negative charge either way. If News is empty, set
    news_sentiment to null rather than guessing. Additionally set catalyst_status to "recent" (a
-   genuinely material catalyst — not just any recent headline — within roughly the last 7 days,
-   per CatalystRecency/News), "upcoming" (a
+   genuinely material catalyst — not just any recent headline — whose OWN item has age_days
+   <= 7; routine items being recent does not make an older material catalyst recent), "upcoming" (a
    genuine near-term expected event named in the text, including an earnings-imminent inclusion
    per point 8 below), or "none" (clean technical setup, no material catalyst either recent or
    forward-looking) — this is a first-class, structured signal, not just prose color, precisely
    so a "none" ticker is visibly flagged as such rather than reading the same as a ticker with
-   genuine fresh news.
+   genuine fresh news. Set catalyst_date to the publication date (YYYY-MM-DD) of the material
+   News item behind catalyst_status "recent" (for "upcoming", the date of the item naming the
+   event; null for "none"). The pipeline checks it: a "recent" label with a catalyst_date older
+   than 7 days (or missing) is automatically downgraded to "none" with a "CatalystStale" flag.
+   When you cite a catalyst in the highlight, cite its reaction too (e.g. "closed -6.4% on the
+   news, -11% since").
 2. RANK EVERY ticker provided, best first (rank 1 = most likely to keep moving up), based on
    the research highlight above — do NOT pre-truncate to a watchlist length. A
    3-per-sector diversification cap is applied to your ranking afterward by the pipeline and
@@ -393,6 +417,7 @@ support_status (point 2b) ARE part of your job, not given inputs. When support_s
      "position_value": number, "research_highlight": str,
      "news_sentiment": "Positive" | "Negative" | "Neutral" | "Mixed" | null,
      "catalyst_status": "recent" | "upcoming" | "none",
+     "catalyst_date": "YYYY-MM-DD" | null,
      "support_status": "confirmed" | "forming" | "still_falling",
      "rationale": str, "bear_case": str, "flags": [str, ...]}}
   ]

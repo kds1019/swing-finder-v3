@@ -54,11 +54,23 @@ def _extract_item_date(item: dict) -> Optional[pd.Timestamp]:
     for key in _ITEM_DATE_KEYS:
         value = item.get(key)
         if value:
-            try:
-                return pd.to_datetime(value, utc=True)
-            except (ValueError, TypeError):
-                continue
+            ts = parse_item_timestamp(value)
+            if ts is not None:
+                return ts
     return None
+
+
+def parse_item_timestamp(value) -> Optional[pd.Timestamp]:
+    """UTC timestamp from an ISO string/Timestamp, or from a bare number, which is treated
+    as epoch MILLISECONDS (pandas' to_json default) — pd.to_datetime alone would read it as
+    nanoseconds and land in 1970. None if unparseable."""
+    try:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return pd.to_datetime(value, unit="ms", utc=True)
+        ts = pd.to_datetime(value, utc=True)
+        return None if pd.isna(ts) else ts
+    except (ValueError, TypeError, OverflowError):
+        return None
 
 
 def _catalyst_recency(news_items: list[dict]) -> dict:
@@ -585,7 +597,13 @@ class ResearchAgent:
             def _fetch_news(ticker: str) -> list[dict]:
                 try:
                     news_df = market_agent.fetch_news(ticker, lookback_days=news_lookback_days)
-                    return json.loads(news_df.to_json(orient="records")) if not news_df.empty else []
+                    # date_format="iso": the pandas default ("epoch") serializes Date as epoch
+                    # MILLISECONDS, which reached the Decision Agent as bare integers and which
+                    # _catalyst_recency then parsed as nanoseconds — every item read as 1970,
+                    # so CatalystRecency said ~20,700 days / 0 items in the last 7d for every
+                    # ticker (confirmed 2026-09-30).
+                    return (json.loads(news_df.to_json(orient="records", date_format="iso"))
+                            if not news_df.empty else [])
                 except Exception as e:
                     print(f"[research_agent] extended news fetch failed for {ticker}: {e}", file=sys.stderr)
                     return []
