@@ -59,14 +59,15 @@ class Settings:
     drop_weak_rr_candidates: bool = True
     # Whether core.trade_plan's nearest-support refinement may RAISE the initial stop above
     # the swing-low/EMA base stop (closer to price). False = support can only lower it.
-    # research/stop_floor_ab.md (two runs, ~457-ticker samples, 2021-06 to 2026-09): with
-    # tightening allowed, ~60% of live-candidate stops sat inside 1 ATR (median 0.82 ATR,
-    # ~2.4%). Disallowing it won on profit factor in every window of BOTH runs — 2021-24
-    # 1.23/1.38 vs 1.09/1.27, 2025-26 1.34/1.22 vs 1.23/1.13, 2022 0.61/1.26 vs 0.43/0.57 —
-    # with win rate 38-39% vs 33-35% and max consecutive losses 10-13 vs 15-20, at the cost
-    # of ~40% fewer trades. Portfolio % returns swung a lot between the two near-identical
-    # samples, so PF/win rate are the robust read. Plain ATR floors (0.75/1.0/1.5) did NOT
-    # consistently beat the base; wider floors did worse. True = old behavior.
+    # research/stop_floor_ab.md: with tightening allowed, ~61% of live-candidate stops sit
+    # inside 1 ATR (median 0.81 ATR, ~2.4%) — the live pick log's "stopped out next bar"
+    # problem. Evidence for False is MIXED, not proven:
+    #   - runs 1-2 (2026-09-30, on a prefilter that wrongly skipped setups >8% above EMA200)
+    #     favoured False in every window;
+    #   - run 3 (same day, full correct candidate set): profit factor 2021-24 0.90 vs 1.00,
+    #     2025-26 1.39 vs 1.31, 2022 0.39 vs 0.26, full period 1.07 vs 1.11 — a wash — while
+    #     win rate stayed higher (35% vs 33%) and max consecutive losses fell (15 vs 26).
+    # Kept False for fewer next-bar stop-outs; flip to True for the old behavior.
     stop_support_can_tighten: bool = False
     price_min: float = 10.0
     price_max: float = 150.0
