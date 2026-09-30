@@ -83,6 +83,160 @@ def _catalyst_recency(news_items: list[dict]) -> dict:
     }
 
 
+# Only these two transactionType codes are a genuine, voluntary open-market decision by
+# the insider. Everything else FMP returns (confirmed live 2026-09-11 across several
+# real tickers) is routine noise that would drown out the real signal if counted the same
+# way: A-Award (stock granted as compensation, not bought), M-Exempt (option exercise,
+# often paired with an immediate same-day sale that isn't itself a market view),
+# F-InKind (shares surrendered to cover tax withholding, not a sell decision), G-Gift,
+# J-Other, D-Return. A ticker's insider activity can be 80%+ these non-signal types.
+INSIDER_PURCHASE_CODE = "P-Purchase"
+INSIDER_SALE_CODE = "S-Sale"
+INSIDER_LOOKBACK_DAYS = 90  # matches NEWS_LOOKBACK_DAYS's convention (pipeline.py)
+INSIDER_TOP_SELLERS = 5
+
+# A reporting person whose name reads like an investment vehicle, or who reports as a 10%
+# owner group, is a fund/sponsor — its sales are usually a planned exit (secondary offering,
+# block trade), not an operator's view on the business the way an officer's sale can be.
+_FUND_NAME_TOKENS = (" LP", " L.P.", " LLC", " L.L.C.", "FUND", "HOLDINGS", "PARTNERS",
+                     "CAPITAL", "MANAGEMENT", "INC", "LTD", "GROUP")
+
+
+def _holder_type(name, role) -> str:
+    """'fund_or_10pct_owner' / 'officer' / 'director' / 'other' for one reporting person."""
+    n, r = f" {name or ''} ".upper(), (role or "").lower()
+    if "10 percent" in r or "10%" in r or any(tok in n for tok in _FUND_NAME_TOKENS):
+        return "fund_or_10pct_owner"
+    if "officer" in r:
+        return "officer"
+    if "director" in r:
+        return "director"
+    return "other"
+
+
+def _dedupe_insider_rows(rows: pd.DataFrame) -> pd.DataFrame:
+    """Collapse one real transaction reported by several Form 4 filers into a single row.
+
+    When a fund sells, the fund AND each general-partner director who is deemed an
+    indirect owner file their own Form 4 for the SAME shares — FMP returns each filing as a
+    separate row. Confirmed live on LTH (2026-09-30): Leonard Green's Green LTF Holdings II
+    LP plus directors Danhakl and Galashan each reported the same 5,119,099-share sale on
+    8/10 and the same 2,879,154-share sale on 8/26 (the fund split its 8/26 filing across
+    three lines summing to that figure). Summing every row tripled a ~$347M exit into
+    ~$1.04B and turned 10 real sales into 18.
+
+    Rule: within one (transactionDate, transactionType, price), total each reporting
+    person's shares; reporters whose totals are identical are the same shares, so only the
+    first (preferring a fund/owner-entity filer, which names the actual seller) is kept.
+    Two different insiders independently trading the exact same share count at the exact
+    same price on the same day would also be merged — accepted as far rarer than the
+    multi-filer case this fixes. Returns one row per surviving (reporter, date, type,
+    price) with columns: date, transactionType, price, shares, value, reportingName,
+    typeOfOwner, holder_type."""
+    if rows.empty:
+        return pd.DataFrame(columns=["date", "transactionType", "price", "shares", "value",
+                                     "reportingName", "typeOfOwner", "holder_type"])
+    d = rows.copy()
+    d["date"] = pd.to_datetime(d["transactionDate"].fillna(d["filingDate"]), errors="coerce")
+    d["date"] = d["date"].fillna(d["filingDate"])
+    d["price"] = pd.to_numeric(d["price"], errors="coerce").fillna(0.0).round(4)
+    d["securitiesTransacted"] = pd.to_numeric(d["securitiesTransacted"], errors="coerce").fillna(0)
+    d["reporter"] = d["reportingCik"].fillna(d["reportingName"]).astype(str)
+
+    per_reporter = (
+        d.groupby(["date", "transactionType", "price", "reporter"], sort=False)
+        .agg(shares=("securitiesTransacted", "sum"), reportingName=("reportingName", "first"),
+             typeOfOwner=("typeOfOwner", "first"))
+        .reset_index()
+    )
+    per_reporter["holder_type"] = [
+        _holder_type(n, r) for n, r in zip(per_reporter["reportingName"], per_reporter["typeOfOwner"])
+    ]
+    per_reporter["_pref"] = (per_reporter["holder_type"] != "fund_or_10pct_owner").astype(int)
+    kept = (
+        per_reporter.sort_values("_pref", kind="stable")
+        .drop_duplicates(subset=["date", "transactionType", "price", "shares"], keep="first")
+    )
+    kept = kept.assign(value=kept["shares"] * kept["price"])
+    return kept[["date", "transactionType", "price", "shares", "value", "reportingName",
+                 "typeOfOwner", "holder_type"]].sort_values("date").reset_index(drop=True)
+
+
+def summarize_insider_trades(df: pd.DataFrame, lookback_days: int = INSIDER_LOOKBACK_DAYS,
+                             now: Optional[pd.Timestamp] = None) -> dict:
+    """Genuine open-market insider buying/selling over the trailing `lookback_days`,
+    filtered to INSIDER_PURCHASE_CODE/INSIDER_SALE_CODE only (see that comment for why
+    the other transaction types are excluded rather than lumped in) and de-duplicated
+    across multiple filers of the same shares (_dedupe_insider_rows). Returns {} if there
+    is no insider data at all for this ticker (never raises).
+
+    Complementary to short interest, not a restatement of it: an insider buying into a
+    heavily-shorted stock is a real "the shorts may be wrong" signal; insiders selling
+    alongside heavy shorting is the opposite — real alignment, not misplaced positioning.
+    Confirmed live (2026-09-11): WULF (heavily shorted, 31.9% of float) had 2 real
+    open-market purchases days before its pullback low; ESTA (already fundamentally
+    weak — 2 straight EPS misses) had zero purchases and 24 sales over its recent
+    history — insiders steadily selling, reinforcing rather than contradicting the
+    already-bearish read.
+
+    Fields:
+      window_days
+      purchase_count / sale_count — number of distinct open-market transactions (after
+          de-duplication; one seller's same-day same-price fills count once)
+      purchase_shares / sale_shares — total shares transacted
+      purchase_value / sale_value — dollar value (shares * reported price)
+      net_value — purchase_value - sale_value (positive = net insider buying)
+      most_recent_purchase_date / most_recent_sale_date — None if none in the window
+      sale_value_by_holder_type — {"fund_or_10pct_owner"/"officer"/"director"/"other": $}
+      top_sellers — up to INSIDER_TOP_SELLERS {name, role, holder_type, shares, value,
+          last_date}, largest first: WHO sold, so a sponsor exit reads differently from
+          the CEO selling
+    """
+    if df is None or df.empty:
+        return {}
+    now = (now or pd.Timestamp.now()).normalize()
+    cutoff = now - pd.Timedelta(days=lookback_days)
+    recent = df[df["filingDate"] >= cutoff]
+    recent = recent[recent["transactionType"].isin([INSIDER_PURCHASE_CODE, INSIDER_SALE_CODE])]
+    tx = _dedupe_insider_rows(recent)
+
+    purchases = tx[tx["transactionType"] == INSIDER_PURCHASE_CODE]
+    sales = tx[tx["transactionType"] == INSIDER_SALE_CODE]
+    purchase_value = float(purchases["value"].sum())
+    sale_value = float(sales["value"].sum())
+
+    top = []
+    if len(sales):
+        by_seller = (
+            sales.groupby("reportingName", sort=False)
+            .agg(role=("typeOfOwner", "first"), holder_type=("holder_type", "first"),
+                 shares=("shares", "sum"), value=("value", "sum"), last_date=("date", "max"))
+            .sort_values("value", ascending=False)
+            .head(INSIDER_TOP_SELLERS)
+            .reset_index()
+        )
+        top = [{"name": r.reportingName, "role": r.role, "holder_type": r.holder_type,
+                "shares": int(r.shares), "value": round(float(r.value), 0),
+                "last_date": str(r.last_date.date())} for r in by_seller.itertuples()]
+
+    return {
+        "window_days": lookback_days,
+        "purchase_count": int(len(purchases)),
+        "sale_count": int(len(sales)),
+        "purchase_shares": int(purchases["shares"].sum()),
+        "sale_shares": int(sales["shares"].sum()),
+        "purchase_value": round(purchase_value, 0),
+        "sale_value": round(sale_value, 0),
+        "net_value": round(purchase_value - sale_value, 0),
+        "most_recent_purchase_date": str(purchases["date"].max().date()) if len(purchases) else None,
+        "most_recent_sale_date": str(sales["date"].max().date()) if len(sales) else None,
+        "sale_value_by_holder_type": {
+            k: round(float(v), 0) for k, v in sales.groupby("holder_type")["value"].sum().items()
+        },
+        "top_sellers": top,
+    }
+
+
 class ResearchAgent:
     def __init__(self, settings):
         if not settings.fmp_api_key:
@@ -331,80 +485,24 @@ class ResearchAgent:
             print(f"[research_agent] get_insider_trades({ticker}) failed: {e}", file=sys.stderr)
             data = []
         rows = data if isinstance(data, list) else []
-        cols = ["filingDate", "transactionType", "acquisitionOrDisposition", "securitiesTransacted", "price"]
+        cols = ["filingDate", "transactionDate", "transactionType", "acquisitionOrDisposition",
+                "securitiesTransacted", "price", "reportingCik", "reportingName", "typeOfOwner"]
         if not rows:
             return pd.DataFrame(columns=cols)
         df = pd.DataFrame(rows)
+        for c in cols:
+            if c not in df.columns:
+                df[c] = None
         df["filingDate"] = pd.to_datetime(df["filingDate"])
         return df[cols].sort_values("filingDate").reset_index(drop=True)
 
-    # Only these two transactionType codes are a genuine, voluntary open-market decision by
-    # the insider. Everything else FMP returns (confirmed live 2026-09-11 across several
-    # real tickers) is routine noise that would drown out the real signal if counted the same
-    # way: A-Award (stock granted as compensation, not bought), M-Exempt (option exercise,
-    # often paired with an immediate same-day sale that isn't itself a market view),
-    # F-InKind (shares surrendered to cover tax withholding, not a sell decision), G-Gift,
-    # J-Other, D-Return. A ticker's insider activity can be 80%+ these non-signal types.
-    INSIDER_PURCHASE_CODE = "P-Purchase"
-    INSIDER_SALE_CODE = "S-Sale"
-    INSIDER_LOOKBACK_DAYS = 90  # matches NEWS_LOOKBACK_DAYS's convention (pipeline.py)
+    INSIDER_PURCHASE_CODE = INSIDER_PURCHASE_CODE
+    INSIDER_SALE_CODE = INSIDER_SALE_CODE
+    INSIDER_LOOKBACK_DAYS = INSIDER_LOOKBACK_DAYS
 
     def summarize_insider_activity(self, ticker: str, lookback_days: int = INSIDER_LOOKBACK_DAYS) -> dict:
-        """Genuine open-market insider buying/selling over the trailing `lookback_days`,
-        filtered to INSIDER_PURCHASE_CODE/INSIDER_SALE_CODE only (see that comment for why
-        the other transaction types are excluded rather than lumped in). Returns {} if there
-        is no insider data at all for this ticker (never raises).
-
-        Complementary to short interest, not a restatement of it: an insider buying into a
-        heavily-shorted stock is a real "the shorts may be wrong" signal; insiders selling
-        alongside heavy shorting is the opposite — real alignment, not misplaced positioning.
-        Confirmed live (2026-09-11): WULF (heavily shorted, 31.9% of float) had 2 real
-        open-market purchases days before its pullback low; ESTA (already fundamentally
-        weak — 2 straight EPS misses) had zero purchases and 24 sales over its recent
-        history — insiders steadily selling, reinforcing rather than contradicting the
-        already-bearish read.
-
-        Fields:
-          window_days
-          purchase_count / sale_count — number of genuine open-market transactions
-          purchase_shares / sale_shares — total shares transacted
-          purchase_value / sale_value — dollar value (shares * reported price)
-          net_value — purchase_value - sale_value (positive = net insider buying)
-          most_recent_purchase_date / most_recent_sale_date — None if none in the window
-        """
-        df = self.get_insider_trades(ticker)
-        if df.empty:
-            return {}
-
-        cutoff = pd.Timestamp.now().normalize() - pd.Timedelta(days=lookback_days)
-        recent = df[df["filingDate"] >= cutoff]
-        if recent.empty:
-            return {"window_days": lookback_days, "purchase_count": 0, "sale_count": 0,
-                    "purchase_shares": 0, "sale_shares": 0, "purchase_value": 0.0,
-                    "sale_value": 0.0, "net_value": 0.0,
-                    "most_recent_purchase_date": None, "most_recent_sale_date": None}
-
-        purchases = recent[recent["transactionType"] == self.INSIDER_PURCHASE_CODE]
-        sales = recent[recent["transactionType"] == self.INSIDER_SALE_CODE]
-        purchase_value = float((purchases["securitiesTransacted"] * purchases["price"]).sum())
-        sale_value = float((sales["securitiesTransacted"] * sales["price"]).sum())
-
-        return {
-            "window_days": lookback_days,
-            "purchase_count": int(len(purchases)),
-            "sale_count": int(len(sales)),
-            "purchase_shares": int(purchases["securitiesTransacted"].sum()),
-            "sale_shares": int(sales["securitiesTransacted"].sum()),
-            "purchase_value": round(purchase_value, 0),
-            "sale_value": round(sale_value, 0),
-            "net_value": round(purchase_value - sale_value, 0),
-            "most_recent_purchase_date": (
-                str(purchases["filingDate"].max().date()) if len(purchases) else None
-            ),
-            "most_recent_sale_date": (
-                str(sales["filingDate"].max().date()) if len(sales) else None
-            ),
-        }
+        """See summarize_insider_trades() — this just fetches the Form 4 rows for `ticker`."""
+        return summarize_insider_trades(self.get_insider_trades(ticker), lookback_days)
 
     def get_grade_history(self, ticker: str, limit: int = 1000) -> pd.DataFrame:
         """Individual sell-side analyst rating-change events (date/gradingCompany/

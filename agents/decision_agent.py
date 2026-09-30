@@ -211,7 +211,18 @@ compensation mechanics) is the natural complement to ShortInterest, and the two 
 you whether a crowded short is misplaced or justified:
   purchase_count / sale_count / net_value (purchase_value - sale_value, positive = net
       buying) / most_recent_purchase_date / most_recent_sale_date, all within the last
-      window_days (~90).
+      window_days (~90). Already de-duplicated: when a fund and its partner-directors each
+      file a Form 4 for the same shares, that sale is counted once, not once per filer.
+  sale_value_by_holder_type / top_sellers — WHO sold: "officer", "director", or
+      "fund_or_10pct_owner" (a private-equity sponsor, fund, or 10% owner group). Read these
+      before weighing the dollar total. A sponsor/fund exit (typically a pre-planned
+      secondary or block sale at one round price) is a supply overhang to note, NOT an
+      operator's verdict on the business the way the CEO/CFO selling is — and once a
+      sponsor's selling is largely done, the overhang is shrinking, not growing. Officers
+      selling right after a strong earnings report (often option exercise-and-sell) is
+      routine compensation liquidity; officers selling heavily into weakness, or ahead of
+      bad news, is the meaningful kind. Name the dominant seller in the bear case when
+      insider selling is part of it.
 An insider buying into a heavily-shorted name is real evidence the short thesis may be
 wrong — weigh it as support for the bull case, not just a footnote, when it's genuinely
 recent (a purchase from months ago matters far less than one from the last few weeks).
