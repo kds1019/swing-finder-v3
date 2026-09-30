@@ -1,0 +1,87 @@
+name: Decision prompt A/B (research)
+
+# Research-only. Builds today's real Decision Agent input once (full pipeline up to, but not
+# including, the model call — no picks logged, no results committed), then ranks that SAME
+# payload with the old prompt (research/prompts/decision_prompt_v1.txt) and the live
+# SYSTEM_PROMPT, audits both, and commits research/prompt_ab.md (+ raw outputs).
+# Triggered on push to the feature branch because workflow_dispatch can only start
+# workflows that already exist on the default branch.
+on:
+  push:
+    branches: [ccr-3234a2da-m34vhy]
+    paths:
+      - research/prompt_ab.py
+      - .github/workflows/prompt_ab.yml
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "Runs per prompt (each is one sample)"
+        required: false
+        default: "2"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prompt-ab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore Webull auth token
+        env:
+          WEBULL_TOKEN_CONTENT_B64: ${{ secrets.WEBULL_TOKEN_CONTENT }}
+        run: |
+          set -eo pipefail
+          mkdir -p webull_token
+          echo "$WEBULL_TOKEN_CONTENT_B64" | base64 -d > webull_token/token.txt
+
+      - name: Build Decision Agent input (full universe, stop before the model)
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          WEBULL_APP_KEY: ${{ secrets.WEBULL_APP_KEY }}
+          WEBULL_APP_SECRET: ${{ secrets.WEBULL_APP_SECRET }}
+          WEBULL_REGION_ID: us
+          WEBULL_ENVIRONMENT: prod
+          WEBULL_TOKEN_DIR: ${{ github.workspace }}/webull_token
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -eo pipefail
+          python pipeline.py --limit 2000 --save-decision-input decision_input.json
+
+      - name: Rank the same payload with both prompts
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: |
+          set -eo pipefail
+          python -m research.prompt_ab --input decision_input.json --runs "${{ inputs.runs || '2' }}"
+          mkdir -p research/prompt_ab_inputs
+          cp decision_input.json "research/prompt_ab_inputs/$(date -u +%Y-%m-%d_%H%M)Z.json"
+
+      - name: Commit findings
+        run: |
+          set -eo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add research/prompt_ab.md research/prompt_ab_raw.json research/prompt_ab_inputs/
+          if git diff --cached --quiet; then echo "No changes to commit"; exit 0; fi
+          git commit -m "Decision prompt A/B results: $(date -u +%Y-%m-%d\ %H:%M)Z"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

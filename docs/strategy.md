@@ -62,8 +62,10 @@ Calibrated the same way as the screener — against the labelled dataset, via
 
 - **Entry**: the close of the signal bar.
 - **Initial stop**: `min(10-day swing low, EMA20 − 1.3·ATR)`, refined to the nearest
-  support cluster within 3·ATR. Position size is `risk_per_trade_pct` of equity ÷
-  `(entry − stop)`.
+  support cluster within 3·ATR — since 2026-09-30 only when that LOWERS the stop
+  (`stop_support_can_tighten=False`, research/stop_floor_ab.md). In the backtests, position
+  size is `risk_per_trade_pct` of equity ÷ `(entry − stop)`; the live pipeline does no sizing
+  (the user sizes each trade at entry).
 - **Exit — trailing stop.** Hold the initial stop until price reaches **entry + 2R**,
   then trail the stop at **(running peak high − 1R)**, never loosening. No fixed
   profit target — the Fibonacci "target" is a hard ceiling only.
@@ -341,11 +343,9 @@ which the robust per-bucket backtest result (above) already justifies on its own
   InFibZone/SetupType and instructs ranking a comparable trend_continuation above a
   reversion_bounce-only candidate — the same LLM-judgment mechanism already used for
   support_status's confirmed/forming/still_falling tie-break.
-- `pipeline.py::apply_trend_context_trade_management`: reversion_bounce picks get
-  position_shares/risk_amount/position_value recomputed at `reversion_bounce_size_mult`
-  (config/settings.py, default 0.5) of normal size — deterministic Python, overriding the
-  Decision Agent's own numbers for just those three fields, not asked of the LLM (setup_type
-  itself isn't part of its JSON contract either, for the same reason).
+- `pipeline.py::apply_trend_context_trade_management`: formerly also half-sized reversion_bounce
+  picks (`reversion_bounce_size_mult`). Removed 2026-09-30 along with all live position sizing,
+  per user instruction — the user sizes each trade at entry by trade type; `exit_mode` remains.
 - `core/pick_tracking.py::score_due_picks`: now setup_type-aware — a reversion_bounce pick
   resolves against a pure fixed stop/target (trailing disabled), matching
   `research/trend_context_backtest.py`'s bucketed exit; this is the one that actually changes

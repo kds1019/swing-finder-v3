@@ -29,7 +29,7 @@ Actions run), present **every** ranked pick returned (up to `FINAL_WATCHLIST_SIZ
 top-N subset or a condensed table. For each pick, show the full detail:
 
 ```
-**N. TICKER** — Entry $X / Stop $X / Target $X / R:R X.XX | N sh, risk $X, value $X | Sentiment: X | Catalyst: X | Support: X | Setup: X | Exit: X | Short: X | Insider: X
+**N. TICKER** — Entry $X / Stop $X / Target $X / R:R X.XX | Sentiment: X | Catalyst: X | Support: X | Setup: X | Exit: X | Short: X | Insider: X
 Highlight: <research_highlight>
 Rationale: <rationale>
 Bear case: <bear_case>
@@ -45,11 +45,15 @@ flag (the model's original label is kept in `catalyst_status_model`). A `Catalys
 the stock has already given back the move since a positive catalyst (the news was sold) — surface
 both flags, they are exactly the "looks clean but isn't" signals the user wants to see.
 
-`Support:` is the `support_status` field (`confirmed` / `forming` / `still_falling`) — the Decision
-Agent's read of whether the pullback has actually stopped falling. Always show it; a `still_falling`
-that made it into the list at all is worth the user's scrutiny.
+`Support:` is the `support_status` field (`confirmed` / `forming` / `still_falling`) — whether the
+pullback has actually stopped falling. Always show it; a `still_falling` that made it into the list
+at all is worth the user's scrutiny. It follows a Python-computed rule (pipeline.py
+`compute_support_check`, the user's choice): KnifeRiskTier is downgraded one level when two of
+three checks fail (range still expanding, heavy down-volume, 10-day return still sliding) or one
+fails severely (range ratio >= 1.5, or down on both the 5- and 10-day with 10-day <= -4%). The
+Decision Agent follows that suggestion unless the data gives a stated reason not to.
 
-`Setup:` is the `setup_type` field (`trend_continuation` / `reversion_bounce` / `null`) — a
+`Setup:` is the `setup_type` field (`trend_continuation` / `ema_band_pullback` / `reversion_bounce` / `null`) — a
 DETERMINISTIC, Python-computed read (core/trend_context.py), separate from `Support:`/
 `support_status`, which only says whether the drop has stopped, not whether that's happening
 inside an uptrend or a downtrend. `trend_continuation` = uptrend pullback in the classic
@@ -65,9 +69,7 @@ pullback outside the Fib zone) — treat it like any other technically-clean-but
 
 `Exit:` is the `exit_mode` field (`trailing` / `fixed_target`), set from `setup_type`:
 `reversion_bounce` picks get `fixed_target` (trailing disabled — treat the quoted `Stop`/`Target`
-as real, fixed levels for a quick in-and-out; `position_shares`/`risk_amount`/`position_value`
-for these are already sized at `reversion_bounce_size_mult` — normally half — of a normal pick,
-not the full `risk_per_trade_pct`). Everything else (`trend_continuation`, `null`) gets
+as real, fixed levels for a quick in-and-out). Everything else (`trend_continuation`, `null`) gets
 `trailing`: `Target` is a ceiling only, the live exit is the +2R-activated trailing stop, so
 realised R:R normally lands below the quoted `R:R` — this is the unchanged pre-existing behavior.
 
@@ -94,19 +96,35 @@ real evidence the short thesis may be wrong; insider selling alongside heavy or 
 interest (`HeavilyShorted`/`ShortsAdding` + `InsiderSelling`) reinforces rather than offsets
 the bear case. Zero activity either way is genuinely uninformative, not a signal.
 
+`Flags:` are computed in Python (pipeline.py `compute_precomputed_flags` / `finalize_pick_fields`)
+from fixed thresholds — HeavilyShorted, ShortsAdding, InsiderBuying, InsiderSelling,
+TargetsBeingCut, AtAnalystTarget, AboveVolumePOC, WeakRR, StopSanity, EarningsSoon,
+SectorOverlap (a current swing position is in the same sector), OpenOrder, StillFalling,
+CatalystStale. The Decision Agent adds only two judgment flags: CatalystFaded and
+EarningsCatalyst. The ranking itself follows a fixed priority: support_status, then setup type
+(trend_continuation > ema_band_pullback > reversion_bounce), then fundamentals/analyst
+direction, then a tape-confirmed catalyst.
+
+If the output has a non-empty `decision.excluded` list (candidates the Decision Agent chose not
+to rank, each with a reason), show it after the per-ticker list — one line per ticker.
+
 Also surface, before the per-ticker list: market bias, VIX/gate status, and — if present in the
-output — `pick_track_record` (the system's own historical win rate) and any account-balance /
-buying-power caveat the Decision Agent's `overall_recommendation` raises about position sizing not
-being executable at current cash levels. These are not optional footnotes — the user has been
-burned before by picks that look clean technically but come with a weak track record or unusable
-sizing, and wants that surfaced prominently, not buried.
+output — `pick_track_record` (the system's own historical win rate). This is not an optional
+footnote — the user has been burned before by picks that look clean technically but come with a
+weak track record, and wants that surfaced prominently, not buried.
+
+**Never include position sizing** — no share counts, dollar risk, position value, "size
+conservatively" advice, or buying-power math — in results or recommendations. The pipeline no
+longer computes it (removed 2026-09-30 per user instruction): the user sizes every trade
+themselves at entry, based on their open positions, their risk tolerance, and the trade type.
 
 Do not default to a short "top 3/5" summary or a compressed markdown table — that is not what this
 user wants, regardless of how a fresh session might otherwise choose to summarize a large result set.
 
 ## Account / risk configuration (do not change without explicit request)
 
-- `config/settings.py::risk_per_trade_pct = 4.0` — user's chosen risk-per-trade percentage.
+- `config/settings.py::risk_per_trade_pct = 4.0` — used only by the research/ portfolio
+  backtests' simulated sizing; the live pipeline does no position sizing (see above).
 - `config/settings.py::excluded_tickers = ("HELP", "CYBN")` — the user's existing long-term
   holds (same company, renamed ticker); never swing candidates, always excluded pre-screener.
 - `agents/decision_agent.py::MODEL = "claude-sonnet-5"` — **rejects any non-default sampling

@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from typing import Optional
 
@@ -137,49 +138,19 @@ def attach_insider_activity(picks: list[dict], features_df: pd.DataFrame) -> Non
         p["insider_most_recent_sale_date"] = _na_to_none(ia.get("most_recent_sale_date"))
 
 
-def apply_trend_context_trade_management(
-    picks: list[dict], portfolio_context: dict, settings,
-) -> None:
-    """Phase 3 (docs/strategy.md): setup_type-aware trade management, applied in place AFTER
+def apply_trend_context_trade_management(picks: list[dict]) -> None:
+    """Phase 3 (docs/strategy.md): setup_type-aware exit mode, applied in place AFTER
     attach_trend_context() has already put `setup_type` on each pick.
       - exit_mode: "fixed_target" for reversion_bounce (trailing disabled downstream in
         core.pick_tracking.score_due_picks — a quick in-and-out, matching
         research/trend_context_backtest.py's bucketed exit); "trailing" for everything else
         (unchanged live default: +2R activate / trail peak-1R, never loosens). Target is
         still a ceiling in both modes; only whether the stop trails differs.
-      - sizing: reversion_bounce picks get position_shares/risk_amount/position_value
-        recomputed at settings.reversion_bounce_size_mult of the normal risk_per_trade_pct,
-        overriding the Decision Agent's own numbers for just those three fields (same formula
-        it uses — see agents/decision_agent.py point 3). Done here in Python, deterministically,
-        rather than asked of the LLM, for the same reason setup_type itself isn't part of its
-        JSON contract — see attach_trend_context above.
-    A first-cut, uncalibrated split (see docs/strategy.md's Phase 2 results) — not itself
-    independently tuned. Never raises; leaves sizing fields untouched (as the Decision Agent
-    set them) if account balance isn't available or a pick's entry/stop are missing."""
-    if not picks:
-        return
-    balance = portfolio_context.get("balance") or {}
-    try:
-        total_equity = float(balance.get("total_net_liquidation_value"))
-    except (TypeError, ValueError):
-        total_equity = None
-
-    for p in picks:
-        is_reversion = p.get("setup_type") == "reversion_bounce"
-        p["exit_mode"] = "fixed_target" if is_reversion else "trailing"
-        if not is_reversion:
-            continue
-        entry, stop = p.get("entry"), p.get("stop")
-        if total_equity is None or entry is None or stop is None:
-            continue
-        risk_per_share = abs(entry - stop)
-        if risk_per_share <= 0:
-            continue
-        risk_amount = total_equity * settings.risk_per_trade_pct * settings.reversion_bounce_size_mult / 100.0
-        position_shares = int(risk_amount // risk_per_share)
-        p["risk_amount"] = round(risk_amount, 2)
-        p["position_shares"] = position_shares
-        p["position_value"] = round(position_shares * entry, 2)
+    Position sizing is deliberately NOT done here or anywhere in the pipeline (removed
+    2026-09-30 per user instruction): the user sizes each trade at entry from their open
+    positions, risk tolerance, and trade type. Never raises."""
+    for p in picks or []:
+        p["exit_mode"] = "fixed_target" if p.get("setup_type") == "reversion_bounce" else "trailing"
 
 # ~1 quarter of calendar-day news — enough to judge the latest earnings reaction and any
 # recent catalyst/trend, without the ~2yr blob the old 270 (+ a stale *2.5 buffer in
@@ -235,6 +206,176 @@ def apply_earnings_buffer(enriched_df: pd.DataFrame, settings) -> tuple[pd.DataF
 CATALYST_RECENT_MAX_DAYS = 7
 
 
+# Flags the Decision Agent may add itself (judgment calls). Every other flag is computed in
+# Python — compute_precomputed_flags() before the model runs (it sees them as input), plus
+# StillFalling / CatalystStale after — so the flag vocabulary is closed and always correct.
+# Before 2026-09-30 the model applied ~8 threshold flags itself; an audit of the 9/30 run
+# found them correct but the rules cost ~15% of the prompt, and it invented ad-hoc flags
+# (e.g. "AboveVolumePOC") outside any definition.
+MODEL_JUDGMENT_FLAGS = ("CatalystFaded", "EarningsCatalyst")
+
+
+def _num(v) -> Optional[float]:
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if pd.isna(f) else f
+
+
+def compute_precomputed_flags(row, swing_sectors: set, open_order_symbols: set) -> list[str]:
+    """Deterministic, threshold-based flags for one enriched shortlist row. Thresholds are
+    the ones the Decision Agent prompt used to apply itself (unchanged), plus
+    AtAnalystTarget (split out of TargetsBeingCut), EarningsSoon, SectorOverlap, OpenOrder."""
+    flags: list[str] = []
+
+    def _dict(v):
+        return v if isinstance(v, dict) else {}   # a missing cell can arrive as NaN (truthy)
+
+    si = _dict(row.get("ShortInterest"))
+    spf, dtc, chg = (_num(si.get("short_percent_of_float")), _num(si.get("days_to_cover")),
+                     _num(si.get("short_interest_change_pct")))
+    if (spf is not None and spf >= 10) or (dtc is not None and dtc >= 5):
+        flags.append("HeavilyShorted")
+    if chg is not None and chg >= 10:
+        flags.append("ShortsAdding")
+
+    ia = _dict(row.get("InsiderActivity"))
+    buys, sells = int(_num(ia.get("purchase_count")) or 0), int(_num(ia.get("sale_count")) or 0)
+    if buys >= 1:
+        flags.append("InsiderBuying")
+    if sells >= 1 and buys == 0:
+        flags.append("InsiderSelling")
+
+    ar = _dict(row.get("AnalystRating"))
+    rev, n = _num(ar.get("targetRevisionRecentPct")), int(_num(ar.get("lastMonthTargetCount")) or 0)
+    if rev is not None and rev <= -8 and n >= 2:
+        flags.append("TargetsBeingCut")
+    tgt, px = _num(ar.get("lastMonthAvgTarget")), _num(row.get("Price"))
+    if tgt and px and n >= 1 and px >= tgt:
+        flags.append("AtAnalystTarget")
+
+    poc_pct = _num(row.get("PriceVsPOCPct"))
+    if poc_pct is not None and poc_pct > 0:
+        flags.append("AboveVolumePOC")
+    if row.get("WeakRR") in (True, 1) and not isinstance(row.get("WeakRR"), float):
+        flags.append("WeakRR")
+    if row.get("StopSanityFlag") in (True, 1) and not isinstance(row.get("StopSanityFlag"), float):
+        flags.append("StopSanity")
+    if isinstance(row.get("EarningsProximityTier"), str):
+        flags.append("EarningsSoon")
+    if row.get("Sector") in swing_sectors:
+        flags.append("SectorOverlap")
+    if row.get("Ticker") in open_order_symbols:
+        flags.append("OpenOrder")
+    return flags
+
+
+# Support ("has the pullback stopped falling?") checks — the user's chosen rule (2026-09-30):
+# downgrade the pre-computed KnifeRiskTier one level when TWO of the three checks fail, or
+# ONE fails severely. Down-volume alone never counts as severe: DownUpVolumeRatio spans 12
+# bars, so a single sell-off day (e.g. CGNX's acquisition-day drop) can dominate it. Tuned
+# against the 2026-09-30 prompt A/B, where a one-failure rule pushed CSCO/CGNX (strong
+# trend_continuation names, contracting range, positive returns) below every reversion
+# bounce on down-volume alone, while PNW (range 1.65), SWX/WERN (-5% 10-day plus heavy
+# selling) and ALGT (still sliding on both horizons) clearly deserved the downgrade.
+SUPPORT_RANGE_FAIL, SUPPORT_RANGE_SEVERE = 1.1, 1.5          # RangeContractionRatio
+SUPPORT_DOWNVOL_FAIL = 1.3                                   # DownUpVolumeRatio
+SUPPORT_TREND_FAIL_10D, SUPPORT_TREND_SEVERE_10D = -3.0, -4.0  # Last10dReturnPct (%)
+_TIER_TO_SUPPORT = {"stabilising": "confirmed", "forming": "forming", "still_falling": "still_falling"}
+_SUPPORT_DOWNGRADE = {"confirmed": "forming", "forming": "still_falling", "still_falling": "still_falling"}
+
+
+def compute_support_check(row) -> dict:
+    """{"range"/"volume"/"trend": "pass"|"fail"|"severe"|"n/a", "failures": int,
+    "severe": bool, "tier_support", "suggested_support"} for one shortlist row — see the
+    SUPPORT_* constants above for the rule."""
+    rcr, duv = _num(row.get("RangeContractionRatio")), _num(row.get("DownUpVolumeRatio"))
+    r5, r10 = _num(row.get("Last5dReturnPct")), _num(row.get("Last10dReturnPct"))
+    rng = ("n/a" if rcr is None else "severe" if rcr >= SUPPORT_RANGE_SEVERE
+           else "fail" if rcr > SUPPORT_RANGE_FAIL else "pass")
+    vol = "n/a" if duv is None else "fail" if duv > SUPPORT_DOWNVOL_FAIL else "pass"
+    if r10 is None:
+        trend = "n/a"
+    elif r10 <= SUPPORT_TREND_SEVERE_10D and r5 is not None and r5 < 0:
+        trend = "severe"
+    elif r10 <= SUPPORT_TREND_FAIL_10D:
+        trend = "fail"
+    else:
+        trend = "pass"
+    checks = (rng, vol, trend)
+    failures = sum(c in ("fail", "severe") for c in checks)
+    severe = "severe" in checks
+    tier = _TIER_TO_SUPPORT.get(row.get("KnifeRiskTier"), "forming")
+    suggested = _SUPPORT_DOWNGRADE[tier] if (failures >= 2 or severe) else tier
+    return {"range": rng, "volume": vol, "trend": trend, "failures": failures, "severe": severe,
+            "tier_support": tier, "suggested_support": suggested}
+
+
+def attach_precomputed_flags(final_df: pd.DataFrame, portfolio_context: dict,
+                             sector_lookup: dict, excluded_tickers) -> pd.DataFrame:
+    """Adds PrecomputedFlags (see compute_precomputed_flags) and SupportCheck (see
+    compute_support_check) columns. SectorOverlap counts
+    only current SWING positions — the user's long-term holds (settings.excluded_tickers)
+    are not swing exposure."""
+    if final_df.empty:
+        return final_df
+    held = [pos.get("symbol") for pos in portfolio_context.get("positions") or []]
+    swing_sectors = {sector_lookup.get(sym) for sym in held
+                     if sym and sym not in set(excluded_tickers or ())} - {None}
+    open_syms = {o.get("symbol") for o in portfolio_context.get("open_orders") or []} - {None}
+    out = final_df.copy()
+    records = out.to_dict(orient="records")
+    out["PrecomputedFlags"] = [compute_precomputed_flags(r, swing_sectors, open_syms) for r in records]
+    out["SupportCheck"] = [compute_support_check(r) for r in records]
+    return out
+
+
+def finalize_pick_fields(picks: list[dict], final_df: pd.DataFrame) -> None:
+    """In place, right after the Decision Agent returns: entry/stop/target/rr_ratio come
+    straight from the trade plan (the model no longer re-types numbers), and flags become
+    PrecomputedFlags + StillFalling (from the model's support_status) + only the
+    MODEL_JUDGMENT_FLAGS the model set. Any other model flag is dropped (logged)."""
+    if not picks or final_df.empty:
+        return
+    rows = {r["Ticker"]: r for r in final_df.to_dict(orient="records")}
+    for p in picks:
+        r = rows.get(p.get("ticker"))
+        model_flags = list(p.get("flags") or [])
+        flags = list(r.get("PrecomputedFlags") or []) if r else []
+        if r:
+            p["entry"] = round(float(r["Price"]), 2) if _num(r.get("Price")) is not None else None
+            p["stop"], p["target"], p["rr_ratio"] = r.get("Stop"), r.get("Target"), r.get("RRRatio")
+        if p.get("support_status") == "still_falling":
+            flags.append("StillFalling")
+        flags += [f for f in model_flags if f in MODEL_JUDGMENT_FLAGS and f not in flags]
+        dropped = [f for f in model_flags if f not in MODEL_JUDGMENT_FLAGS and f not in flags]
+        if dropped:
+            print(f"[pipeline] {p.get('ticker')}: dropped non-judgment model flags {dropped}",
+                  file=sys.stderr)
+        p["flags"] = flags
+
+
+def annotate_summary_names(result: dict, pool_tickers) -> None:
+    """In place, after the sector cap: the Decision Agent writes overall_recommendation BEFORE
+    the cap runs and is told not to name tickers, but did so in 1 of 3 prompt-A/B samples
+    (2026-09-30). If it names any candidate that isn't in the final ranked_picks, append a
+    note saying so — so a summary can never silently recommend a name the cap removed (the
+    CSCO case from the 9/30 live run). Never raises."""
+    summary = result.get("overall_recommendation")
+    if not isinstance(summary, str) or not summary:
+        return
+    final = {p.get("ticker") for p in result.get("ranked_picks") or []}
+    named = [t for t in pool_tickers if isinstance(t, str) and re.search(rf"\b{re.escape(t)}\b", summary)]
+    dropped = [t for t in named if t not in final]
+    if dropped:
+        result["overall_recommendation"] = (
+            f"{summary} [Pipeline note: {', '.join(dropped)} "
+            f"{'is' if len(dropped) == 1 else 'are'} named above but not in the final list "
+            f"(removed by the sector cap or excluded).]"
+        )
+
+
 def attach_price_context(enriched_df: pd.DataFrame, bars_by_ticker: dict) -> pd.DataFrame:
     """Adds RecentDailyBars and annotates every News item with its real price reaction
     (core.price_reaction) — so the Decision Agent reads what the tape did after a catalyst
@@ -278,7 +419,11 @@ def run_pipeline(
     skip_decision: bool = False,
     dry_run: bool = True,
     candidate_pool_size: int = CANDIDATE_POOL_SIZE,
+    decision_input_out: Optional[str] = None,
 ) -> dict:
+    """decision_input_out: if set, write the exact Decision Agent user payload to this path
+    and return BEFORE calling the model (no picks logged) — used by
+    .github/workflows/prompt_ab.yml to compare system prompts on identical input."""
     settings = load_settings()
 
     universe = build_universe(settings)
@@ -355,10 +500,9 @@ def run_pipeline(
     print(f"[pipeline] After earnings buffer: {len(final_df)} tickers "
           f"({len(earnings_excluded_df)} excluded)", file=sys.stderr)
 
-    # --- Portfolio Agent: existing positions/balance/open-orders context ---
+    # --- Portfolio Agent: existing positions/sector-exposure/open-orders context ---
     portfolio_agent = PortfolioAgent(settings)
     positions_df = portfolio_agent.get_positions()
-    balance = portfolio_agent.get_account_balance()
     open_orders_df = portfolio_agent.get_open_orders()
     open_orders = portfolio_agent.flatten_open_orders(open_orders_df)
     sector_lookup = dict(zip(universe["Ticker"], universe["Sector"]))
@@ -366,10 +510,10 @@ def run_pipeline(
 
     portfolio_context = {
         "positions": json.loads(positions_df.to_json(orient="records")) if not positions_df.empty else [],
-        "balance": balance,
         "sector_exposure": sector_exposure,
         "open_orders": open_orders,
     }
+    final_df = attach_precomputed_flags(final_df, portfolio_context, sector_lookup, settings.excluded_tickers)
 
     # --- Pick outcome tracking (part 1): score past picks before this run's synthesis, so
     # the Decision Agent can see its own historical win rate before making new calls. ---
@@ -378,10 +522,20 @@ def run_pipeline(
     pick_track_record = compute_pick_accuracy_summary(pick_log)
     print(f"[pipeline] Pick track record: {pick_track_record}", file=sys.stderr)
 
+    if decision_input_out:
+        payload = DecisionAgent._build_user_prompt(
+            final_df, portfolio_context, market_gate_open, pick_track_record,
+        )
+        with open(decision_input_out, "w", encoding="utf-8") as fh:
+            fh.write(payload)
+        print(f"[pipeline] Saved Decision Agent input ({len(final_df)} candidates) to "
+              f"{decision_input_out}; stopping before the model call.", file=sys.stderr)
+        return {"decision_input_saved": decision_input_out, "candidates": len(final_df)}
+
     # --- Decision Agent: research-driven RANKING of every candidate ---
     decision_agent = DecisionAgent(settings)
     result = decision_agent.synthesize(
-        final_df, portfolio_context, market_gate_open, pick_track_record, settings.risk_per_trade_pct,
+        final_df, portfolio_context, market_gate_open, pick_track_record,
     )
 
     # --- Diversification cap: keep the 3 highest-RANKED names per sector, then take the top
@@ -390,6 +544,7 @@ def run_pipeline(
     # technical screener happened to surface. ---
     sector_capped_out: list[dict] = []
     if isinstance(result, dict) and result.get("ranked_picks"):
+        finalize_pick_fields(result["ranked_picks"], final_df)
         enforce_catalyst_recency(result["ranked_picks"])
         sector_lookup = dict(zip(final_df["Ticker"], final_df["Sector"]))
         kept, sector_capped_out = apply_sector_cap_to_picks(
@@ -397,6 +552,7 @@ def run_pipeline(
         )
         result["ranked_picks"] = kept[:FINAL_WATCHLIST_SIZE]
         result["sector_capped_out"] = sector_capped_out
+        annotate_summary_names(result, final_df["Ticker"].tolist())
         print(f"[pipeline] Sector cap ({settings.sector_cap}/sector) on Decision Agent ranking: "
               f"{len(result['ranked_picks'])} final picks ({len(sector_capped_out)} capped out)",
               file=sys.stderr)
@@ -411,7 +567,7 @@ def run_pipeline(
         attach_short_interest(result["sector_capped_out"], final_df)
         attach_insider_activity(result["ranked_picks"], final_df)
         attach_insider_activity(result["sector_capped_out"], final_df)
-        apply_trend_context_trade_management(result["ranked_picks"], portfolio_context, settings)
+        apply_trend_context_trade_management(result["ranked_picks"])
 
     # --- Pick outcome tracking (part 2): log this run's final (post-cap) picks for scoring. ---
     ranked_picks = result.get("ranked_picks", []) if isinstance(result, dict) else []
@@ -443,6 +599,8 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", default=True, help="Portfolio execution dry-run (default: True)")
     parser.add_argument("--candidate-pool-size", type=int, default=CANDIDATE_POOL_SIZE,
                          help="Max tickers (after screener + sector cap) carried into research/decision")
+    parser.add_argument("--save-decision-input", type=str, default=None, metavar="PATH",
+                        help="Write the Decision Agent's exact input payload to PATH and stop before calling it")
     args = parser.parse_args()
 
     # webull-openapi-python-sdk writes its auth/token diagnostic logs directly to a file
@@ -466,6 +624,7 @@ def main() -> None:
             skip_decision=args.skip_decision,
             dry_run=args.dry_run,
             candidate_pool_size=args.candidate_pool_size,
+            decision_input_out=args.save_decision_input,
         )
     finally:
         sys.stdout.flush()
