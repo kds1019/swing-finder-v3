@@ -370,6 +370,38 @@ def measure_stabilization(df: pd.DataFrame) -> dict:
     return stab
 
 
+def screener_gate(m: dict) -> str | None:
+    """The screener's gates, applied to a measure_pullback_reversal() dict: returns the
+    reason string of the FIRST gate that fails, or None if the setup passes every gate.
+
+    This is the single definition of "passes the live screener". detect_pullback_reversal()
+    uses it, and research scripts must call it rather than re-implementing the thresholds —
+    hand-copied gate logic in research/ drifted twice (the 2026-09-11 current-slope gate and
+    the 2026-09-17 EMA50 ceiling that removed PRICE_VS_EMA200_MAX_PCT), which left every
+    research/*_ab.py script unable to import until 2026-09-30."""
+    if m["ema200_uptrend_pct"] < EMA200_MIN_UPTREND_PCT:
+        return "no_long_term_uptrend"
+    if (m["ema200_current_slope_pct"] is not None
+            and m["ema200_current_slope_pct"] < EMA200_CURRENT_SLOPE_MIN_PCT):
+        return "current_trend_rolled_over"
+    if m["price_vs_ema200_pct"] < PRICE_VS_EMA200_MIN_PCT:
+        return "price_too_far_below_ema200"
+    if m["price_above_ema50"] is None:
+        return "insufficient_data"
+    if m["price_above_ema50"] is True:
+        return "price_above_ema50"
+    if m["consolidation_range_pct"] > CONSOLIDATION_MAX_RANGE_PCT:
+        return "not_consolidating"
+    if m["bounce_off_low_pct"] < MIN_BOUNCE_OFF_LOW_PCT:
+        return "no_reversal_yet"
+    if not m["volume_profile_available"]:
+        return "insufficient_data"
+    vah_pct = m["price_vs_value_area_high_pct"]
+    if vah_pct is None or vah_pct > MAX_PRICE_VS_VALUE_AREA_HIGH_PCT:
+        return "extended_above_value_area"
+    return None
+
+
 def detect_pullback_reversal(df: pd.DataFrame) -> dict:
     """Detects the EMA200 pullback + stabilization/reversal setup for the most
     recent bar of `df` (must already have compute_indicators() applied — needs
@@ -385,57 +417,18 @@ def detect_pullback_reversal(df: pd.DataFrame) -> dict:
     if m is None:
         return {"detected": False, "reason": "insufficient_data"}
 
-    partial = {
-        "ema200_uptrend_pct": m["ema200_uptrend_pct"],
-        "ema200_current_slope_pct": m["ema200_current_slope_pct"],
-        "price_vs_ema200_pct": m["price_vs_ema200_pct"],
-        "price_above_ema50": m["price_above_ema50"],
-        "consolidation_range_pct": m["consolidation_range_pct"],
-        "bounce_off_low_pct": m["bounce_off_low_pct"],
-    }
-
-    if m["ema200_uptrend_pct"] < EMA200_MIN_UPTREND_PCT:
-        return {"detected": False, "reason": "no_long_term_uptrend",
-                "ema200_uptrend_pct": m["ema200_uptrend_pct"]}
-
-    if (m["ema200_current_slope_pct"] is not None
-            and m["ema200_current_slope_pct"] < EMA200_CURRENT_SLOPE_MIN_PCT):
-        return {"detected": False, "reason": "current_trend_rolled_over",
-                "ema200_uptrend_pct": m["ema200_uptrend_pct"],
-                "ema200_current_slope_pct": m["ema200_current_slope_pct"]}
-
-    if m["price_vs_ema200_pct"] < PRICE_VS_EMA200_MIN_PCT:
-        return {"detected": False, "reason": "price_too_far_below_ema200",
-                "ema200_uptrend_pct": m["ema200_uptrend_pct"],
-                "price_vs_ema200_pct": m["price_vs_ema200_pct"]}
-
-    if m["price_above_ema50"] is None:
-        return {"detected": False, "reason": "insufficient_data",
-                "ema200_uptrend_pct": m["ema200_uptrend_pct"],
-                "price_vs_ema200_pct": m["price_vs_ema200_pct"]}
-
-    if m["price_above_ema50"] is True:
-        return {"detected": False, "reason": "price_above_ema50",
-                "ema200_uptrend_pct": m["ema200_uptrend_pct"],
-                "price_vs_ema200_pct": m["price_vs_ema200_pct"],
-                "price_above_ema50": m["price_above_ema50"]}
-
-    if m["consolidation_range_pct"] > CONSOLIDATION_MAX_RANGE_PCT:
-        return {"detected": False, "reason": "not_consolidating",
-                "ema200_uptrend_pct": m["ema200_uptrend_pct"],
-                "price_vs_ema200_pct": m["price_vs_ema200_pct"],
-                "consolidation_range_pct": m["consolidation_range_pct"]}
-
-    if m["bounce_off_low_pct"] < MIN_BOUNCE_OFF_LOW_PCT:
-        return {"detected": False, "reason": "no_reversal_yet", **partial}
-
-    if not m["volume_profile_available"]:
-        return {"detected": False, "reason": "insufficient_data", **partial}
-
-    vah_pct = m["price_vs_value_area_high_pct"]
-    if vah_pct is None or vah_pct > MAX_PRICE_VS_VALUE_AREA_HIGH_PCT:
-        return {"detected": False, "reason": "extended_above_value_area",
-                **partial, "poc": m["poc"]}
+    reason = screener_gate(m)
+    if reason is not None:
+        return {
+            "detected": False, "reason": reason,
+            "ema200_uptrend_pct": m["ema200_uptrend_pct"],
+            "ema200_current_slope_pct": m["ema200_current_slope_pct"],
+            "price_vs_ema200_pct": m["price_vs_ema200_pct"],
+            "price_above_ema50": m["price_above_ema50"],
+            "consolidation_range_pct": m["consolidation_range_pct"],
+            "bounce_off_low_pct": m["bounce_off_low_pct"],
+            "poc": m.get("poc"),
+        }
 
     return {
         "detected": True,

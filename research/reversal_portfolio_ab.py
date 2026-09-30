@@ -36,10 +36,9 @@ import pandas as pd
 from config.settings import load_settings
 from core.indicators import compute_indicators
 from core.pullback_reversal import (
-    MIN_BARS_FOR_SCREENER, EMA200_MIN_UPTREND_PCT,
-    PRICE_VS_EMA200_MAX_PCT, PRICE_VS_EMA200_MIN_PCT,
-    MAX_PRICE_VS_VALUE_AREA_HIGH_PCT, CONSOLIDATION_MAX_RANGE_PCT,
-    measure_pullback_reversal,
+    MIN_BARS_FOR_SCREENER,
+    PRICE_VS_EMA200_MIN_PCT, MAX_PRICE_VS_VALUE_AREA_HIGH_PCT,
+    measure_pullback_reversal, screener_gate,
 )
 from core.trade_plan import TRAIL_ACTIVATE_R, TRAIL_GIVEBACK_R, compute_trade_plan
 from core.universe import build_universe
@@ -92,7 +91,10 @@ def build_signals(tickers, sectors, settings) -> pd.DataFrame:
         rng = (df["Close"].rolling(15).max() - df["Close"].rolling(15).min()) / df["Close"] * 100.0
         # wide net: rising 200EMA + roughly in the pullback zone (loose, so every
         # variant's own gates decide inclusion)
-        net = (upt > 0) & pvs.between(-25, 8)
+        # Cheap prefilter; the real gates run below. Must be a SUPERSET of the live screener:
+        # the old "-25..+8% vs EMA200" band predates the 2026-09-17 EMA50 ceiling and silently
+        # skipped valid setups more than 8% above EMA200 but still below EMA50.
+        net = (upt > 0) & (pvs >= -25) & (df["Close"] <= df["EMA50"] * 1.02)
         first = max(MIN_BARS_FOR_SCREENER - 1, 300)
         for i in np.where(net.to_numpy())[0]:
             if i < first or i >= len(df) - 1:
@@ -106,11 +108,8 @@ def build_signals(tickers, sectors, settings) -> pd.DataFrame:
                 continue
             vah_pct = m["price_vs_value_area_high_pct"]
             m_pvs, m_upt, m_rng = m["price_vs_ema200_pct"], m["ema200_uptrend_pct"], m["consolidation_range_pct"]
-            # current live gates, inline (== detect_pullback_reversal verdict)
-            detected = (m_upt >= EMA200_MIN_UPTREND_PCT
-                        and PRICE_VS_EMA200_MIN_PCT <= m_pvs <= PRICE_VS_EMA200_MAX_PCT
-                        and m_rng <= CONSOLIDATION_MAX_RANGE_PCT
-                        and vah_pct is not None and vah_pct <= MAX_PRICE_VS_VALUE_AREA_HIGH_PCT)
+            # current live gates (single definition: core.pullback_reversal.screener_gate)
+            detected = screener_gate(m) is None
             plan = compute_trade_plan(prefix, settings)
             if plan is None or plan["stop"] >= plan["entry"] or plan["weak_rr"]:
                 continue
@@ -121,6 +120,7 @@ def build_signals(tickers, sectors, settings) -> pd.DataFrame:
                 "date": d, "ticker": t, "sector": sectors.get(t, "Unknown"),
                 "entry": plan["entry"], "stop": plan["stop"], "target": plan["target"],
                 "pvs": m_pvs, "upt": m_upt, "rng": m_rng, "vah_pct": vah_pct,
+                "above_ema50": m["price_above_ema50"],
                 "detected": bool(detected), "stabilising": stabilising,
                 "days_since_low": st["days_since_low"],
             })
@@ -134,7 +134,8 @@ def eligible(sig: pd.DataFrame, variant: str) -> pd.DataFrame:
     if variant == "A":
         return d[d.detected]
     # B/C/D/E share the trimmed gate set: G2 band + G4 VAH (no G1 slope, no G3 range)
-    base = d[d.pvs.between(PRICE_VS_EMA200_MIN_PCT, PRICE_VS_EMA200_MAX_PCT)
+    # G2 band = the live one: >= PRICE_VS_EMA200_MIN_PCT vs EMA200 and not above EMA50
+    base = d[(d.pvs >= PRICE_VS_EMA200_MIN_PCT) & (d.above_ema50 == False)  # noqa: E712
              & (d.vah_pct.notna()) & (d.vah_pct <= MAX_PRICE_VS_VALUE_AREA_HIGH_PCT)]
     if variant in ("C", "E"):
         base = base[base.stabilising]

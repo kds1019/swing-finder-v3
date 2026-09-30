@@ -22,10 +22,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from core.pullback_reversal import (
-    CONSOLIDATION_MAX_RANGE_PCT, EMA200_MIN_UPTREND_PCT,
-    MAX_PRICE_VS_VALUE_AREA_HIGH_PCT, PRICE_VS_EMA200_MAX_PCT, PRICE_VS_EMA200_MIN_PCT,
-)
 
 DATASET = Path(__file__).resolve().parent / "data" / "calibration_dataset.csv"
 KS = (1.0, 1.5, 2.0, 2.5, 3.0)
@@ -67,12 +63,8 @@ def main() -> None:
         sys.exit("dataset has no path stats — rebuild with the updated build_calibration_dataset.py")
 
     d = d[~d["weak_rr"].astype(bool)].copy()
-    deep = d[
-        (d.ema200_uptrend_pct >= EMA200_MIN_UPTREND_PCT)
-        & d.price_vs_ema200_pct.between(PRICE_VS_EMA200_MIN_PCT, PRICE_VS_EMA200_MAX_PCT)
-        & (d.consolidation_range_pct <= CONSOLIDATION_MAX_RANGE_PCT)
-        & (d.price_vs_value_area_high_pct <= MAX_PRICE_VS_VALUE_AREA_HIGH_PCT)
-    ].copy()
+    # the live screener's verdict, as recorded by build_calibration_dataset (screener_gate)
+    deep = d[d["detected"].astype(bool)].copy()
 
     print(f"calibrated deep-pullback rows: {len(deep):,}\n")
 

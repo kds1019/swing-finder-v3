@@ -31,9 +31,7 @@ import pandas as pd
 from config.settings import load_settings
 from core.indicators import compute_indicators
 from core.pullback_reversal import (
-    MIN_BARS_FOR_SCREENER, EMA200_MIN_UPTREND_PCT, PRICE_VS_EMA200_MAX_PCT,
-    PRICE_VS_EMA200_MIN_PCT, MAX_PRICE_VS_VALUE_AREA_HIGH_PCT, CONSOLIDATION_MAX_RANGE_PCT,
-    measure_pullback_reversal, classify_knife_risk,
+    MIN_BARS_FOR_SCREENER, measure_pullback_reversal, classify_knife_risk, screener_gate,
 )
 from core.trade_plan import TRAIL_ACTIVATE_R, TRAIL_GIVEBACK_R, compute_trade_plan
 from core.universe import build_universe
@@ -75,7 +73,10 @@ def build_signals(settings) -> pd.DataFrame:
         ema200 = df["EMA200"]
         pvs = (df["Close"] / ema200 - 1.0) * 100.0
         upt = (ema200 / ema200.shift(126) - 1.0) * 100.0
-        net = (upt > 0) & pvs.between(-25, 8)
+        # Cheap prefilter; the real gates run below. Must be a SUPERSET of the live screener:
+        # the old "-25..+8% vs EMA200" band predates the 2026-09-17 EMA50 ceiling and silently
+        # skipped valid setups more than 8% above EMA200 but still below EMA50.
+        net = (upt > 0) & (pvs >= -25) & (df["Close"] <= df["EMA50"] * 1.02)
         first = max(MIN_BARS_FOR_SCREENER - 1, 300)
         for i in np.where(net.to_numpy())[0]:
             if i < first or i >= len(df) - 1 or str(df["Date"].iloc[i].date()) < START:
@@ -84,13 +85,8 @@ def build_signals(settings) -> pd.DataFrame:
             m = measure_pullback_reversal(prefix)
             if m is None or not m["volume_profile_available"]:
                 continue
-            vah = m["price_vs_value_area_high_pct"]
-            pv, up, rg = m["price_vs_ema200_pct"], m["ema200_uptrend_pct"], m["consolidation_range_pct"]
-            detected = (up >= EMA200_MIN_UPTREND_PCT
-                        and PRICE_VS_EMA200_MIN_PCT <= pv <= PRICE_VS_EMA200_MAX_PCT
-                        and rg <= CONSOLIDATION_MAX_RANGE_PCT
-                        and vah is not None and vah <= MAX_PRICE_VS_VALUE_AREA_HIGH_PCT)
-            if not detected:
+            pv = m["price_vs_ema200_pct"]
+            if screener_gate(m) is not None:   # the live screener's gates, single definition
                 continue
             plan = compute_trade_plan(prefix, settings)
             if plan is None or plan["stop"] >= plan["entry"]:

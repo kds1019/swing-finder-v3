@@ -63,8 +63,9 @@ START = "2021-06-01"
 
 # Portfolio engine constants + run()/stat() below are copied verbatim from
 # research/weak_rr_ab.py (same conventions as every prior isolated A/B) rather than
-# imported: every existing *_ab.py script currently fails to import (it references
-# core.pullback_reversal.PRICE_VS_EMA200_MAX_PCT, since removed from that module).
+# imported: at the time every *_ab.py script failed to import (a removed
+# core.pullback_reversal constant; fixed 2026-09-30). Kept as a copy so this A/B's
+# published results stay reproducible even if weak_rr_ab.py's engine changes.
 INITIAL = 100_000.0
 MAX_POS_PCT, MAX_POS, SECTOR_CAP, SLIP_BPS, MAX_HOLD, WINDOW = 20.0, 6, 3, 5, 30, 300
 TIER_ORDER = {"stabilising": 0, "forming": 1, None: 2, "still_falling": 3}
@@ -114,7 +115,10 @@ def build_signals(settings, tickers: list[str], sectors: dict) -> pd.DataFrame:
         ema200 = df["EMA200"]
         pvs = (df["Close"] / ema200 - 1.0) * 100.0
         upt = (ema200 / ema200.shift(126) - 1.0) * 100.0
-        net = (upt > 0) & pvs.between(-25, 8)  # cheap prefilter; the real gates run below
+        # Cheap prefilter; the real gates run below. Must be a SUPERSET of the live screener:
+        # the old "-25..+8% vs EMA200" band predates the 2026-09-17 EMA50 ceiling and silently
+        # skipped valid setups more than 8% above EMA200 but still below EMA50.
+        net = (upt > 0) & (pvs >= -25) & (df["Close"] <= df["EMA50"] * 1.02)
         first = max(MIN_BARS_FOR_SCREENER - 1, 300)
         for i in np.where(net.to_numpy())[0]:
             if i < first or i >= len(df) - 1 or str(df["Date"].iloc[i].date()) < START:
