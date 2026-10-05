@@ -57,12 +57,25 @@ jobs:
           python - <<'EOF'
           import json
           d = json.load(open("verify_output.json"))
-          print("sector_strength:", json.dumps(d.get("sector_strength"), indent=1))
-          picks = (d.get("decision") or {}).get("ranked_picks") or []
-          print(f"ranked_picks: {len(picks)}")
-          for p in picks:
-              print(p.get("ticker"), p.get("sector_etf"), p.get("sector_strength"), p.get("sector_rs_20d_pp"),
-                    p.get("pct_from_52w_high"), p.get("range_52w_position"), p.get("flags"))
+          dec = d.get("decision") or {}
+          print("=== HEADER ===")
+          print(json.dumps({k: d.get(k) for k in ("market_bias", "vix", "market_gate_open",
+                "pick_track_record", "sector_capped_out_count", "earnings_excluded_count")}, default=str))
+          print("SECTOR", json.dumps({s: [v["label"], v["rs_20d_pp"], v["rs_5d_pp"]] for s, v in (d.get("sector_strength") or {}).items()}))
+          print("SUMMARY", dec.get("overall_recommendation"))
+          keys = ("ticker", "entry", "stop", "target", "rr_ratio", "news_sentiment", "catalyst_status",
+                  "catalyst_date", "support_status", "setup_type", "exit_mode", "days_to_cover",
+                  "short_percent_of_float", "short_interest_change_pct", "insider_purchase_count",
+                  "insider_sale_count", "insider_net_value", "sector_etf", "sector_strength",
+                  "sector_rs_20d_pp", "sector_rs_5d_pp", "pct_from_52w_high", "range_52w_position", "flags")
+          for i, p in enumerate(dec.get("ranked_picks") or [], 1):
+              print(f"=== PICK {i} ===")
+              print("FIELDS", json.dumps({k: p.get(k) for k in keys}, default=str))
+              for k in ("research_highlight", "rationale", "bear_case"):
+                  print(k.upper(), p.get(k))
+          print("=== EXCLUDED ===")
+          for x in dec.get("excluded") or []:
+              print("EXCL", json.dumps(x, default=str))
           EOF
 
       - uses: actions/upload-artifact@v4
