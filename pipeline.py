@@ -33,6 +33,9 @@ from agents.research_agent import ResearchAgent
 from agents.portfolio_agent import PortfolioAgent
 from agents.decision_agent import DecisionAgent, FINAL_WATCHLIST_SIZE
 from core.price_reaction import annotate_news_with_reaction, recent_daily_bars
+from core.relative_context import (
+    NEAR_52W_HIGH_PCT, attach_sector_strength, compute_sector_strength,
+)
 
 # Max tickers carried into the research/decision step, after the technical screener and the
 # loose pre-research sector cap (settings.pre_research_sector_cap). DecisionAgent RANKS all of
@@ -74,6 +77,16 @@ TREND_CONTEXT_PICK_FIELDS = {
     "PullbackWidthBars": "pullback_width_bars",
     "RSI14": "rsi14",
     "RelVolume": "rel_volume",
+    # core.relative_context (informational only): 52-week range position + sector strength.
+    "High52w": "high_52w",
+    "Low52w": "low_52w",
+    "PctFrom52wHigh": "pct_from_52w_high",
+    "PctAbove52wLow": "pct_above_52w_low",
+    "Range52wPosition": "range_52w_position",
+    "SectorETF": "sector_etf",
+    "SectorRS20dPP": "sector_rs_20d_pp",
+    "SectorRS5dPP": "sector_rs_5d_pp",
+    "SectorStrength": "sector_strength",
 }
 
 
@@ -226,7 +239,8 @@ def _num(v) -> Optional[float]:
 def compute_precomputed_flags(row, swing_sectors: set, open_order_symbols: set) -> list[str]:
     """Deterministic, threshold-based flags for one enriched shortlist row. Thresholds are
     the ones the Decision Agent prompt used to apply itself (unchanged), plus
-    AtAnalystTarget (split out of TargetsBeingCut), EarningsSoon, SectorOverlap, OpenOrder."""
+    AtAnalystTarget (split out of TargetsBeingCut), EarningsSoon, SectorOverlap, OpenOrder,
+    and the informational core.relative_context flags Near52wHigh / SectorLagging."""
     flags: list[str] = []
 
     def _dict(v):
@@ -268,6 +282,11 @@ def compute_precomputed_flags(row, swing_sectors: set, open_order_symbols: set) 
         flags.append("SectorOverlap")
     if row.get("Ticker") in open_order_symbols:
         flags.append("OpenOrder")
+    from52 = _num(row.get("PctFrom52wHigh"))
+    if from52 is not None and from52 >= -NEAR_52W_HIGH_PCT:
+        flags.append("Near52wHigh")
+    if row.get("SectorStrength") == "lagging":
+        flags.append("SectorLagging")
     return flags
 
 
@@ -446,11 +465,18 @@ def run_pipeline(
     market_bias = compute_market_bias(spy_bars)
     print(f"[pipeline] Market bias (SPY EMA20 vs EMA50): {market_bias}", file=sys.stderr)
 
+    # Sector leading/lagging vs SPY (core.relative_context) — informational context for the
+    # Decision Agent, from one extra Alpaca batch of the 11 SPDR sector ETFs.
+    sector_strength = compute_sector_strength(market_agent.fetch_sector_etf_bars(), spy_bars)
+    print(f"[pipeline] Sector strength (20d vs SPY): "
+          f"{ {s: v['label'] for s, v in sector_strength.items()} }", file=sys.stderr)
+
     ranked_df, bars_by_ticker = market_agent.scan_universe(universe, settings)
     print(f"[pipeline] Pullback/reversal screener matched {len(ranked_df)} / {len(universe)} tickers", file=sys.stderr)
 
     if ranked_df.empty:
         return {"error": "No tickers matched the pullback/reversal screener", "ranked_df_empty": True}
+    ranked_df = attach_sector_strength(ranked_df, sector_strength)
 
     # Drop the user's existing long-term holds — never swing candidates, and excluded here
     # (before sector cap/research) so they don't consume a sector-cap slot or an FMP call.
@@ -481,6 +507,7 @@ def run_pipeline(
             "shortlist": json.loads(shortlist_df.to_json(orient="records")),
             "pre_research_sector_excluded": json.loads(pre_research_excluded_df.to_json(orient="records")),
             "market_bias": market_bias,
+            "sector_strength": sector_strength,
             "skipped_decision": True,
         }
 
@@ -580,6 +607,7 @@ def run_pipeline(
 
     return {
         "market_bias": market_bias,
+        "sector_strength": sector_strength,
         "vix": vix,
         "market_gate_open": market_gate_open,
         "pre_research_sector_excluded_count": len(pre_research_excluded_df),

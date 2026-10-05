@@ -29,7 +29,7 @@ Actions run), present **every** ranked pick returned (up to `FINAL_WATCHLIST_SIZ
 top-N subset or a condensed table. For each pick, show the full detail:
 
 ```
-**N. TICKER** — Entry $X / Stop $X / Target $X / R:R X.XX | Sentiment: X | Catalyst: X | Support: X | Setup: X | Exit: X | Short: X | Insider: X
+**N. TICKER** — Entry $X / Stop $X / Target $X / R:R X.XX | Sentiment: X | Catalyst: X | Support: X | Setup: X | Exit: X | Short: X | Insider: X | Sector: X | 52w: X
 Highlight: <research_highlight>
 Rationale: <rationale>
 Bear case: <bear_case>
@@ -96,11 +96,20 @@ real evidence the short thesis may be wrong; insider selling alongside heavy or 
 interest (`HeavilyShorted`/`ShortsAdding` + `InsiderSelling`) reinforces rather than offsets
 the bear case. Zero activity either way is genuinely uninformative, not a signal.
 
+`Sector:` summarizes `sector_etf` / `sector_strength` / `sector_rs_20d_pp` / `sector_rs_5d_pp`
+(e.g. "XLU lagging -4.1pp 20d, +0.8pp 5d" or "n/a"): the sector ETF's 20-session return minus
+SPY's (core/relative_context.py). `52w:` summarizes `pct_from_52w_high` / `range_52w_position`
+(e.g. "-8.2% from high, 0.81 of range"). Both were added 2026-10-05 as INFORMATIONAL inputs
+only — computed from Alpaca bars, fed to the Decision Agent for its rationale/bear_case, logged
+to pick_outcomes.csv, but NOT backtested and NOT part of the fixed ranking order. Don't let
+them override the ranking until they've been backtested against logged outcomes.
+
 `Flags:` are computed in Python (pipeline.py `compute_precomputed_flags` / `finalize_pick_fields`)
 from fixed thresholds — HeavilyShorted, ShortsAdding, InsiderBuying, InsiderSelling,
 TargetsBeingCut, AtAnalystTarget, AboveVolumePOC, WeakRR, StopSanity, EarningsSoon,
-SectorOverlap (a current swing position is in the same sector), OpenOrder, StillFalling,
-CatalystStale. The Decision Agent adds only two judgment flags: CatalystFaded and
+SectorOverlap (a current swing position is in the same sector), OpenOrder, Near52wHigh (within
+5% of the 52-week high), SectorLagging (sector ETF >= 2pp behind SPY over 20 sessions),
+StillFalling, CatalystStale. The Decision Agent adds only two judgment flags: CatalystFaded and
 EarningsCatalyst. The ranking itself follows a fixed priority: support_status, then setup type
 (trend_continuation > ema_band_pullback > reversion_bounce), then fundamentals/analyst
 direction, then a tape-confirmed catalyst.
@@ -108,7 +117,8 @@ direction, then a tape-confirmed catalyst.
 If the output has a non-empty `decision.excluded` list (candidates the Decision Agent chose not
 to rank, each with a reason), show it after the per-ticker list — one line per ticker.
 
-Also surface, before the per-ticker list: market bias, VIX/gate status, and — if present in the
+Also surface, before the per-ticker list: market bias, VIX/gate status, `sector_strength` (one
+line: which sectors are leading/lagging SPY), and — if present in the
 output — `pick_track_record` (the system's own historical win rate). This is not an optional
 footnote — the user has been burned before by picks that look clean technically but come with a
 weak track record, and wants that surfaced prominently, not buried.

@@ -28,6 +28,7 @@ from alpaca.data.enums import DataFeed, Adjustment
 from core.universe import batch_tickers
 from core.indicators import compute_indicators
 from core.pullback_reversal import detect_pullback_reversal, measure_stabilization, MIN_BARS_FOR_SCREENER
+from core.relative_context import SECTOR_ETFS, compute_52w_position
 from core.trade_plan import compute_trade_plan
 from core.trend_context import compute_trend_state, measure_swing_fib_retracement, classify_setup_type
 
@@ -138,13 +139,17 @@ class MarketDataAgent:
     def fetch_spy_bars(self, lookback_days: int | None = None) -> pd.DataFrame | None:
         return self.fetch_universe_bars(["SPY"], lookback_days).get("SPY")
 
+    def fetch_sector_etf_bars(self, lookback_days: int = 60) -> dict[str, pd.DataFrame]:
+        """Daily bars for the SPDR sector ETFs (core.relative_context.SECTOR_ETFS) — one
+        extra small Alpaca batch, for the sector leading/lagging read."""
+        return self.fetch_universe_bars(sorted(set(SECTOR_ETFS.values())), lookback_days)
+
     def fetch_news(self, ticker: str, lookback_days: int, limit: int = 200) -> pd.DataFrame:
         """Recent headlines/summaries for one ticker via Alpaca's free News API
         (Benzinga-sourced) — explicitly documented as usable for sentiment-model training,
         the data source behind core.sentiment's FinBERT scoring. Unlike bars this needs no
-        feed/adjustment choice. include_content=False and exclude_contentless=True keep
-        this to headline+summary text only, never full article bodies — cheap to score,
-        and this repo has no need for more than that.
+        feed/adjustment choice. include_content=False keeps this to headline+summary text
+        only, never full article bodies; headline-only items are kept (see request below).
 
         `lookback_days` is CALENDAR days for news (news prints every day, not just trading
         days — the *2.5 trading-day buffer that bars use does NOT apply here; using it was a
@@ -178,14 +183,23 @@ class MarketDataAgent:
 
         request = NewsRequest(
             symbols=_to_alpaca_symbol(ticker), start=start, end=end, limit=limit,
-            include_content=False, exclude_contentless=True,
+            # exclude_contentless stays False: Benzinga's headline-only items (earnings
+            # results, analyst target changes, contract awards) have no body, and True
+            # silently dropped ALL news for 7 of 30 candidates on 2026-10-05 (e.g. ETR's
+            # 9/30 DOE award, AROC's Q2 miss) and ~half of everyone else's.
+            include_content=False, exclude_contentless=False,
         )
         news_set = news_client.get_news(request)
-        df = news_set.df
-        if df is None or df.empty:
+        # Build the frame from news_set.data, not news_set.df: alpaca-py's NewsSet.df calls
+        # set_index("id") on an empty DataFrame when there are zero articles, raising
+        # KeyError "None of ['id'] are in the columns" — which research_agent logged as
+        # "extended news fetch failed" for every ticker with no news in the window
+        # (7 of 30 on 2026-10-05), indistinguishable from a real fetch error.
+        articles = (news_set.data or {}).get("news") or []
+        if not articles:
             return pd.DataFrame(columns=cols)
 
-        df = df.reset_index()
+        df = pd.DataFrame([a.model_dump() if hasattr(a, "model_dump") else dict(a) for a in articles])
         df["Date"] = pd.to_datetime(df["created_at"]).dt.tz_localize(None)
         for col in ["headline", "summary"]:
             if col not in df.columns:
@@ -273,6 +287,9 @@ class MarketDataAgent:
             # not a screener gate.
             rsi14 = float(df["RSI14"].iloc[-1]) if pd.notna(df["RSI14"].iloc[-1]) else None
             rel_volume = float(df["RelVolume"].iloc[-1]) if pd.notna(df["RelVolume"].iloc[-1]) else None
+            # 52-week range position (core.relative_context) — informational only, same
+            # treatment as RSI14/RelVolume: not a screener gate.
+            range52 = compute_52w_position(df)
 
             rows.append({
                 "Ticker": ticker,
@@ -319,6 +336,7 @@ class MarketDataAgent:
                 "SetupType": setup_type,
                 "RSI14": round(rsi14, 1) if rsi14 is not None else None,
                 "RelVolume": round(rel_volume, 2) if rel_volume is not None else None,
+                **range52,
                 "Stop": trade_plan["stop"] if trade_plan else None,
                 "Target": trade_plan["target"] if trade_plan else None,
                 "RRRatio": trade_plan["rr_ratio"] if trade_plan else None,
