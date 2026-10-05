@@ -28,6 +28,7 @@ from alpaca.data.enums import DataFeed, Adjustment
 from core.universe import batch_tickers
 from core.indicators import compute_indicators
 from core.pullback_reversal import detect_pullback_reversal, measure_stabilization, MIN_BARS_FOR_SCREENER
+from core.relative_context import SECTOR_ETFS, compute_52w_position
 from core.trade_plan import compute_trade_plan
 from core.trend_context import compute_trend_state, measure_swing_fib_retracement, classify_setup_type
 
@@ -137,6 +138,11 @@ class MarketDataAgent:
 
     def fetch_spy_bars(self, lookback_days: int | None = None) -> pd.DataFrame | None:
         return self.fetch_universe_bars(["SPY"], lookback_days).get("SPY")
+
+    def fetch_sector_etf_bars(self, lookback_days: int = 60) -> dict[str, pd.DataFrame]:
+        """Daily bars for the SPDR sector ETFs (core.relative_context.SECTOR_ETFS) — one
+        extra small Alpaca batch, for the sector leading/lagging read."""
+        return self.fetch_universe_bars(sorted(set(SECTOR_ETFS.values())), lookback_days)
 
     def fetch_news(self, ticker: str, lookback_days: int, limit: int = 200) -> pd.DataFrame:
         """Recent headlines/summaries for one ticker via Alpaca's free News API
@@ -273,6 +279,9 @@ class MarketDataAgent:
             # not a screener gate.
             rsi14 = float(df["RSI14"].iloc[-1]) if pd.notna(df["RSI14"].iloc[-1]) else None
             rel_volume = float(df["RelVolume"].iloc[-1]) if pd.notna(df["RelVolume"].iloc[-1]) else None
+            # 52-week range position (core.relative_context) — informational only, same
+            # treatment as RSI14/RelVolume: not a screener gate.
+            range52 = compute_52w_position(df)
 
             rows.append({
                 "Ticker": ticker,
@@ -319,6 +328,7 @@ class MarketDataAgent:
                 "SetupType": setup_type,
                 "RSI14": round(rsi14, 1) if rsi14 is not None else None,
                 "RelVolume": round(rel_volume, 2) if rel_volume is not None else None,
+                **range52,
                 "Stop": trade_plan["stop"] if trade_plan else None,
                 "Target": trade_plan["target"] if trade_plan else None,
                 "RRRatio": trade_plan["rr_ratio"] if trade_plan else None,

@@ -83,6 +83,16 @@ over ~6 months, its 20-session EMA200 slope is not worse than -2%, price is no m
     breakeven; its exit is a fixed target (a quick in-and-out), not a trailing stop.
   null — the stabilization signal has not fired.
 - RSI14, RelVolume: light supporting color only.
+- 52-week range: High52w, Low52w, PctFrom52wHigh (<= 0), PctAbove52wLow,
+  Range52wPosition (0 = at the low, 1 = at the high). A pullback near the 52-week high is
+  a strong stock with overhead supply close by; one near the 52-week low is a weak stock.
+- Sector strength: SectorETF, SectorRS20dPP (the sector ETF's 20-session return minus
+  SPY's, in percentage points), SectorRS5dPP (the same over 5 sessions — is it improving
+  or fading), SectorStrength ("leading" >= +2, "lagging" <= -2, else "inline"). A setup
+  fighting a lagging sector has a headwind; one in a leading sector has a tailwind.
+These two are informational and NOT backtested in this system: use them in the
+rationale and bear_case and to separate names that are otherwise close, never to
+override the ranking order below.
 - Trade plan: Price (entry), Stop (swing-low/EMA based; support refinement may only
   lower it), Target, RRRatio, WeakRR, StopSanityFlag. For non-reversion setups the Target
   is a ceiling — the real exit is a trailing stop that starts at +2R — so read RRRatio as
@@ -135,7 +145,9 @@ fresh momentum. A negative headline the stock shrugged off is weaker than it rea
   InsiderBuying, InsiderSelling (sales with zero buys), TargetsBeingCut (recent revision
   <= -8% with >= 2 analysts), AtAnalystTarget (price at/above the latest average target),
   AboveVolumePOC, WeakRR, StopSanity, EarningsSoon, SectorOverlap (a current swing
-  position is in the same sector), OpenOrder (an order on this ticker is already pending).
+  position is in the same sector), OpenOrder (an order on this ticker is already pending),
+  Near52wHigh (price within 5% of its 52-week high), SectorLagging (SectorStrength
+  "lagging").
 - pick_track_record: this system's own past hit rate on its ranked picks.
 
 # Hard rules

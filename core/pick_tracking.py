@@ -72,6 +72,13 @@ SCREENER_FEATURE_COLUMNS = {
     "SetupType": "setup_type",
     "RSI14": "rsi14",
     "RelVolume": "rel_volume",
+    # 52-week range + sector strength (core.relative_context, added 2026-10-05) — logged so
+    # these informational inputs can be backtested against outcomes before they ever feed
+    # the ranking.
+    "PctFrom52wHigh": "pct_from_52w_high",
+    "Range52wPosition": "range_52w_position",
+    "SectorRS20dPP": "sector_rs_20d_pp",
+    "SectorStrength": "sector_strength",
 }
 
 LOG_COLUMNS = [

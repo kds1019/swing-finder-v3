@@ -1,5 +1,5 @@
 alpaca-py>=0.33
-webull-openapi-python-sdk>=2.0.12
+webull-openapi-python-sdk>=3.0.2,<4  # 3.x adds list_order_open pagination (agents/portfolio_agent.py); pin the major so a 4.0 can't install silently
 anthropic>=0.40
 pandas>=2.0
 numpy>=1.26

@@ -15,6 +15,7 @@ questions).
 
 from __future__ import annotations
 
+import sys
 import uuid
 from typing import Optional
 
@@ -23,6 +24,11 @@ import pandas as pd
 from webull.core.client import ApiClient
 from webull.core.exception.exceptions import ClientException, ServerException
 from webull.trade.trade_client import TradeClient
+
+
+# Safety bound on open-order paging (pages are ~10 orders) in case the API ever returns a
+# repeating pagination_key.
+MAX_OPEN_ORDER_PAGES = 50
 
 
 class WebullAuthError(RuntimeError):
@@ -108,14 +114,43 @@ class PortfolioAgent:
         positions = data if isinstance(data, list) else (data.get("positions", []) if isinstance(data, dict) else [])
         return pd.DataFrame(positions)
 
-    def get_open_orders(self, account_id: Optional[str] = None) -> pd.DataFrame:
-        account_id = account_id or self._default_account_id()
-        response = self.trade.order_v3.get_order_open(account_id=account_id)
-        data = self._extract(response)
+    @staticmethod
+    def _orders_from_page(data) -> list:
         if isinstance(data, dict):
             data = data.get("data", data)
-        orders = data if isinstance(data, list) else (data.get("orders", []) if isinstance(data, dict) else [])
-        return pd.DataFrame(orders)
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            return data.get("orders") or data.get("items") or []
+        return []
+
+    def get_open_orders(self, account_id: Optional[str] = None) -> pd.DataFrame:
+        """ALL open orders. The old single get_order_open() call returned only the first
+        page (10 orders by default), so an 11th+ working order never produced an OpenOrder
+        flag. SDK 3.x's list_order_open() pages with a pagination_key that is absent on the
+        last page. Falls back to the legacy single call if the paginated endpoint errors."""
+        account_id = account_id or self._default_account_id()
+        try:
+            orders: list = []
+            pagination_key = None
+            for _ in range(MAX_OPEN_ORDER_PAGES):
+                data = self._extract(self.trade.order_v3.list_order_open(
+                    account_id=account_id, pagination_key=pagination_key))
+                if isinstance(data, dict) and data.get("code") and not data.get("data"):
+                    raise RuntimeError(f"list_order_open error response: {data}")
+                orders += self._orders_from_page(data)
+                next_key = data.get("pagination_key") if isinstance(data, dict) else None
+                if not next_key or next_key == pagination_key:
+                    break
+                pagination_key = next_key
+            print(f"[portfolio_agent] open orders: {len(orders)} (paginated list_order_open)",
+                  file=sys.stderr)
+            return pd.DataFrame(orders)
+        except (AttributeError, ClientException, ServerException, RuntimeError) as e:
+            print(f"[portfolio_agent] list_order_open failed ({e}); falling back to "
+                  f"get_order_open (first page only)", file=sys.stderr)
+        data = self._extract(self.trade.order_v3.get_order_open(account_id=account_id))
+        return pd.DataFrame(self._orders_from_page(data))
 
     @staticmethod
     def flatten_open_orders(open_orders_df: pd.DataFrame) -> list[dict]:
