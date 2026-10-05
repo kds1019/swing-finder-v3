@@ -1,0 +1,48 @@
+name: Diagnose news fetch (temporary)
+
+# Temporary: compares Alpaca news counts with/without exclude_contentless for the tickers whose
+# "extended news fetch failed" on 2026-10-05. Alpaca only — no Anthropic, no commits. Delete after.
+on:
+  push:
+    branches: [ccr-0a52a48a-g743mw]
+    paths:
+      - .github/workflows/diag_news.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Compare news counts
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import datetime, timedelta, timezone
+          from alpaca.data.historical import NewsClient
+          from alpaca.data.requests import NewsRequest
+          c = NewsClient(os.environ["ALPACA_API_KEY"], os.environ["ALPACA_SECRET_KEY"])
+          end = datetime.now(timezone.utc); start = end - timedelta(days=95)
+          for t in ["RELY", "ALGT", "SNDX", "AROC", "ETR", "NMIH", "DAN", "EBAY", "CROX"]:
+              out = []
+              for excl in (True, False):
+                  ns = c.get_news(NewsRequest(symbols=t, start=start, end=end, limit=200,
+                                              include_content=False, exclude_contentless=excl))
+                  arts = ns.data.get("news", [])
+                  out.append(len(arts))
+                  if not excl and arts:
+                      sample = [(str(a.created_at)[:10], a.headline[:70]) for a in arts[:3]]
+              print(f"{t}: exclude_contentless=True -> {out[0]:3d} | False -> {out[1]:3d}")
+              if out[1]:
+                  for s in sample: print("     ", s)
+          PY
