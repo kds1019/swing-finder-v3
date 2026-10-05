@@ -148,9 +148,8 @@ class MarketDataAgent:
         """Recent headlines/summaries for one ticker via Alpaca's free News API
         (Benzinga-sourced) — explicitly documented as usable for sentiment-model training,
         the data source behind core.sentiment's FinBERT scoring. Unlike bars this needs no
-        feed/adjustment choice. include_content=False and exclude_contentless=True keep
-        this to headline+summary text only, never full article bodies — cheap to score,
-        and this repo has no need for more than that.
+        feed/adjustment choice. include_content=False keeps this to headline+summary text
+        only, never full article bodies; headline-only items are kept (see request below).
 
         `lookback_days` is CALENDAR days for news (news prints every day, not just trading
         days — the *2.5 trading-day buffer that bars use does NOT apply here; using it was a
@@ -184,14 +183,23 @@ class MarketDataAgent:
 
         request = NewsRequest(
             symbols=_to_alpaca_symbol(ticker), start=start, end=end, limit=limit,
-            include_content=False, exclude_contentless=True,
+            # exclude_contentless stays False: Benzinga's headline-only items (earnings
+            # results, analyst target changes, contract awards) have no body, and True
+            # silently dropped ALL news for 7 of 30 candidates on 2026-10-05 (e.g. ETR's
+            # 9/30 DOE award, AROC's Q2 miss) and ~half of everyone else's.
+            include_content=False, exclude_contentless=False,
         )
         news_set = news_client.get_news(request)
-        df = news_set.df
-        if df is None or df.empty:
+        # Build the frame from news_set.data, not news_set.df: alpaca-py's NewsSet.df calls
+        # set_index("id") on an empty DataFrame when there are zero articles, raising
+        # KeyError "None of ['id'] are in the columns" — which research_agent logged as
+        # "extended news fetch failed" for every ticker with no news in the window
+        # (7 of 30 on 2026-10-05), indistinguishable from a real fetch error.
+        articles = (news_set.data or {}).get("news") or []
+        if not articles:
             return pd.DataFrame(columns=cols)
 
-        df = df.reset_index()
+        df = pd.DataFrame([a.model_dump() if hasattr(a, "model_dump") else dict(a) for a in articles])
         df["Date"] = pd.to_datetime(df["created_at"]).dt.tz_localize(None)
         for col in ["headline", "summary"]:
             if col not in df.columns:
