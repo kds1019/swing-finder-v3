@@ -50,6 +50,26 @@ from core.relative_context import (
 CANDIDATE_POOL_SIZE = 30
 
 PICK_OUTCOMES_LOG_PATH = "pick_outcomes.csv"    # persisted in the repo, like results/
+RESULTS_DIR = "results"
+
+
+def save_results(result: dict, results_dir: str = RESULTS_DIR) -> str:
+    """Write `result` to results/latest.json plus a UTC-timestamped archive copy.
+
+    Previously only scan.yml saved results (via `| tee results/latest.json`), so local runs
+    printed the JSON to stdout and saved nothing. Saving here makes local and CI runs behave
+    the same. Returns the archive file's path.
+    """
+    from datetime import datetime, timezone
+
+    os.makedirs(results_dir, exist_ok=True)
+    payload = json.dumps(result, indent=2, default=str)
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M")
+    archive_path = os.path.join(results_dir, f"{stamp}Z.json")
+    for path in (os.path.join(results_dir, "latest.json"), archive_path):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(payload + "\n")
+    return archive_path
 
 # core.trend_context fields to join onto each final pick, keyed by ticker. Attached here
 # (in Python, post-hoc) rather than added to DecisionAgent's own JSON contract in
@@ -629,6 +649,8 @@ def main() -> None:
                          help="Max tickers (after screener + sector cap) carried into research/decision")
     parser.add_argument("--save-decision-input", type=str, default=None, metavar="PATH",
                         help="Write the Decision Agent's exact input payload to PATH and stop before calling it")
+    parser.add_argument("--no-save", action="store_true",
+                        help=f"Print the result JSON only; don't write {RESULTS_DIR}/latest.json + timestamped copy")
     args = parser.parse_args()
 
     # webull-openapi-python-sdk writes its auth/token diagnostic logs directly to a file
@@ -660,6 +682,9 @@ def main() -> None:
         os.close(real_stdout_fd)
 
     print(json.dumps(result, indent=2, default=str))
+    # --save-decision-input stops before the Decision Agent, so there's no real result to save.
+    if not args.no_save and not args.save_decision_input:
+        print(f"[pipeline] Results saved to {save_results(result)}", file=sys.stderr)
 
 
 if __name__ == "__main__":

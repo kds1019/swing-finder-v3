@@ -61,8 +61,8 @@ jobs:
           if [ -n "${{ inputs.limit }}" ]; then ARGS="$ARGS --limit ${{ inputs.limit }}"; fi
           if [ "${{ inputs.random_sample }}" = "true" ]; then ARGS="$ARGS --random-sample"; fi
           if [ "${{ inputs.skip_decision }}" = "true" ]; then ARGS="$ARGS --skip-decision"; fi
-          python pipeline.py $ARGS | tee results/latest.json
-          cp results/latest.json "results/$(date -u +%Y-%m-%d_%H%M)Z.json"
+          # pipeline.py writes results/latest.json + results/<UTC timestamp>Z.json itself.
+          python pipeline.py $ARGS
 
       - name: Prune archived results older than 15 days
         run: |
