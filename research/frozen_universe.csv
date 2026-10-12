@@ -1,0 +1,505 @@
+Ticker,Sector
+AAOI,Technology
+AAPL,Unknown
+ACAD,Healthcare
+ACM,Industrials
+ADM,Consumer Defensive
+AEE,Utilities
+AEHR,Technology
+AEO,Consumer Cyclical
+AEP,Utilities
+AESI,Energy
+AGCO,Industrials
+AHR,Real Estate
+AIG,Financial Services
+AKAM,Technology
+AKR,Real Estate
+ALB,Basic Materials
+ALGM,Technology
+ALGT,Industrials
+ALH,Industrials
+ALM,Basic Materials
+ALSN,Consumer Cyclical
+AM,Energy
+AMH,Real Estate
+AMLX,Healthcare
+AOS,Industrials
+APA,Energy
+APLD,Technology
+ARCC,Financial Services
+ARE,Real Estate
+ARMK,Industrials
+ARQT,Healthcare
+ASB,Financial Services
+ATEN,Technology
+ATRC,Healthcare
+AU,Basic Materials
+AVAV,Industrials
+AVPT,Technology
+AWK,Utilities
+AXTA,Basic Materials
+AXTI,Technology
+BAH,Industrials
+BALL,Consumer Cyclical
+BAND,Technology
+BBIO,Healthcare
+BC,Consumer Cyclical
+BDC,Technology
+BEAM,Healthcare
+BETA,Industrials
+BFAM,Industrials
+BG,Consumer Defensive
+BGC,Financial Services
+BHE,Technology
+BILL,Technology
+BKU,Financial Services
+BL,Technology
+BLBD,Consumer Cyclical
+BMY,Healthcare
+BNL,Real Estate
+BRO,Financial Services
+BROS,Consumer Cyclical
+BRVE,Unknown
+BRX,Real Estate
+BTU,Energy
+BWA,Consumer Cyclical
+BYD,Consumer Cyclical
+CALY,Consumer Cyclical
+CART,Technology
+CATY,Unknown
+CAVA,Consumer Cyclical
+CBC,Financial Services
+CBRE,Real Estate
+CCK,Consumer Cyclical
+CCL,Consumer Cyclical
+CDP,Real Estate
+CE,Basic Materials
+CECO,Industrials
+CELH,Consumer Defensive
+CENX,Basic Materials
+CF,Basic Materials
+CGNX,Technology
+CHD,Consumer Defensive
+CHDN,Consumer Cyclical
+CHH,Consumer Cyclical
+CHRW,Industrials
+CHWY,Consumer Cyclical
+CIFR,Technology
+CLBK,Financial Services
+CLDX,Healthcare
+CLF,Basic Materials
+CLMT,Basic Materials
+CLSK,Financial Services
+CMC,Basic Materials
+CMCSA,Communication Services
+CMG,Consumer Cyclical
+CNC,Healthcare
+CNO,Financial Services
+COAG,Unknown
+COLB,Financial Services
+COLD,Real Estate
+CORT,Healthcare
+CORZ,Technology
+CPB,Consumer Defensive
+CRBG,Financial Services
+CRC,Energy
+CRCL,Financial Services
+CRK,Energy
+CROX,Consumer Cyclical
+CSWC,Financial Services
+CSX,Industrials
+CTRE,Real Estate
+CTRI,Utilities
+CTSH,Technology
+CVS,Healthcare
+CVSA,Unknown
+CWEN,Utilities
+CWK,Real Estate
+CXW,Industrials
+CYTK,Healthcare
+DAN,Consumer Cyclical
+DAR,Consumer Defensive
+DBX,Technology
+DD,Basic Materials
+DECK,Consumer Cyclical
+DEI,Real Estate
+DFTX,Healthcare
+DINO,Energy
+DIS,Communication Services
+DKNG,Consumer Cyclical
+DKS,Consumer Cyclical
+DOC,Real Estate
+DOCU,Technology
+DRS,Industrials
+DTE,Utilities
+DTM,Energy
+DUK,Utilities
+DUKU,Utilities
+DUOL,Technology
+DV,Technology
+DXC,Technology
+DXCM,Healthcare
+DYN,Healthcare
+ED,Utilities
+ELAN,Healthcare
+ELVN,Healthcare
+EOG,Unknown
+EPAM,Technology
+EPD,Energy
+EPR,Real Estate
+EPRT,Real Estate
+EQPT,Industrials
+EQT,Energy
+EROC,Industrials
+ET,Unknown
+ETR,Utilities
+ETSY,Consumer Cyclical
+EVRG,Utilities
+EW,Healthcare
+EWTX,Healthcare
+EXC,Utilities
+EXEL,Healthcare
+EXTR,Technology
+EZPW,Financial Services
+FBP,Financial Services
+FDXF,Industrials
+FE,Utilities
+FFIN,Financial Services
+FIBK,Financial Services
+FIG,Technology
+FIGR,Financial Services
+FIGS,Consumer Cyclical
+FISV,Technology
+FITB,Financial Services
+FLR,Industrials
+FLUT,Consumer Cyclical
+FNB,Financial Services
+FNF,Financial Services
+FPS,Industrials
+FRSH,Technology
+FTRE,Healthcare
+FUL,Basic Materials
+FULT,Financial Services
+FWONK,Communication Services
+GAP,Consumer Cyclical
+GBCI,Financial Services
+GDDY,Technology
+GEHC,Healthcare
+GEN,Technology
+GFL,Industrials
+GGG,Industrials
+GILD,Unknown
+GIS,Consumer Defensive
+GLW,Technology
+GLXY,Financial Services
+GM,Consumer Cyclical
+GME,Consumer Cyclical
+GMED,Healthcare
+GPC,Consumer Cyclical
+GPGI,Industrials
+GRBK,Unknown
+GTES,Industrials
+GTLB,Technology
+HALO,Healthcare
+HASI,Financial Services
+HAWK,Industrials
+HCC,Energy
+HCSG,Healthcare
+HESM,Energy
+HL,Basic Materials
+HLNE,Financial Services
+HOG,Consumer Cyclical
+HOMB,Financial Services
+HOOD,Financial Services
+HOPE,Financial Services
+HPE,Technology
+HPQ,Technology
+HR,Real Estate
+HRB,Consumer Cyclical
+HRL,Consumer Defensive
+HSIC,Healthcare
+HTFL,Healthcare
+HTGC,Financial Services
+HUBG,Industrials
+HUT,Financial Services
+HYMC,Basic Materials
+IFF,Basic Materials
+IIPR,Unknown
+IMNM,Healthcare
+INCY,Healthcare
+INGM,Technology
+INGR,Consumer Defensive
+INSW,Industrials
+INTA,Technology
+INVX,Energy
+IONS,Healthcare
+IPGP,Unknown
+IRDM,Communication Services
+IRM,Real Estate
+IRT,Real Estate
+IVT,Real Estate
+IVZ,Financial Services
+JEF,Financial Services
+JXN,Financial Services
+KD,Technology
+KDP,Consumer Defensive
+KEY,Financial Services
+KGS,Energy
+KIM,Real Estate
+KLRA,Unknown
+KMI,Energy
+KMT,Industrials
+KMX,Consumer Cyclical
+KN,Technology
+KNF,Basic Materials
+KNTK,Energy
+KO,Consumer Defensive
+KOD,Healthcare
+KRC,Real Estate
+KRG,Real Estate
+KRMN,Industrials
+KTOS,Industrials
+KVYO,Technology
+KYMR,Healthcare
+L,Financial Services
+LDOS,Technology
+LEA,Consumer Cyclical
+LFST,Healthcare
+LGN,Industrials
+LIFE,Financial Services
+LIND,Consumer Cyclical
+LNC,Financial Services
+LNT,Utilities
+LNTH,Healthcare
+LRN,Consumer Defensive
+LTC,Real Estate
+LVS,Consumer Cyclical
+LW,Consumer Defensive
+MAC,Real Estate
+MAIN,Financial Services
+MAN,Industrials
+MBGL,Technology
+MCHP,Technology
+MD,Healthcare
+MDLN,Healthcare
+MGM,Consumer Cyclical
+MIAX,Financial Services
+MKC,Consumer Defensive
+MLKN,Consumer Cyclical
+MMED,Healthcare
+MO,Consumer Defensive
+MQ,Technology
+MRK,Healthcare
+MRNA,Unknown
+MSTR,Unknown
+MTCH,Communication Services
+MTDR,Energy
+MTG,Financial Services
+MTN,Consumer Cyclical
+MWH,Utilities
+NATL,Technology
+NAVN,Technology
+NCLH,Consumer Cyclical
+NCNO,Technology
+NEM,Basic Materials
+NFLX,Communication Services
+NKE,Consumer Cyclical
+NLY,Real Estate
+NMRK,Real Estate
+NOG,Energy
+NRIX,Healthcare
+NTLA,Healthcare
+NTNX,Technology
+NTSK,Technology
+NVDA,Unknown
+NVTS,Technology
+OBDC,Financial Services
+OCTV,Technology
+OCUL,Unknown
+OGE,Utilities
+OII,Energy
+OKE,Energy
+OKLO,Utilities
+OLED,Technology
+OLLI,Consumer Defensive
+OLN,Basic Materials
+OMC,Communication Services
+OMCL,Healthcare
+OMF,Financial Services
+ON,Technology
+ONB,Financial Services
+OPCH,Healthcare
+ORKA,Healthcare
+ORLY,Consumer Cyclical
+OSCR,Healthcare
+OTIS,Industrials
+OVV,Energy
+OWL,Unknown
+OZK,Financial Services
+PAGP,Energy
+PAY,Technology
+PBI,Industrials
+PCAR,Industrials
+PCVX,Healthcare
+PDFS,Technology
+PECO,Real Estate
+PEG,Utilities
+PENN,Consumer Cyclical
+PEP,Consumer Defensive
+PFG,Financial Services
+PFSI,Financial Services
+PG,Unknown
+PGY,Technology
+PII,Consumer Cyclical
+PIPR,Financial Services
+PLNT,Consumer Cyclical
+PNFP,Financial Services
+POST,Consumer Defensive
+PPC,Consumer Defensive
+PPL,Utilities
+PRG,Financial Services
+PRKS,Consumer Cyclical
+PRM,Basic Materials
+PSNL,Healthcare
+PTCT,Healthcare
+PTGX,Healthcare
+PTRN,Communication Services
+Q,Technology
+QNT,Technology
+QSR,Consumer Cyclical
+RAL,Technology
+RAMP,Technology
+RARE,Healthcare
+RBRK,Technology
+RCUS,Healthcare
+RDDT,Unknown
+RDN,Financial Services
+REXR,Real Estate
+REYN,Consumer Defensive
+RGTI,Technology
+RHI,Industrials
+RHP,Real Estate
+RIOT,Financial Services
+RITM,Unknown
+RIVN,Consumer Cyclical
+RKLB,Industrials
+RKT,Financial Services
+RLAY,Healthcare
+RLI,Financial Services
+RMBS,Technology
+ROAD,Industrials
+RPRX,Healthcare
+RRR,Consumer Cyclical
+RVLV,Consumer Cyclical
+RYTM,Healthcare
+SAIC,Unknown
+SAIL,Technology
+SARO,Industrials
+SBCF,Financial Services
+SCI,Consumer Cyclical
+SEI,Energy
+SEZL,Financial Services
+SFNC,Financial Services
+SGI,Consumer Cyclical
+SGRY,Healthcare
+SHAZ,Technology
+SHO,Real Estate
+SIRI,Communication Services
+SKT,Real Estate
+SLGN,Consumer Cyclical
+SMA,Real Estate
+SMCI,Technology
+SMMT,Healthcare
+SOFI,Financial Services
+SOLS,Basic Materials
+SON,Consumer Cyclical
+SPCX,Unknown
+SR,Utilities
+SRPT,Healthcare
+SSNC,Technology
+ST,Technology
+STAG,Real Estate
+STDN,Basic Materials
+STOK,Healthcare
+STZ,Consumer Defensive
+SUN,Energy
+SYNA,Technology
+T,Communication Services
+TALO,Energy
+TAP,Consumer Defensive
+TDC,Technology
+TDS,Communication Services
+TEX,Industrials
+TFC,Financial Services
+TFX,Healthcare
+TH,Industrials
+TILE,Basic Materials
+TKR,Industrials
+TNDM,Healthcare
+TNGX,Healthcare
+TNL,Consumer Cyclical
+TPC,Industrials
+TPG,Financial Services
+TREX,Basic Materials
+TRIN,Financial Services
+TRMB,Technology
+TROW,Financial Services
+TRU,Financial Services
+TSCO,Consumer Cyclical
+TTAN,Technology
+TTD,Communication Services
+TTEK,Industrials
+TWST,Healthcare
+TXG,Healthcare
+UAL,Industrials
+UBER,Technology
+UE,Real Estate
+UGI,Utilities
+ULS,Industrials
+UNFI,Consumer Defensive
+URGN,Healthcare
+USB,Financial Services
+VAC,Unknown
+VCEL,Healthcare
+VECO,Technology
+VFC,Consumer Cyclical
+VKTX,Healthcare
+VLY,Financial Services
+VMRK,Real Estate
+VNO,Real Estate
+VNT,Technology
+VOYA,Financial Services
+VRDN,Healthcare
+VSAT,Technology
+VSNT,Communication Services
+VSXY,Consumer Cyclical
+VTR,Real Estate
+VTRS,Healthcare
+VVV,Consumer Cyclical
+VZ,Communication Services
+WAL,Financial Services
+WAY,Healthcare
+WBD,Unknown
+WEC,Utilities
+WES,Energy
+WFC,Financial Services
+WH,Consumer Cyclical
+WHD,Energy
+WING,Consumer Cyclical
+WKC,Energy
+WLY,Unknown
+WMG,Communication Services
+WMT,Consumer Defensive
+WPC,Real Estate
+WRB,Financial Services
+WSBC,Financial Services
+WSC,Industrials
+WT,Financial Services
+WTRG,Utilities
+WULF,Financial Services
+XNCR,Healthcare
+XPRO,Energy
+XRAY,Healthcare
+XYL,Industrials
+Z,Communication Services
+ZWS,Industrials

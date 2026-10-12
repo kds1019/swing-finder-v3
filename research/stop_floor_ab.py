@@ -33,8 +33,14 @@ max hold, pool ordered knife-risk tier then depth).
 Bars: fetched via research/build_calibration_dataset.get_history into research/data/bars
 (cached, gitignored). Signals cached to research/data/stop_floor_signals.pkl.
 
-Usage:  python -m research.stop_floor_ab --limit 500          (fetch + build + report)
+Tickers + sector labels come from the committed research/frozen_universe.csv (research/robust.py),
+and each framing also gets a noise-aware table: every variant re-run on --subsamples paired
+random ticker subsets. Before 2026-10-12 this sampled the live universe each run, and three
+same-day runs of the live config returned +29% / +63% / -17% — read old results with that in mind.
+
+Usage:  python -m research.stop_floor_ab                      (fetch frozen tickers + build + report)
         python -m research.stop_floor_ab --rebuild            (force re-scan of signals)
+        python -m research.stop_floor_ab --no-fetch --subsamples 20   (cached bars, more subsets)
 """
 
 from __future__ import annotations
@@ -54,7 +60,7 @@ from core.pullback_reversal import (
     MIN_BARS_FOR_SCREENER, classify_knife_risk, detect_pullback_reversal, measure_stabilization,
 )
 from core.trade_plan import TRAIL_ACTIVATE_R, TRAIL_GIVEBACK_R, compute_trade_plan
-from core.universe import build_universe
+from research.robust import frozen_universe, robust_compare, robust_markdown
 
 BARS_DIR = Path(__file__).resolve().parent / "data" / "bars"
 SIG_CACHE = Path(__file__).resolve().parent / "data" / "stop_floor_signals.pkl"
@@ -80,17 +86,16 @@ VARIANTS: dict[str, dict] = {
 }
 
 
-def fetch_bars(settings, limit: int, seed: int, start: str) -> list[str]:
-    """Populate BARS_DIR for a seeded random sample of the live universe (+ SPY)."""
+def fetch_bars(settings, tickers: list[str], start: str) -> list[str]:
+    """Populate BARS_DIR for `tickers` (the frozen universe, research/robust.py) + SPY.
+
+    Previously sampled `limit` tickers from the LIVE universe with a fixed seed — but the
+    live universe changes between runs, so the same seed drew a different set each time
+    (the three 2026-09-30 runs used 456/458/461 different tickers)."""
     from alpaca.data.historical import StockHistoricalDataClient
     from research.build_calibration_dataset import get_history
 
     client = StockHistoricalDataClient(settings.alpaca_api_key, settings.alpaca_secret_key)
-    uni = build_universe(settings)
-    tickers = uni["Ticker"].tolist()
-    if limit:
-        rng = np.random.default_rng(seed)
-        tickers = list(rng.choice(tickers, size=min(limit, len(tickers)), replace=False))
     st = datetime.fromisoformat(start).replace(tzinfo=timezone.utc)
     get_history(client, "SPY", st)
     t0 = time.time()
@@ -257,25 +262,32 @@ def main():
     ap.add_argument("--start", type=str, default="2020-01-01")
     ap.add_argument("--rebuild", action="store_true")
     ap.add_argument("--no-fetch", action="store_true", help="use whatever is already in BARS_DIR")
+    ap.add_argument("--subsamples", type=int, default=10,
+                    help="paired random ticker subsets per variant (research/robust.py); 0 = full sample only")
+    ap.add_argument("--frac", type=float, default=0.9, help="share of tickers kept per subsample")
     a = ap.parse_args()
     settings = load_settings()
 
+    # --limit/--seed only matter the first time, when research/frozen_universe.csv is created.
+    frozen = frozen_universe(settings, limit=a.limit, seed=a.seed)
+    sectors = dict(zip(frozen["Ticker"], frozen["Sector"]))
     if SIG_CACHE.exists() and not a.rebuild:
         sig = pd.read_pickle(SIG_CACHE)
         print(f"[sf] loaded {len(sig)} cached signals", file=sys.stderr)
     else:
-        if a.no_fetch:
-            tickers = sorted(p.stem for p in BARS_DIR.glob("*.pkl") if p.stem != "SPY")
-        else:
-            tickers = fetch_bars(settings, a.limit, a.seed, a.start)
-        uni = build_universe(settings)
-        sectors = dict(zip(uni["Ticker"], uni["Sector"]))
+        tickers = sorted(frozen["Ticker"])
+        if not a.no_fetch:
+            fetch_bars(settings, tickers, a.start)
         sig = build_signals(settings, tickers, sectors)
         SIG_CACHE.parent.mkdir(parents=True, exist_ok=True)
         sig.to_pickle(SIG_CACHE)
         print(f"[sf] built + cached {len(sig)} signals", file=sys.stderr)
 
     sig["date"] = pd.to_datetime(sig["date"]).dt.normalize()
+    # A cached signal set may predate the frozen universe: keep only frozen tickers and
+    # re-label sectors from the frozen file so the 3/sector cap is identical every run.
+    sig = sig[sig["ticker"].isin(sectors)].copy()
+    sig["sector"] = sig["ticker"].map(sectors)
     tickers = sorted(sig.ticker.unique())
     bars = {t: pd.read_pickle(BARS_DIR / f"{t}.pkl").set_index("Date") for t in tickers}
     spy = pd.read_pickle(BARS_DIR / "SPY.pkl").set_index("Date")["Close"]
@@ -304,8 +316,13 @@ def main():
     L.append("")
 
     for framing in ("isolated", "gated"):
-        res = {v: run(variant_frame(sig, v, framing), bars, spy_above, calendar, settings)
-               for v in VARIANTS}
+        frames = {v: variant_frame(sig, v, framing) for v in VARIANTS}
+        res = {v: run(frames[v], bars, spy_above, calendar, settings) for v in VARIANTS}
+        if a.subsamples > 0:
+            tables = robust_compare(frames, run, stat, bars, spy, spy_above, calendar, settings,
+                                    windows, baseline="base", n_subsamples=a.subsamples,
+                                    frac=a.frac, precomputed=res)
+            L += [f"## {framing} — noise-aware", ""] + robust_markdown(tables, a.subsamples, a.frac)
         for wn, lo, hi in windows:
             L += [f"## {framing} — {wn}", "",
                   "| variant | ret | maxDD | Sharpe | trades | win% | avgR | PF | maxConsecLoss |",

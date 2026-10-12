@@ -14,9 +14,13 @@ on:
   workflow_dispatch:
     inputs:
       limit:
-        description: "Random sample size from the live universe"
+        description: "Sample size, used only if research/frozen_universe.csv doesn't exist yet"
         required: false
         default: "500"
+      subsamples:
+        description: "Paired random ticker subsets per variant (noise-aware table); 0 = off"
+        required: false
+        default: "10"
 
 permissions:
   contents: write
@@ -46,7 +50,8 @@ jobs:
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
         run: |
           set -eo pipefail
-          python -m research.stop_floor_ab --limit "${{ inputs.limit || '500' }}" --rebuild
+          python -m research.stop_floor_ab --limit "${{ inputs.limit || '500' }}" \
+            --subsamples "${{ inputs.subsamples || '10' }}" --rebuild
 
       - name: Commit findings
         run: |
