@@ -34,7 +34,7 @@ from core.pullback_reversal import (
     MIN_BARS_FOR_SCREENER, measure_pullback_reversal, classify_knife_risk, screener_gate,
 )
 from core.trade_plan import TRAIL_ACTIVATE_R, TRAIL_GIVEBACK_R, compute_trade_plan
-from core.universe import build_universe
+from research.robust import frozen_universe, robust_compare, robust_markdown
 
 BARS_DIR = Path(__file__).resolve().parent / "data" / "bars"
 SIG_CACHE = Path(__file__).resolve().parent / "data" / "weak_rr_signals.pkl"
@@ -59,7 +59,8 @@ def _stab(df, i):
 
 
 def build_signals(settings) -> pd.DataFrame:
-    uni = build_universe(settings)
+    # Frozen ticker/sector list (research/robust.py) — was the live universe, which drifts run to run.
+    uni = frozen_universe(settings)
     sectors = dict(zip(uni["Ticker"], uni["Sector"]))
     tickers = sorted(p.stem for p in BARS_DIR.glob("*.pkl")
                      if p.stem != "SPY" and p.stem in sectors)
@@ -218,6 +219,9 @@ def main():
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--rebuild", action="store_true")
+    ap.add_argument("--subsamples", type=int, default=10,
+                    help="paired random ticker subsets per variant (research/robust.py); 0 = off")
+    ap.add_argument("--frac", type=float, default=0.9, help="share of tickers kept per subsample")
     a = ap.parse_args()
     settings = load_settings()
 
@@ -231,6 +235,10 @@ def main():
         print(f"[wk] built + cached {len(sig)} signals", file=sys.stderr)
 
     sig["date"] = pd.to_datetime(sig["date"]).dt.normalize()
+    # Keep only frozen tickers and relabel sectors so the 3/sector cap is identical every run.
+    sectors = dict(zip(*frozen_universe(settings)[["Ticker", "Sector"]].T.values))
+    sig = sig[sig["ticker"].isin(sectors)].copy()
+    sig["sector"] = sig["ticker"].map(sectors)
     tickers = sorted(sig.ticker.unique())
     bars = {t: pd.read_pickle(BARS_DIR / f"{t}.pkl").set_index("Date") for t in tickers}
     spy = pd.read_pickle(BARS_DIR / "SPY.pkl").set_index("Date")["Close"]
@@ -248,8 +256,14 @@ def main():
          "- keep = all signals | drop = exclude weak_rr | refloor = tighten weak_rr stop to exactly min_rr:1",
          ""]
 
-    res = {m: run(apply_mode(sig, m, settings.min_risk_reward), bars, spy_above, calendar, settings)
-           for m in modes}
+    frames = {m: apply_mode(sig, m, settings.min_risk_reward) for m in modes}
+    res = {m: run(f, bars, spy_above, calendar, settings) for m, f in frames.items()}
+    if a.subsamples > 0:
+        tables = robust_compare(frames, run, stat, bars, spy, spy_above, calendar, settings,
+                                windows, baseline="drop", n_subsamples=a.subsamples,
+                                frac=a.frac, precomputed=res)
+        L += ["## Noise-aware comparison", ""] + robust_markdown(tables, a.subsamples, a.frac)
+
 
     for wn, lo, hi in windows:
         L += [f"## {wn}", "",
