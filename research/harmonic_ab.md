@@ -180,6 +180,8 @@ Rows with no valid live trade plan have no R (fwd20 still shown).
 
 | bucket | n | win% | avgR | medianR | PF |
 |---|---|---|---|---|---|
+| ALL live signals, in pool | 24813 | 35% | +0.13 | -1.01 | 1.19 |
+| ALL live signals, squeezed out | 10459 | 36% | +0.19 | -1.01 | 1.29 |
 | harmonic, in pool | 549 | 36% | +0.21 | -1.01 | 1.33 |
 | harmonic, squeezed out | 266 | 41% | +0.44 | -1.01 | 1.75 |
 
