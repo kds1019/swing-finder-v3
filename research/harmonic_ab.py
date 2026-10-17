@@ -496,7 +496,12 @@ def main():
           f"- harmonic-active live signals outside the pool: {(~hl.in_pool).sum()} of {len(hl)}",
           f"- all live signals outside the pool: {(~live_all.in_pool).sum()} of {len(live_all)}", ""]
     if (~hl.in_pool).any():
-        L += table([("harmonic, in pool", hl[hl.in_pool]), ("harmonic, squeezed out", hl[~hl.in_pool])],
+        la = live_all[live_all.spy_ok]
+        # The all-signals rows are the baseline: being squeezed out (still-falling / shallower)
+        # may itself predict outcomes, harmonic or not.
+        L += table([("ALL live signals, in pool", la[la.in_pool]),
+                    ("ALL live signals, squeezed out", la[~la.in_pool]),
+                    ("harmonic, in pool", hl[hl.in_pool]), ("harmonic, squeezed out", hl[~hl.in_pool])],
                    split=False) + [""]
 
     L += ["_Daily-bar sim: intraday whipsaw and real fills not modelled. Survivorship bias not "
