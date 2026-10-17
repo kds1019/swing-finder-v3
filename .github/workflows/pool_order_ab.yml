@@ -1,0 +1,59 @@
+name: Pool-order A/B (research)
+
+# Research-only: runs research/pool_order_ab.py and commits research/pool_order_ab.md back to the
+# branch it ran on. Triggered on push (not only workflow_dispatch) because workflow_dispatch can
+# only start a workflow file that already exists on the default branch — same reason as
+# stop_floor_ab.yml.
+on:
+  push:
+    branches: [ccr-1a078f62-1p0hn2]
+    paths:
+      - research/pool_order_ab.py
+      - .github/workflows/pool_order_ab.yml
+  workflow_dispatch:
+    inputs:
+      subsamples:
+        description: "Paired random ticker subsets per variant (noise-aware table); 0 = off"
+        required: false
+        default: "10"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pool-order-ab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run pool-order A/B
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+        run: |
+          set -eo pipefail
+          python -m research.pool_order_ab --subsamples "${{ inputs.subsamples || '10' }}" --rebuild
+
+      - name: Commit findings
+        run: |
+          set -eo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add research/pool_order_ab.md
+          if git diff --cached --quiet; then echo "No changes to commit"; exit 0; fi
+          git commit -m "Pool-order A/B results: $(date -u +%Y-%m-%d\ %H:%M)Z"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
