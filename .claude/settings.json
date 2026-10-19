@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__claude-code-remote__add_repo",
+      "mcp__claude-code-remote__register_repo_root",
+      "mcp__github__actions_run_trigger",
+      "mcp__github__actions_list",
+      "mcp__github__actions_get"
+    ]
+  }
+}

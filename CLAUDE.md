@@ -147,3 +147,12 @@ user wants, regardless of how a fresh session might otherwise choose to summariz
 
 Diagnose from real evidence (live run output, actual error messages), verify fixes against real
 runs, and report full/complete results — never assume success or present partial results as done.
+
+## Bull/Bear ETFs (separate repo)
+
+"Run bull bear ETF(s)" means the separate private repo `kds1019/bull-bear-etfs`, not anything in
+this repo. Attach it with `add_repo` (owner `kds1019`, repo `bull-bear-etfs`), then trigger
+`.github/workflows/run.yml` on `main` with a `mode` input: `morning` before ~3:30 PM ET, `close`
+from ~3:30–3:50 PM ET (time-critical), `score` after the close, unless the user names a mode.
+Read the result from `results/*_latest.md` once the workflow's "results: <mode> <date>" commit
+lands.
